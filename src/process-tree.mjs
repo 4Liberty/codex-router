@@ -749,7 +749,12 @@ export function runProcessTree(
   const childEnvironment = childSignalBudget === undefined
     ? coordinator.environment
     : { ...coordinator.environment, [OWNER_SIGNAL_BUDGET_ENV]: String(childSignalBudget) };
-  const effectiveWindowsHide = stdio === "inherit" ? false : windowsHide;
+  // Inherited handles may be the desktop host's pipes. Console attachment is
+  // retained only when a terminal is actually inherited, including when one
+  // or two of the standard streams have been redirected.
+  const inheritsTerminal = stdio === "inherit"
+    && (process.stdin.isTTY || process.stdout.isTTY || process.stderr.isTTY);
+  const effectiveWindowsHide = inheritsTerminal ? false : windowsHide;
   return new Promise((resolve, reject) => {
     const invocation = platform === "win32"
       ? windowsJobProcessInvocation(command, args, {

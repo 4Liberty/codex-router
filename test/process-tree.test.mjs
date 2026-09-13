@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import childProcess, { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { once } from "node:events";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
+import { syncBuiltinESMExports } from "node:module";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -523,15 +524,109 @@ test("Windows commands enter a suspended kill-on-close Job Object", () => {
   assert.match(runner, /TerminateJobObject\(job, 1\)/);
   assert.match(runner, /WaitForEmptyJob\(job\)/);
   const processTree = readFileSync(new URL("../src/process-tree.mjs", import.meta.url), "utf8");
-  assert.match(
-    processTree,
-    /const effectiveWindowsHide = stdio === "inherit" \? false : windowsHide/,
-  );
   assert.equal(
     processTree.match(/windowsHide: effectiveWindowsHide/g)?.length,
     2,
     "the PowerShell owner and contained target must share the console policy",
   );
+});
+
+test("Windows console policy distinguishes inherited pipes from terminal streams", async () => {
+  const streams = [process.stdin, process.stdout, process.stderr];
+  const descriptors = streams.map((stream) => Object.getOwnPropertyDescriptor(stream, "isTTY"));
+  const originalSpawn = childProcess.spawn;
+  const stopped = new Error("spawn intercepted");
+  let invocation;
+  childProcess.spawn = (command, args, options) => {
+    invocation = { command, args, options };
+    throw stopped;
+  };
+  syncBuiltinESMExports();
+  try {
+    for (const { name, ttys, stdio, windowsHide, hidden } of [
+      { name: "inherited pipes", ttys: [], stdio: "inherit", hidden: true },
+      { name: "explicitly hidden inherited pipes", ttys: [], stdio: "inherit", windowsHide: true, hidden: true },
+      { name: "terminal stdin with redirected output", ttys: [0], stdio: "inherit", hidden: false },
+      { name: "terminal stdout with redirected input", ttys: [1], stdio: "inherit", hidden: false },
+      { name: "terminal stderr with redirected input/output", ttys: [2], stdio: "inherit", hidden: false },
+      { name: "captured output from a terminal", ttys: [0, 1, 2], stdio: "capture", hidden: true },
+      { name: "explicit visible inherited command", ttys: [], stdio: "inherit", windowsHide: false, hidden: false },
+      { name: "explicit visible captured command", ttys: [], stdio: "capture", windowsHide: false, hidden: false },
+    ]) {
+      streams.forEach((stream, index) => Object.defineProperty(stream, "isTTY", {
+        configurable: true,
+        value: ttys.includes(index) ? true : undefined,
+      }));
+      invocation = undefined;
+      await assert.rejects(runProcessTree("worker.exe", ["argument with spaces"], {
+        platform: "win32", env: {}, stdio, windowsHide,
+      }), (error) => error === stopped, name);
+      assert.equal(invocation.options.windowsHide, hidden, `${name}: PowerShell owner`);
+      const request = JSON.parse(Buffer.from(invocation.args.at(-1), "base64").toString("utf8"));
+      assert.equal(request.windowsHide, hidden, `${name}: contained command`);
+      assert.equal(request.command, "worker.exe");
+      assert.deepEqual(request.arguments, ["argument with spaces"]);
+      assert.deepEqual(invocation.options.stdio, stdio === "inherit" ? "inherit" : ["ignore", "pipe", "pipe"]);
+    }
+  } finally {
+    childProcess.spawn = originalSpawn;
+    syncBuiltinESMExports();
+    streams.forEach((stream, index) => {
+      if (descriptors[index]) Object.defineProperty(stream, "isTTY", descriptors[index]);
+      else delete stream.isTTY;
+    });
+  }
+});
+
+test("Windows background inherited pipes stay windowless and preserve I/O and exit status", {
+  skip: process.platform !== "win32",
+}, async () => {
+  const probe = `
+    $ErrorActionPreference = 'Stop'
+    $ProgressPreference = 'SilentlyContinue'
+    Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices;
+      public static class ConsoleProbe {
+        [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+      }'
+    $result = @{ window = [ConsoleProbe]::GetConsoleWindow().ToInt64(); input = [Console]::ReadLine() }
+    [Console]::Out.WriteLine(($result | ConvertTo-Json -Compress))
+    [Console]::Error.WriteLine('inherited-stderr')
+    exit 7
+  `;
+  const moduleUrl = new URL("../src/process-tree.mjs", import.meta.url).href;
+  const powershell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  const parentProgram = [
+    `import { runProcessTree } from ${JSON.stringify(moduleUrl)}`,
+    `const result = await runProcessTree(${JSON.stringify(powershell)}, ${JSON.stringify([
+      "-NoLogo", "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand",
+      Buffer.from(probe, "utf16le").toString("base64"),
+    ])}, { stdio: 'inherit', deadline: Date.now() + 30_000 })`,
+    "process.exitCode = result.status",
+  ].join(";");
+  // No console is attached to this parent, as with an Electron background
+  // command. Its pipes must not be mistaken for an interactive terminal.
+  const parent = spawn(process.execPath, ["--input-type=module", "-e", parentProgram], {
+    detached: true,
+    windowsHide: true,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let stdout = "";
+  let stderr = "";
+  parent.stdout.on("data", (chunk) => { stdout += chunk; });
+  parent.stderr.on("data", (chunk) => { stderr += chunk; });
+  try {
+    parent.stdin.end("inherited-stdin\n");
+    const [status, signal] = await once(parent, "close");
+    assert.equal(status, 7, stderr);
+    assert.equal(signal, null);
+    assert.deepEqual(JSON.parse(stdout), { window: 0, input: "inherited-stdin" });
+    assert.equal(stderr.trim(), "inherited-stderr");
+  } finally {
+    if (parent.exitCode === null && parent.signalCode === null) {
+      parent.kill("SIGKILL");
+      await once(parent, "close");
+    }
+  }
 });
 
 test("a failed Windows taskkill falls back to terminating the direct child", async () => {

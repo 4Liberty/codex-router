@@ -15,10 +15,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // A source assertion is the only cheap guard here: the failure is invisible on
 // macOS and Linux, and reproducing it needs a Windows desktop session.
 //
-// The exemption is a property of the call, not a list of files: a process that
-// inherits stdin is prompting the operator through a console that already
-// exists, and `windowsHide` is not what governs that case. Everything else --
-// stdio `ignore` or `pipe` -- is a background helper with nothing to show.
+// Calls with inherited stdio are excluded from this static scan because their
+// terminal attachment must be determined at runtime. Inherited desktop pipes
+// must still be hidden; that distinction is covered in process-tree.test.mjs.
+// Calls with stdio `ignore` or `pipe` are always treated as background helpers.
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(directory, entry.name);
