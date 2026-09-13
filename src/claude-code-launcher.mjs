@@ -59,6 +59,22 @@ export function claudeRouterEnvironment({
     // an explicit `--model` argument.
     env.ANTHROPIC_MODEL = String(catalog.defaultModel);
   }
+  if (catalog?.defaultModel) {
+    // Subagents and background calls fall back to hard-coded Anthropic model
+    // ids (e.g. claude-opus-5) that the router does not serve, which surfaces
+    // as HTTP 404 model_not_found inside every spawned agent. Pin them to the
+    // same routed default so the whole session stays on served models.
+    env.CLAUDE_CODE_SUBAGENT_MODEL = String(catalog.defaultModel);
+    env.ANTHROPIC_SMALL_FAST_MODEL = String(catalog.defaultModel);
+    // Built-in agents (Explore, Plan, …) and user agents whose frontmatter
+    // pins `model: opus` resolve through the default-tier aliases, ignoring
+    // CLAUDE_CODE_SUBAGENT_MODEL. Without these they fall through to literal
+    // Anthropic ids (claude-opus-5) the router does not serve → HTTP 404
+    // model_not_found in every spawned agent of that type.
+    env.ANTHROPIC_DEFAULT_OPUS_MODEL = String(catalog.defaultModel);
+    env.ANTHROPIC_DEFAULT_SONNET_MODEL = String(catalog.defaultModel);
+    env.ANTHROPIC_DEFAULT_HAIKU_MODEL = String(catalog.defaultModel);
+  }
   return env;
 }
 
