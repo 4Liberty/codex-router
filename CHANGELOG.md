@@ -2,20 +2,43 @@
 
 ## Unreleased
 
-- **Kimi no longer rejects a recursive tool schema the router itself made
-  typeless.** Breaking a `$ref` cycle drops the reference and leaves the node
-  behind, and a node with nothing left in it declares no type -- the one shape
-  Moonshot answers with HTTP 400 `tools.function.parameters missing type in
-  anyOf properties`, the same rejection #641 fixed for client-supplied schemas.
-  The type pass that fix added runs in the router's Moonshot compatibility hop,
-  while the cycle breaking runs later in the forwarder, so a recursive schema on
-  a Kimi route arrived with the type already removed again (#726). The cycle
-  edge now carries the type its target declared -- read out of the definition
-  the reference named, never guessed, and never over a type the client wrote
-  itself. Scoped to the measured Moonshot routes: the blanking exists for Meta's
-  Console 400, that path was not re-measured here, and every other provider and
-  model keeps the exact wire payload it has today.
+- **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
+  preserve recoverable types when breaking recursive tool references.** No
+  shipped Kimi model enables flattening; stock Kimi and Meta payloads are
+  unchanged. Explicit types and type-implying siblings take precedence over
+  the referenced definition. Pure reference aliases are followed safely.
+  Untyped recursive unions and reference-only rings still cannot supply a
+  target type and remain permissive; this is not a general fix for Moonshot's
+  `missing type in anyOf properties` error. The route behind #726 has not been
+  established, so that issue is not claimed resolved by this change.
 
+- **Routed coding clients can be kept current from the Harness page.**
+  `control client-update <id>` and `control client-update --all`, plus an
+  **Update** button on each row and **Update all** in the header, move
+  opencode, pi, Command Code, and Hermes Agent to their latest release. Each
+  runs that client's own updater (`opencode upgrade`, `pi update --self`,
+  `command-code update`, `hermes update --yes`) rather than `npm install -g`,
+  so a CLI installed by Homebrew or a `curl | sh` script is updated in place
+  instead of gaining a second npm copy that may win or lose on PATH. omp ships
+  neither a package this router installs nor a self-update subcommand, so its
+  row prints the project's own three installs. Updating stays a separate,
+  explicit action: publishing a model list never changes a client's version.
+  `--all` skips clients that are not installed and reports each one instead of
+  stopping at the first failure.
+- **pi is installed from its maintained package.** The pi coding agent moved
+  from `@mariozechner/pi-coding-agent` (last published at 0.73.1) to
+  `@earendil-works/pi-coding-agent`. Setup installed the abandoned name, which
+  still installs and still answers `pi --version`, so the stale agent looked
+  healthy. pi's own `--ignore-scripts` install flag is used as well.
+- **Muse Spark Responses turns no longer end in a gateway error.** OpenCode Go
+  and Zen send `event: ping` (`{"type":"ping","cost":"0"}`) after every
+  `response.completed`. The API forwarder treated it as data after the terminal
+  event and appended `invalid_responses_stream`, which LiteLLM re-raised as
+  `Response API in-stream error` on every completed `opencode-go-responses` and
+  `opencode-free-responses` turn. Codex ignores bytes after a terminal event, so
+  it went unnoticed; opencode and pi validate them and failed every turn. A
+  keep-alive or SSE comment after the terminal event is now dropped; real data
+  after it is still refused.
 - **Thinking models behind resellers now get their reasoning replayed the way
   their vendors require.** The replay contract was keyed on request profiles,
   so `zai-coding/glm-5.3` replayed reasoning as `reasoning_content` while the
@@ -374,6 +397,28 @@
   A native 401 is also preserved with a sanitized local error, allowing Codex's
   own ChatGPT authentication recovery to refresh the session and retry without
   exposing the upstream response body.
+- **Five more coding clients can be published to from the Harness page.**
+  opencode, pi, omp (oh-my-pi), Command Code, and Hermes Agent each keep their
+  providers in a configuration document the user also owns, so one shared
+  publisher (`src/routed-harness-*.mjs`) writes the single `codex-router`
+  provider key each of them reads and leaves every other byte alone.
+  **Set up** installs the client's CLI where this router can (updating a
+  Command Code older than 1.30.0, the first release that reads
+  `providers.json`) and publishes the whole routed catalog in one action; omp
+  and Hermes install from their own instructions first; `control client-setup <id>` and
+  `control client-disconnect <id>` are the same thing from a terminal. Clients
+  that speak the Responses API reach the authenticated loopback `/v1` path with
+  the router's own slugs; Command Code and Hermes, which have no Responses
+  client, reach the same Anthropic Messages surface Claude Code uses with
+  `codex_router/anthropic/<slug>` ids. Enabling a provider, storing a key, or
+  curating a model republishes all five alongside the existing clients, and a
+  caller-capability rotation refreshes them. YAML documents are spliced by line
+  range so comments and sibling providers survive; a JSON document the router
+  cannot round-trip is refused rather than reformatted; a `codex-router`
+  provider whose base URL this router did not issue is never replaced or
+  removed; and opencode's default model is claimed only when the user has not
+  chosen one. Devin CLI and T3 Code are deliberately not rows: Devin CLI has no
+  custom base URL, and T3 Code drives whichever official CLI is already routed.
 
 - **Command Code forced tool choices now use the same bounded alias as the tool definition.**
   The 64-character compatibility added in #643 shortened provider-facing tool names but

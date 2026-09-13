@@ -311,3 +311,51 @@ test("a generic Responses gateway receives replayed messages without Codex's pha
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("forwarder preserves types only for curated Moonshot flattening", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "moonshot-flatten-"));
+  const userModelsFile = path.join(directory, "user-models.json");
+  const bodies = [];
+  const upstream = await listen(async (request, response) => {
+    bodies.push(await requestJson(request));
+    json(response, 200, { id: "test", object: "chat.completion", choices: [
+      { index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" },
+    ] });
+  });
+  const models = [
+    userModelEntry({ providerId: "kimi-api", upstreamId: "curated-flatten", priority: 100, metadata: { toolSchemaRecursion: "flatten" } }),
+    userModelEntry({ providerId: "opencode-go", upstreamId: "flatten-control", priority: 101, metadata: { toolSchemaRecursion: "flatten" } }),
+    userModelEntry({ providerId: "opencode-go", upstreamId: "plain-control", priority: 102 }),
+  ];
+  writeFileSync(userModelsFile, JSON.stringify({ version: 1, models }));
+  const port = await openPort();
+  const child = runForwarder({
+    MODEL_ROUTER_API_PORT: String(port),
+    MODEL_ROUTER_STATE_DIR: path.join(directory, "state"),
+    MODEL_ROUTER_USER_MODELS: userModelsFile,
+    OPENCODE_GO_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    OPENCODE_API_KEY: "test-only-key",
+    KIMI_API_KEY: "test-only-key",
+    KIMI_API_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    MODEL_ROUTER_QUIET: "0",
+  });
+  const schema = { type: "object", properties: { root: { $ref: "#/$defs/N" } },
+    $defs: { N: { type: "object", properties: { child: { $ref: "#/$defs/N" } } } } };
+  try {
+    await waitForForwarder(port, child);
+    for (const model of models) {
+      const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST", headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: model.gatewayModel, messages: [{ role: "user", content: "test" }],
+          tools: [{ type: "function", function: { name: "inspect", parameters: schema } }] }),
+      });
+      assert.equal(response.status, 200, `${await response.text()} ${child.testErrors()}`);
+    }
+    const edges = bodies.map((body) => body.tools[0].function.parameters.$defs.N.properties.child);
+    assert.deepEqual(edges, [{ type: "object" }, {}, { $ref: "#/$defs/N" }]);
+  } finally {
+    await stop(child);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
