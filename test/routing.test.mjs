@@ -23,6 +23,7 @@ import {
   LEGACY_V1_SUMMARY_PREFIX,
 } from "../src/compaction-checkpoint.mjs";
 import { openPort } from "./port-pool.mjs";
+import { preservedGeminiSchemas, zillowRangeSchema } from "./fixtures/gemini-tool-schemas.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const INTERNAL_KEY = "test-internal-service-key-with-sufficient-length";
@@ -3800,8 +3801,111 @@ test("API forwarder fills only missing Gemini thought signatures", async () => {
   }
 });
 
-test("API forwarder leaves non-Gemini tool calls unsigned", async () => {
+test("API forwarder repairs observed Gemini dangling defs and preserves valid schemas", async () => {
   const upstreamRequests = [];
+  const failureMessage = "reference to undefined schema at properties.request.properties.propertyFiltersRequest.properties.bedrooms";
+  const upstream = await mockServer(async (request, response) => {
+    const body = await bodyJson(request);
+    upstreamRequests.push(body);
+    const bedrooms = body.tools[0].function.parameters.properties.request.properties.propertyFiltersRequest.properties.bedrooms;
+    // Model the recorded rejection, not the full Gemini schema validator.
+    if (bedrooms.$ref) {
+      json(response, 400, { error: { code: 400, message: failureMessage, status: "INVALID_ARGUMENT" } });
+      return;
+    }
+    json(response, 200, { choices: [] });
+  });
+  const parameters = zillowRangeSchema();
+  const preserved = preservedGeminiSchemas();
+  const tools = [
+    { type: "function", function: { name: "property_search", parameters } },
+    ...preserved.map(({ name, schema }) => ({ type: "function", function: { name, parameters: schema } })),
+  ];
+  const curated = curatedGeminiModel();
+  const forwarderPort = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    CODEX_ROUTER_API_PORT: String(forwarderPort),
+    MODEL_ROUTER_USER_MODELS: curated.file,
+    GEMINI_API_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    GEMINI_API_KEY: "TEST_GEMINI_API_KEY",
+    KIMI_PROXY_QUIET: "1",
+  });
+
+  try {
+    const baseline = await fetch(`http://127.0.0.1:${upstream.port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tools }),
+    });
+    assert.equal(baseline.status, 400);
+    assert.equal((await baseline.json()).error.message, failureMessage);
+    await waitFor(`http://127.0.0.1:${forwarderPort}/health`, forwarder, {
+      Authorization: `Bearer ${INTERNAL_KEY}`,
+    });
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${INTERNAL_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: curated.gatewayModel,
+        messages: [{ role: "user", content: "find a home" }],
+        tools,
+      }),
+    });
+    assert.equal(response.status, 200);
+    const forwarded = upstreamRequests[1].tools[0].function.parameters;
+    assert.equal(forwarded.properties.request.properties.propertyFiltersRequest.properties.bedrooms.$ref, undefined);
+    assert.deepEqual(
+      forwarded.properties.request.properties.propertyFiltersRequest.properties.bedrooms,
+      {
+        ...parameters.properties.request.$defs.MinMaxInt,
+        description: parameters.properties.request.properties.propertyFiltersRequest.properties.bedrooms.description,
+      },
+    );
+    assert.deepEqual(upstreamRequests[1].tools.slice(1), tools.slice(1));
+  } finally {
+    await stopChild(forwarder);
+    await closeServer(upstream.server);
+    rmSync(curated.dir, { recursive: true, force: true });
+  }
+});
+
+test("Gemini model names on other providers do not enable the schema repair", async () => {
+  const requests = [];
+  const upstream = await mockServer(async (request, response) => {
+    requests.push(await bodyJson(request));
+    json(response, 200, { choices: [] });
+  });
+  const port = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    CODEX_ROUTER_API_PORT: String(port),
+    OPENROUTER_API_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    OPENROUTER_API_KEY: "TEST_OPENROUTER_API_KEY",
+    KIMI_PROXY_QUIET: "1",
+  });
+  const tools = [{ type: "function", function: { name: "property_search", parameters: zillowRangeSchema() } }];
+  try {
+    await waitFor(`http://127.0.0.1:${port}/health`, forwarder, {
+      Authorization: `Bearer ${INTERNAL_KEY}`,
+    });
+    const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "openrouter-gemini-3-8-flash", messages: [{ role: "user", content: "test" }], tools }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(requests[0].tools, tools);
+  } finally {
+    await stopChild(forwarder);
+    await closeServer(upstream.server);
+  }
+});
+
+test("API forwarder leaves non-Gemini tool calls unsigned and schemas unchanged", async () => {
+  const upstreamRequests = [];
+  const tools = [{ type: "function", function: { name: "a", parameters: zillowRangeSchema() } }];
   const upstream = await mockServer(async (request, response) => {
     upstreamRequests.push(await bodyJson(request));
     json(response, 200, { choices: [] });
@@ -3826,6 +3930,7 @@ test("API forwarder leaves non-Gemini tool calls unsigned", async () => {
       },
       body: JSON.stringify({
         model: "kimi-api-k3",
+        tools,
         messages: [
           { role: "user", content: "test" },
           {
@@ -3844,6 +3949,7 @@ test("API forwarder leaves non-Gemini tool calls unsigned", async () => {
     ).tool_calls;
     assert.equal(call.thought_signature, undefined);
     assert.equal(call.extra_content, undefined);
+    assert.deepEqual(upstreamRequests[0].tools, tools);
   } finally {
     await stopChild(forwarder);
     await closeServer(upstream.server);
@@ -5919,7 +6025,16 @@ test("API forwarder routes GLM coding-plan models with thinking enabled", async 
   }
 });
 
-["zai-coding-glm-5-3", "deepseek-v4-flash", "commandcode-deepseek-v4-flash"].forEach((gatewayModel) => test(`API forwarder restores ${gatewayModel} thinking as native reasoning_content`, async () => {
+[
+  "zai-coding-glm-5-3",
+  "deepseek-v4-flash",
+  "commandcode-deepseek-v4-flash",
+  "opencode-go-hy4-preview",
+  // Reseller routes keyed on the upstream family rather than a profile.
+  "opencode-go-glm-5-3",
+  "opencode-go-kimi-k3",
+  "commandcode-kimi-k3",
+].forEach((gatewayModel) => test(`API forwarder restores ${gatewayModel} thinking as native reasoning_content`, async () => {
   const upstreamRequests = [];
   const upstream = await mockServer(async (request, response) => {
     upstreamRequests.push({ url: request.url, headers: request.headers, body: await bodyJson(request) });
@@ -5934,6 +6049,8 @@ test("API forwarder routes GLM coding-plan models with thinking enabled", async 
     DEEPSEEK_API_KEY: "TEST_DEEPSEEK_API_KEY",
     COMMANDCODE_BASE_URL: `http://127.0.0.1:${upstream.port}/provider/v1`,
     COMMAND_CODE_API_KEY: "TEST_COMMANDCODE_API_KEY",
+    OPENCODE_GO_BASE_URL: `http://127.0.0.1:${upstream.port}`,
+    OPENCODE_GO_API_KEY: "TEST_OPENCODE_GO_API_KEY",
     CODEX_ROUTER_QUIET: "1",
   });
 
@@ -5977,6 +6094,13 @@ test("API forwarder routes GLM coding-plan models with thinking enabled", async 
       assert.deepEqual(request.thinking, { type: "enabled", clear_thinking: false });
     } else if (gatewayModel === "deepseek-v4-flash") {
       assert.deepEqual(request.thinking, { type: "enabled" });
+    } else if (gatewayModel.startsWith("opencode-go-")) {
+      // These routes have no thinking parameter of their own; the history
+      // contract alone must restore reasoning_content without inventing one.
+      // (Hy4, rollout 01a0928e, 12 September 2026: replayed as text, the
+      // model looped.)
+      assert.ok(upstreamRequests[0].url.endsWith("/chat/completions"));
+      assert.equal(request.thinking, undefined);
     } else {
       assert.equal(upstreamRequests[0].url, "/provider/v1/chat/completions");
       assert.equal(request.thinking, undefined, "history preservation must not enable a new thinking parameter");

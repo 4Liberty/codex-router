@@ -29,6 +29,43 @@
   it went unnoticed; opencode and pi validate them and failed every turn. A
   keep-alive or SSE comment after the terminal event is now dropped; real data
   after it is still refused.
+- **Thinking models behind resellers now get their reasoning replayed the way
+  their vendors require.** The replay contract was keyed on request profiles,
+  so `zai-coding/glm-5.3` replayed reasoning as `reasoning_content` while the
+  same GLM on opencode Go, OpenRouter, or Command Code -- and Kimi K3, Hy3,
+  MiniMax M3, DeepSeek there -- had it replayed as visible assistant text, the
+  shape that made Hy4 loop on its own progress notes. The contract is now
+  keyed on the upstream model family for Chat Completions resellers: DeepSeek
+  (the API 400s without it), GLM-5.x (Z.ai requires the history replayed with
+  preserved thinking), Kimi K3 (Moonshot requires it in tool loops), MiniMax
+  M3 (interleaved thinking), and Tencent Hy3/Hy4. Verified live on every
+  reachable route on opencode Go, OpenRouter, and Command Code; Anthropic
+  protocol variants and resellers that were not probed keep their existing
+  channel.
+- **Hy4 Preview no longer loops on its own progress notes mid-turn.** Its
+  reasoning is now replayed to it the way DeepSeek's and GLM's already were --
+  as `reasoning_content` on the assistant turn that produced it -- instead of
+  as visible assistant text. Replayed as prose, the model read its own past
+  thinking as something it had said aloud, moved new thinking into the answer
+  channel (reasoning tokens went from 174 to 0 in one step), and from there
+  repeated its last note 2, 4, 5, 8, then 16 times per message while Codex
+  showed "Reconnecting". Applies to every route on the `hy4-reasoning` profile
+  (opencode Go, OpenRouter, NanoGPT, Nous); Command Code's own Hy4 shim and
+  Cline are unchanged.
+- **A routed turn no longer dies silently when the model writes its tool calls
+  as text.** Tencent Hy4 Preview has a tool-call syntax of its own
+  (`<tool_calls:NONCE>...`). When a serving stack fails to parse it, the calls
+  arrive as ordinary text on the reasoning channel, nothing reaches the
+  `tool_calls` array, and the turn ends on an assistant message with no content
+  and no `function_call`. Codex reads that as the end of the turn and writes
+  `task_complete` with `last_agent_message: null`, so the user is left with the
+  "Worked for ..." group and no answer at all -- in the capture this was found
+  in, four minutes of work vanished mid-investigation. The router now parses the
+  leaked markup back into real `function_call` items, strips it from the text it
+  was buried in, and emits the calls before the turn closes, so the model's own
+  work continues. Only the model's calls are recovered: a malformed, unterminated
+  or nonce-mismatched span is relayed verbatim, a stream without the markup is
+  passed through byte-for-byte, and native turns gain no stage.
 - **Reasoning from Chat Completions models now shows in Codex.** LiteLLM's
   Chat Completions to Responses bridge opens the assistant message first and
   streams the model's reasoning under a fresh hashed item id per delta, with no
