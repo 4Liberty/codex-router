@@ -1479,9 +1479,10 @@ test("config manager adopts and restores a prepared user-owned native catalog", 
     JSON.stringify({ models: [{ slug: "gpt-user-native" }] }),
     { mode: 0o600 },
   );
+  const prose = 'instructions = """\nmodel_catalog_json = "example"\n"""';
   writeFileSync(
     configPath,
-    `model = "gpt-user-native"\nmodel_catalog_json = ${JSON.stringify(foreignCatalog)}\n`,
+    `${prose}\nmodel = "gpt-user-native"\nmodel_catalog_json = ${JSON.stringify(foreignCatalog)}\n`,
     { mode: 0o600 },
   );
 
@@ -1500,6 +1501,7 @@ test("config manager adopts and restores a prepared user-owned native catalog", 
     );
     const enabled = run("enable", codexHome, stateDir, ["--adopt-native-catalog"]);
     assert.equal(enabled.mode, "router");
+    assert.ok(readFileSync(configPath, "utf8").includes(prose));
     assert.equal(
       JSON.parse(
         readFileSync(path.join(stateDir, "native-catalog-source.json"), "utf8"),
@@ -1509,6 +1511,7 @@ test("config manager adopts and restores a prepared user-owned native catalog", 
 
     const disabled = run("disable", codexHome, stateDir);
     assert.equal(disabled.mode, "native");
+    assert.ok(readFileSync(configPath, "utf8").includes(prose));
     assert.equal(
       readFileSync(configPath, "utf8").includes(
         `model_catalog_json = ${JSON.stringify(foreignCatalog)}`,
@@ -2527,5 +2530,77 @@ test("a config the TOML lexer refuses is still editable", () => {
     assert.ok(contents.includes(`user_tool_path = "${windowsPath}"`), contents);
   } finally {
     rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+for (const invalidTable of [false, true]) {
+  test(`root edits preserve prose and markers with invalid table = ${invalidTable}`, () => {
+    const home = mkdtempSync(path.join(os.tmpdir(), "router-root-review-"));
+    const config = path.join(home, "config.toml");
+    const prose = [
+      'instructions = """',
+      'model = "prose"',
+      'model_catalog_json = "prose-catalog"',
+      '# BEGIN codex-router-managed',
+      '# END codex-router-managed',
+      '[not_a_table]',
+      'max_threads = 1',
+      '\"\"\"',
+    ].join("\n");
+    const tail = invalidTable ? '\n[mcp_servers.x]\ncommand = "C:\\bad\\escape"\n' : '';
+    writeFileSync(config, `${prose}\nmodel = "gpt-5.6" # keep decoded value\n${tail}`);
+    try {
+      run("enable", home);
+      assert.ok(readFileSync(config, "utf8").includes(prose));
+      run("router-default-set", home, undefined, ["deepseek/deepseek-v4-flash"]);
+      assert.ok(readFileSync(config, "utf8").includes(prose));
+      const restored = run("router-default-clear", home);
+      assert.equal(restored.model, "gpt-5.6");
+      assert.ok(readFileSync(config, "utf8").includes(prose));
+      assert.ok(readFileSync(config, "utf8").includes(tail));
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+}
+
+test("login-free refuses invalid TOML without changing prose or the config", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "router-root-refusal-"));
+  const config = path.join(home, "config.toml");
+  const contents = 'instructions = """\nmodel = "prose"\n"""\nmodel = "gpt-5.6"\n[mcp_servers.x]\ncommand = "C:\\bad\\escape"\n';
+  writeFileSync(config, contents);
+  try {
+    assert.throws(() => run("login-free-enable", home, undefined, ["deepseek/deepseek-v4-pro"]), /ambiguous TOML/);
+    assert.equal(readFileSync(config, "utf8"), contents);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("assignment-shaped concurrency prose does not suppress the managed setting", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "router-concurrency-prose-"));
+  const config = path.join(home, "config.toml");
+  const prose = 'instructions = """\nmax_threads = 1\n[agents]\nmax_concurrent_threads_per_session = 2\n"""';
+  writeFileSync(config, `${prose}\nmodel = "gpt-5.6"\n`);
+  try {
+    run("enable", home, undefined, [], { CODEX_BIN: scalarOnlyCodex });
+    const contents = readFileSync(config, "utf8");
+    assert.ok(contents.includes(prose));
+    assert.match(contents.replace(prose, ""), /^max_concurrent_threads_per_session = /m);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("a multiline model setting is refused without partial deletion", () => {
+  const home = mkdtempSync(path.join(os.tmpdir(), "router-multiline-setting-"));
+  const config = path.join(home, "config.toml");
+  const contents = 'model = """\ngpt-5.6\n"""\n';
+  writeFileSync(config, contents);
+  try {
+    assert.throws(() => run("enable", home), /single-line TOML string/);
+    assert.equal(readFileSync(config, "utf8"), contents);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
   }
 });
