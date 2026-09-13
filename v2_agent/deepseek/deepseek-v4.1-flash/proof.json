@@ -4,7 +4,9 @@
   "model": "deepseek-v4.1-flash",
   "slug": "deepseek/deepseek-v4.1-flash",
   "status": "draft",
-  "officialSources": [],
+  "officialSources": [
+    "provider catalog: api.deepseek.com/models lists the exact upstream id `deepseek-flash`"
+  ],
   "testedAt": "2026-09-14",
   "routerVersion": "0.5.1",
   "checks": {

@@ -14,7 +14,7 @@ API keys, bearer tokens, or caller URLs are recorded here.
 
 | Check | Result | Redacted summary |
 | --- | --- | --- |
-| Official model identity | pending | Needs the official DeepSeek documentation and `/models` catalog evidence for the exact upstream model. |
+| Official model identity | passed (local) | The provider's own catalog endpoint (`api.deepseek.com/models`) lists the exact upstream id `deepseek-flash`, which matches this route's `upstreamModel` in `config/deepseek/deepseek-v4.1-flash.json`. The catalog returns two ids in total: `deepseek-flash` and `deepseek-v4-pro`. |
 | Streaming Responses | passed (local) | A streamed turn through the installed router completed with status 200 and a terminal completion event on 2026-09-14. |
 | Forced function call | passed (local) | A forced shell tool call returned the requested tool name with valid JSON arguments and the exact marker string once. |
 | Encrypted relay | pending | Requires a native Codex parent delegating to this route; not possible while the route is v1. |
