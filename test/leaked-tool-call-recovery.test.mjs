@@ -7,6 +7,7 @@ import {
   LeakedToolCallRecovery,
   leakedToolCallRecoveryTransform,
   parseLeakedToolCalls,
+  usesHy4NonceMarkup,
   usesLeakedToolCallRecovery,
 } from "../src/leaked-tool-call-recovery.mjs";
 
@@ -510,6 +511,11 @@ test("recovery is offered to Hy4 routes and to nothing else", () => {
     { upstreamModel: "hy4-preview-turbo" },
   ]) {
     assert.equal(usesLeakedToolCallRecovery(route), false, JSON.stringify(route));
+  }
+  // The reasoning-tag stripper reads the same gate for `</think:NONCE>` (#654),
+  // so the two must never drift apart.
+  for (const route of [{ upstreamModel: "tencent/hy4-preview" }, { upstreamModel: "glm-5.3" }, null]) {
+    assert.equal(usesHy4NonceMarkup(route), usesLeakedToolCallRecovery(route), JSON.stringify(route));
   }
 });
 

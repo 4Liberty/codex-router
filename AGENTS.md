@@ -2220,10 +2220,16 @@ content and no `function_call`. Codex ends the turn there and writes
    stage, and neither does any other routed family: this is Hy4's own syntax,
    and scanning every routed provider's text for it would turn prose that
    merely *quotes* the markup -- a diff, a web page, this file -- into executed
-   tool calls. `usesLeakedToolCallRecovery` is the gate; widening it past
-   `hy4-preview` reopens that injection channel. Coverage lives in
-   `test/leaked-tool-call-recovery.test.mjs` and the leaked-channel case in
-   `test/namespace-relay-routing.test.mjs`.
+   tool calls. `usesHy4NonceMarkup` is the gate (`usesLeakedToolCallRecovery`
+   is its name at this call site); widening it past `hy4-preview` reopens that
+   injection channel. The reasoning-tag stripper reads the same gate for the
+   markup's reasoning delimiter, `</think:NONCE>` (#654): it strips the
+   suffixed spelling and treats an orphan close -- one whose opening tag never
+   arrived -- as the end of leaked reasoning, dropping the text in front of it.
+   That reading is destructive, so it stays behind the gate and behind the
+   suffix; a bare `</think>` keeps its prefix on every route. Coverage lives in
+   `test/leaked-tool-call-recovery.test.mjs`, `test/reasoning-tag-stripper.test.mjs`
+   and the leaked-channel case in `test/namespace-relay-routing.test.mjs`.
 6. **A span is scanned once, not re-scanned per delta.** The capture is held
    unjoined with a closing-tag overlap because `_transform` is synchronous:
    re-scanning one growing string re-flattens the rope every delta, and a

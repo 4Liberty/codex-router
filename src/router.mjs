@@ -59,6 +59,7 @@ import {
 import { itemLifecycleNormalizerTransform } from "./item-lifecycle-normalizer.mjs";
 import {
   leakedToolCallRecoveryTransform,
+  usesHy4NonceMarkup,
   usesLeakedToolCallRecovery,
 } from "./leaked-tool-call-recovery.mjs";
 import { moonshotSchemaRoute } from "./moonshot-schema-routes.mjs";
@@ -4458,7 +4459,17 @@ async function handleResponses(request, response, requestUrl) {
       // reasoning channel. Runs before the lifecycle normalizer so the reorder
       // sees already-cleaned message text. Native OpenAI streams (no route) never
       // carry these tags and are left untouched.
-      const tagStripper = route ? reasoningTagStripperTransform(contentType) : undefined;
+      // Hy4 spells its own delimiters with a per-message nonce
+      // (`</think:6124c78e>`), and a stack that eats the opening tag leaves the
+      // planning prose in the answer with only that orphan close behind it
+      // (#654). Reading the suffix -- and the prose in front of an orphan close
+      // -- is gated to the family that writes the nonce, the same gate the
+      // tool-call recovery above uses.
+      const tagStripper = route
+        ? reasoningTagStripperTransform(contentType, {
+            nonceDelimiters: usesHy4NonceMarkup(route),
+          })
+        : undefined;
       if (tagStripper) transforms.push(tagStripper);
       // Restore sequential output-item lifecycles for routed providers, whose
       // chat-completions -> Responses bridge can leave an assistant `message`

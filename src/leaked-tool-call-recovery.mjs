@@ -40,9 +40,18 @@ import { Transform } from "node:stream";
 // rather than a repair. `upstreamModel` carries it on every shipped route
 // (`hy4-preview` on opencode Go, `tencent/hy4-preview` elsewhere), including
 // the Command Code route that ships no `requestProfile`.
-export function usesLeakedToolCallRecovery(route) {
+//
+// The reasoning-tag stripper reads the same gate: `</think:NONCE>` (#654) is
+// this markup's reasoning delimiter, and the rule that an orphan close means
+// everything in front of it was never the answer is only safe on the family
+// that writes the nonce.
+export function usesHy4NonceMarkup(route) {
   const upstream = route?.upstreamModel;
   return typeof upstream === "string" && /(?:^|\/)hy4-preview$/.test(upstream);
+}
+
+export function usesLeakedToolCallRecovery(route) {
+  return usesHy4NonceMarkup(route);
 }
 
 const OPEN_MARKER = "<tool_calls:";
