@@ -2883,7 +2883,7 @@ test("native replay omits incompatible item IDs without changing call-result pai
   }
 });
 
-test("router drops foreign reasoning items before stateless native replay", async () => {
+test("router normalizes reasoning and removes only redundant native references", async () => {
   const nativeRequests = [];
   const native = await mockServer(async (request, response) => {
     nativeRequests.push({ url: request.url, headers: request.headers, body: await bodyJson(request) });
@@ -2909,6 +2909,7 @@ test("router drops foreign reasoning items before stateless native replay", asyn
     CODEX_ROUTER_NATIVE_SESSION_FALLBACK: "1",
     MODEL_ROUTER_CODEX_AUTH: authPath,
     MODEL_ROUTER_STATE_DIR: path.join(testRoot, "state"),
+    CODEX_HOME: path.join(testRoot, "codex"),
     CODEX_ROUTER_QUIET: "1",
   });
   const headers = {
@@ -2977,16 +2978,16 @@ test("router drops foreign reasoning items before stateless native replay", asyn
       type: "item_reference",
       id: "rs_external_reference",
     };
-    const explicitlyUnstoredReasoning = {
+    const storedReasoningWithRedundantReference = {
       type: "reasoning",
-      id: "rs_private_unstored",
-      summary: [{ type: "summary_text", text: "private draft" }],
+      id: "rs_stored_inline",
+      summary: [{ type: "summary_text", text: "stored draft" }],
       content: null,
       encrypted_content: null,
     };
-    const explicitlyUnstoredReference = {
+    const redundantStoredReasoningReference = {
       type: "item_reference",
-      id: "rs_private_unstored",
+      id: "rs_stored_inline",
     };
     const nonReasoningReference = {
       type: "item_reference",
@@ -3125,9 +3126,10 @@ test("router drops foreign reasoning items before stateless native replay", asyn
           futureOpaqueReasoning,
           mixedSummaryReasoning,
           missingStatelessPayload,
+          ...invalidStatelessPayloads,
           staleReasoningReference,
-          explicitlyUnstoredReasoning,
-          explicitlyUnstoredReference,
+          storedReasoningWithRedundantReference,
+          redundantStoredReasoningReference,
           userMessage,
         ],
         store: true,
@@ -3148,13 +3150,24 @@ test("router drops foreign reasoning items before stateless native replay", asyn
       stored.input.find((item) => item?.id === "rs_unstored_without_ciphertext"),
       missingStatelessPayload,
     );
+    for (const item of invalidStatelessPayloads) {
+      const { encrypted_content: _encryptedContent, ...storedItem } = item;
+      assert.deepEqual(
+        stored.input.filter((candidate) => candidate?.id === item.id),
+        [storedItem],
+      );
+    }
     assert.deepEqual(
       stored.input.find((item) => item?.id === "rs_external_reference"),
       staleReasoningReference,
     );
-    assert.equal(
-      stored.input.some((item) => item?.id === explicitlyUnstoredReasoning.id),
-      false,
+    const {
+      encrypted_content: _encryptedContent,
+      ...storedInlineReasoning
+    } = storedReasoningWithRedundantReference;
+    assert.deepEqual(
+      stored.input.filter((item) => item?.id === storedReasoningWithRedundantReference.id),
+      [storedInlineReasoning],
     );
     assert.deepEqual(
       stored.input.find((item) => item?.id === unknownOpaqueReasoning.id),
@@ -3167,6 +3180,10 @@ test("router drops foreign reasoning items before stateless native replay", asyn
     assert.deepEqual(
       stored.input.find((item) => item?.id === mixedSummaryReasoning.id),
       mixedSummaryReasoning,
+    );
+    assert.equal(
+      existsSync(path.join(testRoot, "state", "signed-provider-mode.json")),
+      false,
     );
   } finally {
     await stopChild(router);
