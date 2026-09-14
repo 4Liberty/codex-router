@@ -31,7 +31,8 @@
         "text",
         "image"
       ],
-      "compHash": "commandcode-glm-5-3-flash-v2"
+      "requestProfile": "ox-alpha",
+      "compHash": "commandcode-glm-5-3-flash-v3"
     }
   ]
 }

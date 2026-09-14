@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **GLM-5.3-Flash on Command Code no longer sends an effort rung the model
+  refuses by name.** `commandcode/glm-5.3-flash` declares the model's
+  `low`/`high`/`max` ladder and carried no `requestProfile`, and the profile
+  chain in `src/api-forwarder.mjs` is keyed entirely on that field — so the
+  effort Codex sent went upstream verbatim. Codex older than 0.143 has no `max`
+  in its effort enum, so `clampModelEfforts` rewrites this route's default down
+  to `xhigh`, which is the rung GLM-5.3-Flash answers with `400 — [1210] This
+  model always engages in thinking and cannot be disabled; please use low,
+  high, or max`. The route now carries the same `ox-alpha` clamp the OpenCode Go
+  and OpenRouter Flash routes use, so `xhigh`/`ultra` land on `max` and
+  `medium`/`minimal` on `low`, an absent effort stays absent, and no rung the
+  entry does not advertise can leave the router. This asserts nothing about
+  Command Code's own validation, which the provider does not document; the plan
+  fallback at `/alpha/generate` carries no effort at all and is unchanged.
+  `compHash` is bumped, so rebuild the catalog and fully quit and reopen Codex.
+
 - **GLM-5.3-Flash on Command Code now compacts at 400K like every other route
   for that model.** `commandcode/glm-5.3-flash` shipped with
   `autoCompact: 900000` — the Command Code house value for a 1M window, carried

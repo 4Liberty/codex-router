@@ -17,10 +17,11 @@ const { MODEL_BY_SLUG } = await import("../src/model-registry.mjs");
 // candidate until its own current-head router-level exact-route certificate is
 // recorded; presence in this array is not that proof.
 const ROUTES = [
-  // Command Code has no clamp profile of its own; the entry is here because
-  // being absent from this inventory is what let it ship the provider's house
-  // 900K compaction threshold against the model's 400K rule.
-  ["commandcode/glm-5.3-flash", "z-ai/glm-5.3-flash", undefined],
+  // Command Code shipped with neither the 400K threshold nor a clamp profile,
+  // which is what being absent from this inventory bought it: the provider's
+  // house 900K compaction value, and a pre-0.143 Codex sending `xhigh` --
+  // the one rung this model names in its own refusal -- straight through.
+  ["commandcode/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
   ["opencode-go/glm-5.3-flash", "glm-5.3-flash", "ox-alpha"],
   ["ollama-cloud/glm-5.3-flash", "glm-5.3-flash:cloud", "ollama-cloud-glm-5-3-flash"],
   ["openrouter/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
