@@ -24,6 +24,16 @@ const ROUTES = [
   ["zai-coding/glm-5.3-flash", "glm-5.3-flash", "glm-thinking"],
 ];
 
+// Every checked-in route reads images, because the model does: Z.ai documents
+// GLM-5.3-Flash's input modality as "Video / Image / Text / File" and its
+// `image_url` content block, and the full-size GLM-5.3 is the text-only member
+// of the family. Three of these entries were written text-only by default --
+// never as a measurement, and never with a note -- which sent every pasted
+// screenshot through the vision bridge and hid a capability the operator was
+// already paying for (#756). The assertion is a set rather than a per-slug
+// ternary so a new Flash route cannot quietly ship the same default.
+const IMAGE_INPUT = Object.freeze(["text", "image"]);
+
 test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
   for (const [slug, upstreamModel, requestProfile] of ROUTES) {
     const model = MODEL_BY_SLUG.get(slug);
@@ -34,10 +44,7 @@ test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
     assert.equal(model.defaultEffort, "max");
     assert.equal(model.contextWindow, 1_000_000);
     assert.equal(model.autoCompact, 400_000);
-    assert.deepEqual(
-      model.inputModalities,
-      ["opencode-go/glm-5.3-flash", "ollama-cloud/glm-5.3-flash"].includes(slug) ? ["text", "image"] : ["text"],
-    );
+    assert.deepEqual(model.inputModalities, IMAGE_INPUT, slug);
     assert.equal(model.requestProfile, requestProfile);
   }
 });
@@ -64,6 +71,21 @@ test("withdrawn or uncertified reseller routes stay absent while direct-proven r
   assert.equal(MODEL_BY_SLUG.has("zai-coding/glm-5.3-flash"), true);
   assert.equal(MODEL_BY_SLUG.has("opencode-go/glm-5.3-flash"), true);
   assert.equal(MODEL_BY_SLUG.has("ollama-cloud/glm-5.3-flash"), true);
+});
+
+// The other half of the same fact. Flash is the multimodal member of the
+// family, so widening it must not be read as licence to widen GLM-5.3 itself:
+// every provider catalog that publishes both describes the full-size model as
+// text-only, and an entry claiming otherwise would have Codex offer a paste the
+// upstream refuses.
+test("the full-size GLM-5.3 routes stay text-only", () => {
+  const fullSize = [...MODEL_BY_SLUG.values()].filter(
+    (model) => /(^|\/)glm-5\.3$/.test(model.slug),
+  );
+  assert.ok(fullSize.length >= 4, "expected the checked-in GLM-5.3 routes");
+  for (const model of fullSize) {
+    assert.deepEqual(model.inputModalities, ["text"], model.slug);
+  }
 });
 
 test("Ollama Cloud Flash candidate records its upstream id and request profile", () => {
