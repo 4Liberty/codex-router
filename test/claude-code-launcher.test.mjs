@@ -52,8 +52,8 @@ test("agent and background model names follow the session model onto served ids"
   ];
   const catalog = { defaultModel: "codex_router/anthropic/openai/gpt-test" };
 
-  // Built-in agents (Explore, Plan) resolve `opus` through the default-tier
-  // alias, so an unset alias leaves them on the unserved literal id.
+  // Nothing selected: every name lands on the catalog default, which is what
+  // keeps a built-in agent's `opus` tier request off the unserved literal id.
   const fallback = claudeRouterEnvironment({
     environment: {}, secret: SECRET, args: [], catalog, settings: {},
   });
