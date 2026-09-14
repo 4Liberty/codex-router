@@ -132,15 +132,34 @@ export function gitCommitForSourceRoot(root) {
   // SOURCE_ROOT can arrive symlinked -- macOS `/var` and `/tmp` both are, and
   // so is an install root someone symlinked into place. Without this the check
   // would reject a genuine checkout for spelling its own path differently.
-  if (realPath(toplevel) !== realPath(root)) return null;
+  if (!samePath(toplevel, root)) return null;
   return commandVersion("git", ["-C", root, "rev-parse", "HEAD"]);
 }
 
+// Windows spells the same directory three ways, and Git and Node each pick a
+// different one: Git reports a forward-slash long path, `os.tmpdir()` hands
+// back an 8.3 short name (`C:\Users\RUNNER~1\...`), and the drive letter's case
+// is not fixed. `realpathSync.native` asks the OS to canonicalize, which is the
+// only one of these that undoes a short name; the plain JS implementation does
+// not, and comparing its output rejected a genuine checkout on Windows.
+function samePath(left, right) {
+  const a = realPath(left);
+  const b = realPath(right);
+  return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 function realPath(target) {
+  const resolved = path.resolve(target);
   try {
-    return realpathSync(path.resolve(target));
+    return realpathSync.native(resolved);
   } catch {
-    return path.resolve(target);
+    // `.native` throws on a path that does not exist; the JS implementation is
+    // the fallback, and its own failure leaves the resolved spelling.
+    try {
+      return realpathSync(resolved);
+    } catch {
+      return resolved;
+    }
   }
 }
 
