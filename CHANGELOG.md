@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **Thinking models on Chat resellers outside the native-reasoning contract no
+  longer see their own past reasoning replayed as visible prose.** #708 widened
+  the reasoning-lifecycle repair from `grok-oauth` to every `openai`-protocol
+  provider, which is what finally let reasoning reach Codex on these routes —
+  and as a side effect made Codex store a reasoning item for those turns. Most
+  Command Code thinking models match no entry in the native-reasoning family
+  table (`commandcode/qwen3.8-flash` resolves to upstream `Qwen/Qwen3.8-Flash`),
+  and for those the carry turned the stored reasoning into `output_text` on the
+  next turn. A model that reads its own thinking as prose it once said moves new
+  thinking into the answer channel and loops on its last progress note — the
+  documented 2, 4, 5, 8, 16 copies per message (#755). Those routes now drop the
+  reasoning from the carry instead of converting it, which asserts nothing about
+  any vendor's `reasoning_content` handling; routes inside the contract still
+  carry theirs as `thinking` parts, and native Responses providers are
+  untouched. Before #708 this was inert on these routes, because no reasoning
+  item was stored to carry.
+
 - **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
   paying another model to describe them.** `zai-coding/glm-5.3-flash`,
   `zai-api/glm-5.3-flash`, and `openrouter/glm-5.3-flash` declared
