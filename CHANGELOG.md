@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
+  preserve recoverable types when breaking recursive tool references.** No
+  shipped Kimi model enables flattening; stock Kimi and Meta payloads are
+  unchanged. Explicit types and type-implying siblings take precedence over
+  the referenced definition. Pure reference aliases are followed safely.
+  Untyped recursive unions and reference-only rings still cannot supply a
+  target type and remain permissive; this is not a general fix for Moonshot's
+  `missing type in anyOf properties` error. The route behind #726 has not been
+  established, so that issue is not claimed resolved by this change.
+
 - **Routed coding clients can be kept current from the Harness page.**
   `control client-update <id>` and `control client-update --all`, plus an
   **Update** button on each row and **Update all** in the header, move
