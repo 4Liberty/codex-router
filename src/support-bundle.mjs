@@ -10,6 +10,7 @@ import {
   openSync,
   readFileSync,
   readSync,
+  realpathSync,
   writeFileSync,
 } from "node:fs";
 import os from "node:os";
@@ -106,6 +107,40 @@ function commandVersion(command, args) {
     }).trim();
   } catch {
     return null;
+  }
+}
+
+// The commit that describes the installed tree, or null when no commit does.
+//
+// `git -C <dir> rev-parse HEAD` answers for the nearest *enclosing* repository,
+// which is not always the router's. A Homebrew keg lives at
+// `<brew prefix>/Cellar/codex-router/<version>/libexec`, and the Homebrew
+// prefix is itself a Git checkout of `homebrew/brew`, so the plain rev-parse
+// reported brew.git's HEAD as the router's commit -- a SHA that does not exist
+// in this repository at all. Issue #761 was triaged against exactly that
+// phantom commit. A tarball install has no commit; saying so is the honest
+// answer and keeps triage on `packageVersion`.
+//
+// Requiring the toplevel to *be* SOURCE_ROOT is what distinguishes "this tree
+// is a checkout" from "this tree sits inside someone else's checkout". It also
+// declines to answer for a router vendored into a subdirectory of a larger
+// repository, where the enclosing HEAD likewise does not identify this tree.
+export function gitCommitForSourceRoot(root) {
+  const toplevel = commandVersion("git", ["-C", root, "rev-parse", "--show-toplevel"]);
+  if (!toplevel) return null;
+  // Compared through realpath because Git reports the resolved path while
+  // SOURCE_ROOT can arrive symlinked -- macOS `/var` and `/tmp` both are, and
+  // so is an install root someone symlinked into place. Without this the check
+  // would reject a genuine checkout for spelling its own path differently.
+  if (realPath(toplevel) !== realPath(root)) return null;
+  return commandVersion("git", ["-C", root, "rev-parse", "HEAD"]);
+}
+
+function realPath(target) {
+  try {
+    return realpathSync(path.resolve(target));
+  } catch {
+    return path.resolve(target);
   }
 }
 
@@ -323,7 +358,7 @@ export function createSupportBundle(options = {}) {
       architecture: process.arch,
       node: process.version,
       packageVersion: packageJson.version,
-      gitCommit: commandVersion("git", ["-C", SOURCE_ROOT, "rev-parse", "HEAD"]),
+      gitCommit: gitCommitForSourceRoot(SOURCE_ROOT),
       python: commandVersion(
         path.join(
           SOURCE_ROOT,
