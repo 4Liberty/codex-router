@@ -23,17 +23,18 @@ tools are `codex_app__` only.
   true, otherwise `local`.
 - `title`, `model`, and `thinking` are the only other top-level keys. The
   keys `message`, `content`, `text`, `projectKind`, and `kind` are rejected.
-- `model` sets the new thread's model and accepts routed (non-OpenAI) slugs
-  like `opencode-go/deepseek-v4-flash`, not only OpenAI ones. Copy a value from
-  the `model` field's own description, and only when the user asked for a
-  specific model; omitted, the thread inherits the calling session's model.
-  `thinking` overrides reasoning effort to one that model supports. Send
-  neither with `chatgptWorkCloud`.
+- `model` accepts routed (non-OpenAI) slugs like
+  `opencode-go/deepseek-v4-flash`, not only OpenAI ones. Copy one from the
+  `model` field's own description, and only when the user asked for a specific
+  model; omitted, the thread inherits this session's model. `thinking`
+  overrides reasoning effort. Send neither with `chatgptWorkCloud`.
 
 Projectless and project examples:
 
 ```json
 {"prompt": "hi", "target": {"type": "projectless"}, "title": "hi test thread"}
+```
+```json
 {"prompt": "fix the bug", "target": {"type": "project", "projectId": "e709648b-fc1f-4320-9708-2c55e8d6e6f3"}}
 ```
 
