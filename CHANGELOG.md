@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **GLM-5.3-Flash on Command Code now compacts at 400K like every other route
+  for that model.** `commandcode/glm-5.3-flash` shipped with
+  `autoCompact: 900000` — the Command Code house value for a 1M window, carried
+  by two dozen of that provider's entries — while the five other checked-in
+  GLM-5.3-Flash routes compact at 400,000. That threshold is a property of the
+  model: large live multimodal Flash histories repeatedly returned empty
+  completions before the advertised limit, which is why
+  `nousresearch/glm-5.3-flash` was dropped rather than shipped at 943K. The
+  Command Code entry was written fresh in a bulk catalog pin and took the
+  provider default; no commit message, comment, or research note argued for
+  900K, and the earlier incarnation of the same file carried 400,000. Codex
+  therefore ran this route 500,000 tokens past the point where the model has
+  been seen to go blank. The route is also now named in the
+  `test/glm-5.3-flash.test.mjs` inventory — its absence there is what let the
+  outlier live — and that inventory is now derived from the registry, so the
+  next Flash route cannot be omitted silently. `compHash` is bumped, so rebuild
+  the catalog and fully quit and reopen Codex to pick up the new threshold.
+
 - **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
   planning into the answer.** Hy4 Preview writes its own markup with a
   per-message nonce (`</think:6124c78e>`, the family

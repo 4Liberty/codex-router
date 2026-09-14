@@ -1401,6 +1401,20 @@ Coding uses its own `glm-thinking` profile. These named routes advertise a
 1,000,000-token window, compact at the directly proved conservative 400,000
 threshold, and preserve forced `tool_choice: "required"`.
 
+That 400,000 threshold belongs to the **model**, not to one reseller. Every
+checked-in GLM-5.3-Flash route carries it, including `commandcode/glm-5.3-flash`
+and the Ollama Cloud candidate, because the empty completions came from the
+model's own large multimodal histories rather than from a provider's serving
+stack, and each of these routes advertises the same 1M window over the same
+upstream id. `nousresearch/glm-5.3-flash` was dropped for compacting at 943,000
+against this rule; `commandcode/glm-5.3-flash` shipped at 900,000 for two weeks
+because that is the Command Code house value for a 1M window — the entry was
+written fresh in a bulk catalog pin, took the provider default, and no commit
+message, comment, or research note ever argued for it. A per-provider exception
+here is a claim about that provider's serving stack, so it needs its own
+evidence in the entry or in this file; a provider's boilerplate ratio is not
+that evidence.
+
 `ollama-cloud/glm-5.3-flash` is checked in as candidate registry metadata with a
 model-scoped request profile that clamps both flat and nested reasoning effort
 onto the same `low`/`high`/`max` ladder. It must not be called certified until
