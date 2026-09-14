@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
+  planning into the answer.** Hy4 Preview writes its own markup with a
+  per-message nonce (`</think:6124c78e>`, the family
+  `src/leaked-tool-call-recovery.mjs` already parses tool calls out of). A
+  serving stack that consumes the opening tag but relays the close left the
+  model's internal prose in `output_text` with only an orphan close behind it,
+  and the reasoning-tag stripper's exact `</think>` grammar could not see it, so
+  the chain-of-thought was shown as the answer and replayed into later turns
+  (#654, `commandcode/hy4-preview`). The stripper now reads the suffix, and an
+  orphan nonce close -- one whose opening tag never appeared -- ends the leaked
+  reasoning and takes the text in front of it. Both are gated to Hy4 routes by
+  the same `usesHy4NonceMarkup` check the tool-call recovery uses: a bare
+  `</think>` keeps its prefix everywhere, since that spelling can appear in an
+  answer about reasoning tags. Tool-call markup spans are still relayed
+  verbatim; only an orphan close of one is read as a terminator. Bytes the
+  delta channel has already emitted cannot be retracted, so a leak split across
+  deltas can still flash on screen; `output_text.done` and the stored message
+  item -- what is replayed into the next turn -- are cleaned either way.
+
 - **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
   preserve recoverable types when breaking recursive tool references.** No
   shipped Kimi model enables flattening; stock Kimi and Meta payloads are
