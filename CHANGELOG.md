@@ -23,6 +23,42 @@
   Legacy malformed root sections retain their best-effort line matching so
   Windows prototype installations can still be disabled; prose preservation
   is only guaranteed when that root section can be scanned.
+- **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
+  planning into the answer.** Hy4 Preview writes its own markup with a
+  per-message nonce (`</think:6124c78e>`, the family
+  `src/leaked-tool-call-recovery.mjs` already parses tool calls out of). A
+  serving stack that consumes the opening tag but relays the close left the
+  model's internal prose in `output_text` with only an orphan close behind it,
+  and the reasoning-tag stripper's exact `</think>` grammar could not see it, so
+  the chain-of-thought was shown as the answer and replayed into later turns
+  (#654, `commandcode/hy4-preview`). The stripper now reads the suffix, and an
+  orphan nonce close -- one whose opening tag never appeared -- ends the leaked
+  reasoning and takes the text in front of it. Both are gated to Hy4 routes by
+  the same `usesHy4NonceMarkup` check the tool-call recovery uses: a bare
+  `</think>` keeps its prefix everywhere, since that spelling can appear in an
+  answer about reasoning tags. Tool-call markup spans are still relayed
+  verbatim; only an orphan close of one is read as a terminator. Bytes the
+  delta channel has already emitted cannot be retracted, so a leak split across
+  deltas can still flash on screen; `output_text.done` and the stored message
+  item -- what is replayed into the next turn -- are cleaned either way.
+- **Native replay no longer sends both a full reasoning item and its duplicate
+  reference.** A request can contain an inline `reasoning` item followed by an
+  `item_reference` with the same `rs_` id. Native input normalization now keeps
+  the full item and removes only that redundant reference after all existing
+  reasoning cleanup has run. A null, empty, or non-string `encrypted_content`
+  value is not treated as evidence that the item was never stored: direct-
+  credential callers retain the existing stored-namespace fallback, and a bare
+  reference with no surviving inline item remains untouched.
+
+- **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
+  preserve recoverable types when breaking recursive tool references.** No
+  shipped Kimi model enables flattening; stock Kimi and Meta payloads are
+  unchanged. Explicit types and type-implying siblings take precedence over
+  the referenced definition. Pure reference aliases are followed safely.
+  Untyped recursive unions and reference-only rings still cannot supply a
+  target type and remain permissive; this is not a general fix for Moonshot's
+  `missing type in anyOf properties` error. The route behind #726 has not been
+  established, so that issue is not claimed resolved by this change.
 
 - **Routed coding clients can be kept current from the Harness page.**
   `control client-update <id>` and `control client-update --all`, plus an

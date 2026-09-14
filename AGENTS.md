@@ -285,7 +285,15 @@ and keep every turn on the shared canonical Responses path.
    `./install.ps1 -Target claude -Auto -Providers IDS` on Windows.
 3. The launcher supplies a secret-bearing loopback `ANTHROPIC_BASE_URL`,
    `ANTHROPIC_AUTH_TOKEN`, and gateway model discovery only to its child
-   process. It must not persist those values into Claude-owned files.
+   process. It must not persist those values into Claude-owned files. It also
+   pins Claude Code's agent and default-tier model names
+   (`CLAUDE_CODE_SUBAGENT_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, and
+   `ANTHROPIC_DEFAULT_OPUS_MODEL`/`_SONNET_MODEL`/`_HAIKU_MODEL`) to the same
+   routed model the session runs: built-in agents and agents whose frontmatter
+   pins `model: opus` resolve through the tier aliases rather than through
+   `CLAUDE_CODE_SUBAGENT_MODEL`, and an unpinned alias falls back to a literal
+   Anthropic id the router does not serve, which 404s every spawned agent of
+   that type. A caller value that already names a routed id is preserved.
 4. Model discovery publishes every routed slug as
    `codex_router/anthropic/ROUTER_SLUG`. The `anthropic` segment is required:
    Claude Code filters gateway-discovered ids that do not contain `claude` or
@@ -2220,10 +2228,16 @@ content and no `function_call`. Codex ends the turn there and writes
    stage, and neither does any other routed family: this is Hy4's own syntax,
    and scanning every routed provider's text for it would turn prose that
    merely *quotes* the markup -- a diff, a web page, this file -- into executed
-   tool calls. `usesLeakedToolCallRecovery` is the gate; widening it past
-   `hy4-preview` reopens that injection channel. Coverage lives in
-   `test/leaked-tool-call-recovery.test.mjs` and the leaked-channel case in
-   `test/namespace-relay-routing.test.mjs`.
+   tool calls. `usesHy4NonceMarkup` is the gate (`usesLeakedToolCallRecovery`
+   is its name at this call site); widening it past `hy4-preview` reopens that
+   injection channel. The reasoning-tag stripper reads the same gate for the
+   markup's reasoning delimiter, `</think:NONCE>` (#654): it strips the
+   suffixed spelling and treats an orphan close -- one whose opening tag never
+   arrived -- as the end of leaked reasoning, dropping the text in front of it.
+   That reading is destructive, so it stays behind the gate and behind the
+   suffix; a bare `</think>` keeps its prefix on every route. Coverage lives in
+   `test/leaked-tool-call-recovery.test.mjs`, `test/reasoning-tag-stripper.test.mjs`
+   and the leaked-channel case in `test/namespace-relay-routing.test.mjs`.
 6. **A span is scanned once, not re-scanned per delta.** The capture is held
    unjoined with a closing-tag overlap because `_transform` is synchronous:
    re-scanning one growing string re-flattens the rope every delta, and a

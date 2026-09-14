@@ -59,8 +59,10 @@ import {
 import { itemLifecycleNormalizerTransform } from "./item-lifecycle-normalizer.mjs";
 import {
   leakedToolCallRecoveryTransform,
+  usesHy4NonceMarkup,
   usesLeakedToolCallRecovery,
 } from "./leaked-tool-call-recovery.mjs";
+import { moonshotSchemaRoute } from "./moonshot-schema-routes.mjs";
 import { reasoningTagStripperTransform } from "./reasoning-tag-stripper.mjs";
 import {
   ZaiResponsesCompatTransform,
@@ -1070,16 +1072,8 @@ function needsNonRecursiveToolSchemaCompatibility(route) {
 // schema flavor. Console Go's Kimi K2.7 Code route has now returned the same
 // validator error (#488), so include that exact measured route without
 // projecting the behavior onto unrelated OpenCode Go models.
-const MOONSHOT_PROVIDER_IDS = new Set(["kimi-oauth", "kimi-api", "kimi-api-cn"]);
-const OPENCODE_GO_MOONSHOT_MODELS = new Set(["kimi-k2.7-code"]);
-
 function needsMoonshotSchemaCompatibility(route) {
-  const providerId = providerForModel(route)?.id;
-  return (
-    MOONSHOT_PROVIDER_IDS.has(providerId) ||
-    (providerId === "opencode-go" &&
-      OPENCODE_GO_MOONSHOT_MODELS.has(route.upstreamModel))
-  );
+  return moonshotSchemaRoute(providerForModel(route)?.id, route.upstreamModel);
 }
 
 function zenFreeCompatibleInput(input, route) {
@@ -2471,32 +2465,15 @@ function normalizeNativeInput(
   { statelessReasoning = false, dropUnstoredReasoningReferences = false } = {},
 ) {
   if (!Array.isArray(input)) return input;
-  // A routed turn can leave its full reasoning item and a following rs_
-  // reference in the next native request even though that item was produced
-  // with store=false. A null/empty encrypted payload on the full item is
-  // request-local proof that native storage cannot resolve the paired id.
-  // Keep unrelated bare references intact for credential-bearing native
-  // callers; they may still name items that ChatGPT actually stored.
-  const explicitlyUnstoredReasoningIds = new Set(
-    input
-      .filter((item) =>
-        item?.type === "reasoning" &&
-        typeof item.id === "string" &&
-        item.id.startsWith("rs_") &&
-        Object.hasOwn(item, "encrypted_content") &&
-        (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0)
-      )
-      .map((item) => item.id),
-  );
-  return input.flatMap((item) => {
+  const normalized = input.flatMap((item) => {
     if (item?.type === "reasoning") {
       const reasoning = sanitizeReasoningForNative(item, {
-        stateless: statelessReasoning || explicitlyUnstoredReasoningIds.has(item.id),
+        stateless: statelessReasoning,
       });
       return reasoning === undefined ? [] : [reasoning];
     }
     if (
-      (dropUnstoredReasoningReferences || explicitlyUnstoredReasoningIds.has(item?.id)) &&
+      dropUnstoredReasoningReferences &&
       item?.type === "item_reference" &&
       typeof item.id === "string" &&
       item.id.startsWith("rs_")
@@ -2523,6 +2500,24 @@ function normalizeNativeInput(
       ? messageItem(renderCompactionValue(item.encrypted_content))
       : item];
   });
+
+  // Some clients replay a full reasoning item and an item_reference for the
+  // same rs_ id. The full item already carries the input, so the reference is
+  // redundant and can make the native endpoint reject the duplicate id. Build
+  // this set after normalization: a reference is removed only when its full
+  // reasoning item is still present, while a sole stored-item pointer survives.
+  const inlineReasoningIds = new Set(
+    normalized
+      .filter((item) =>
+        item?.type === "reasoning" &&
+        typeof item.id === "string" &&
+        item.id.startsWith("rs_")
+      )
+      .map((item) => item.id),
+  );
+  return normalized.filter((item) =>
+    item?.type !== "item_reference" || !inlineReasoningIds.has(item.id)
+  );
 }
 
 function extractUserMessages(input) {
@@ -4465,7 +4460,17 @@ async function handleResponses(request, response, requestUrl) {
       // reasoning channel. Runs before the lifecycle normalizer so the reorder
       // sees already-cleaned message text. Native OpenAI streams (no route) never
       // carry these tags and are left untouched.
-      const tagStripper = route ? reasoningTagStripperTransform(contentType) : undefined;
+      // Hy4 spells its own delimiters with a per-message nonce
+      // (`</think:6124c78e>`), and a stack that eats the opening tag leaves the
+      // planning prose in the answer with only that orphan close behind it
+      // (#654). Reading the suffix -- and the prose in front of an orphan close
+      // -- is gated to the family that writes the nonce, the same gate the
+      // tool-call recovery above uses.
+      const tagStripper = route
+        ? reasoningTagStripperTransform(contentType, {
+            nonceDelimiters: usesHy4NonceMarkup(route),
+          })
+        : undefined;
       if (tagStripper) transforms.push(tagStripper);
       // Restore sequential output-item lifecycles for routed providers, whose
       // chat-completions -> Responses bridge can leave an assistant `message`
