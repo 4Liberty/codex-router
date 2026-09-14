@@ -3192,6 +3192,98 @@ test("router normalizes reasoning and removes only redundant native references",
   }
 });
 
+test("native replay carries routed visible reasoning as text instead of dropping it", async () => {
+  const nativeRequests = [];
+  const native = await mockServer(async (request, response) => {
+    nativeRequests.push({ url: request.url, body: await bodyJson(request) });
+    json(response, 200, { route: "native" });
+  });
+  const testRoot = mkdtempSync(path.join(os.tmpdir(), "native-visible-reasoning-"));
+  const authPath = path.join(testRoot, "auth.json");
+  writeFileSync(
+    authPath,
+    JSON.stringify({
+      auth_mode: "chatgpt",
+      tokens: {
+        access_token: "test-native-session-token",
+        account_id: "test-native-account",
+      },
+    }),
+    { mode: 0o600 },
+  );
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_NATIVE_BASE_URL: `http://127.0.0.1:${native.port}/backend-api/codex`,
+    CODEX_ROUTER_NATIVE_SESSION_FALLBACK: "1",
+    MODEL_ROUTER_CODEX_AUTH: authPath,
+    MODEL_ROUTER_STATE_DIR: path.join(testRoot, "state"),
+    CODEX_HOME: path.join(testRoot, "codex"),
+    CODEX_ROUTER_QUIET: "1",
+  });
+
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    // The shape a routed thinking provider leaves behind: visible reasoning in
+    // `content`, a provider-minted id, and a ciphertext the native backend
+    // cannot decrypt. All three are illegal on native input, so the text has to
+    // survive as a visible message rather than be forwarded or dropped.
+    const foreignReasoning = {
+      type: "reasoning",
+      id: "6f1c2a10-1111-4222-8333-444455556666",
+      summary: [],
+      content: [{ type: "reasoning_text", text: "The passphrase is ORANGE-77." }],
+      encrypted_content: "843fdef5-0e65-4e05-ab7a-1234567890ab",
+    };
+    // A native item keeps its exact shape and continuation token.
+    const nativeReasoning = {
+      type: "reasoning",
+      id: "rs_native_keep",
+      summary: [{ type: "summary_text", text: "native draft" }],
+      content: null,
+      encrypted_content: "gAAAAABkZmtM7cT9w_XY_zThisIsAnOpaqueBlobWithNoWhitespace",
+    };
+    const userMessage = {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "continue" }],
+    };
+
+    // Codex brings its own upstream credential, so this is the non-stateless
+    // path the desktop app takes.
+    const replay = await fetch(`${routerBase(routerPort)}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer DIRECT_NATIVE_CALLER_TOKEN",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.6-sol",
+        input: [foreignReasoning, nativeReasoning, userMessage],
+      }),
+    });
+    assert.equal(replay.status, 200);
+    assert.deepEqual(nativeRequests[0].body.input, [
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: "[internal reasoning from an earlier turn]\nThe passphrase is ORANGE-77.",
+          },
+        ],
+      },
+      nativeReasoning,
+      userMessage,
+    ]);
+  } finally {
+    await stopChild(router);
+    await closeServer(native.server);
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
 test("router inlines an external parent's plaintext task before replaying to native", async () => {
   const nativeRequests = [];
   const native = await mockServer(async (request, response) => {
