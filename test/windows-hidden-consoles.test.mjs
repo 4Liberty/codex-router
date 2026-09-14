@@ -15,10 +15,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // A source assertion is the only cheap guard here: the failure is invisible on
 // macOS and Linux, and reproducing it needs a Windows desktop session.
 //
-// Calls with inherited stdio are excluded from this static scan because their
-// terminal attachment must be determined at runtime. Inherited desktop pipes
-// must still be hidden; that distinction is covered in process-tree.test.mjs.
-// Calls with stdio `ignore` or `pipe` are always treated as background helpers.
+// Only direct PowerShell calls with non-inherited stdio are covered by this
+// static guard. Inherited-stdio calls are excluded; their background safety
+// is not established here. The variable-command spawn in process-tree.mjs is
+// outside this scan and is covered separately by its native owner-console test.
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(directory, entry.name);

@@ -566,7 +566,9 @@ test("Windows console policy distinguishes inherited pipes from terminal streams
       assert.equal(request.windowsHide, hidden, `${name}: contained command`);
       assert.equal(request.command, "worker.exe");
       assert.deepEqual(request.arguments, ["argument with spaces"]);
-      assert.deepEqual(invocation.options.stdio, stdio === "inherit" ? "inherit" : ["ignore", "pipe", "pipe"]);
+      assert.deepEqual(invocation.options.stdio, stdio === "inherit"
+        ? hidden ? ["pipe", "pipe", "pipe"] : "inherit"
+        : ["ignore", "pipe", "pipe"]);
     }
   } finally {
     childProcess.spawn = originalSpawn;
@@ -578,7 +580,7 @@ test("Windows console policy distinguishes inherited pipes from terminal streams
   }
 });
 
-test("Windows background inherited pipes stay windowless and preserve I/O and exit status", {
+test("Windows background owner and contained command stay windowless with forwarded I/O", {
   skip: process.platform !== "win32",
 }, async () => {
   const probe = `
@@ -587,12 +589,23 @@ test("Windows background inherited pipes stay windowless and preserve I/O and ex
     Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices;
       public static class ConsoleProbe {
         [DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();
+        [DllImport("kernel32.dll", SetLastError=true)] public static extern bool AttachConsole(uint pid);
+        [DllImport("kernel32.dll", SetLastError=true)] public static extern bool FreeConsole();
       }'
+    $ownerPid = (Get-CimInstance Win32_Process -Filter "ProcessId=$PID").ParentProcessId
     $result = @{ window = [ConsoleProbe]::GetConsoleWindow().ToInt64(); input = [Console]::ReadLine() }
     [Console]::Out.WriteLine(($result | ConvertTo-Json -Compress))
     [Console]::Error.WriteLine('inherited-stderr')
+    [void][ConsoleProbe]::FreeConsole()
+    $attached = [ConsoleProbe]::AttachConsole([uint32]$ownerPid)
+    $attachError = [Runtime.InteropServices.Marshal]::GetLastWin32Error()
+    $owner = @{ attached = $attached; window = [ConsoleProbe]::GetConsoleWindow().ToInt64() }
+    if (-not $attached) { $owner.error = $attachError }
+    [IO.File]::WriteAllText($env:ROUTER_TEST_OWNER_CONSOLE, ($owner | ConvertTo-Json -Compress))
     exit 7
   `;
+  const directory = mkdtempSync(path.join(os.tmpdir(), "router-owner-console-"));
+  const ownerReport = path.join(directory, "owner.json");
   const moduleUrl = new URL("../src/process-tree.mjs", import.meta.url).href;
   const powershell = path.join(process.env.SystemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
   const parentProgram = [
@@ -609,6 +622,7 @@ test("Windows background inherited pipes stay windowless and preserve I/O and ex
     detached: true,
     windowsHide: true,
     stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env, ROUTER_TEST_OWNER_CONSOLE: ownerReport },
   });
   let stdout = "";
   let stderr = "";
@@ -621,11 +635,18 @@ test("Windows background inherited pipes stay windowless and preserve I/O and ex
     assert.equal(signal, null);
     assert.deepEqual(JSON.parse(stdout), { window: 0, input: "inherited-stdin" });
     assert.equal(stderr.trim(), "inherited-stderr");
+    // The actual PowerShell parent's console is inspected after the target's
+    // stream checks, so AttachConsole cannot change the handles under test.
+    const owner = JSON.parse(readFileSync(ownerReport, "utf8"));
+    assert.equal(owner.window, 0);
+    // ERROR_INVALID_HANDLE (6) is documented when the owner has no console.
+    assert.deepEqual(owner, owner.attached ? { attached: true, window: 0 } : { attached: false, window: 0, error: 6 });
   } finally {
     if (parent.exitCode === null && parent.signalCode === null) {
       parent.kill("SIGKILL");
       await once(parent, "close");
     }
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
