@@ -281,7 +281,15 @@ and keep every turn on the shared canonical Responses path.
    `./install.ps1 -Target claude -Auto -Providers IDS` on Windows.
 3. The launcher supplies a secret-bearing loopback `ANTHROPIC_BASE_URL`,
    `ANTHROPIC_AUTH_TOKEN`, and gateway model discovery only to its child
-   process. It must not persist those values into Claude-owned files.
+   process. It must not persist those values into Claude-owned files. It also
+   pins Claude Code's agent and default-tier model names
+   (`CLAUDE_CODE_SUBAGENT_MODEL`, `ANTHROPIC_SMALL_FAST_MODEL`, and
+   `ANTHROPIC_DEFAULT_OPUS_MODEL`/`_SONNET_MODEL`/`_HAIKU_MODEL`) to the same
+   routed model the session runs: built-in agents and agents whose frontmatter
+   pins `model: opus` resolve through the tier aliases rather than through
+   `CLAUDE_CODE_SUBAGENT_MODEL`, and an unpinned alias falls back to a literal
+   Anthropic id the router does not serve, which 404s every spawned agent of
+   that type. A caller value that already names a routed id is preserved.
 4. Model discovery publishes every routed slug as
    `codex_router/anthropic/ROUTER_SLUG`. The `anthropic` segment is required:
    Claude Code filters gateway-discovered ids that do not contain `claude` or
