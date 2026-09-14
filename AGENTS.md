@@ -1416,6 +1416,33 @@ threshold is not a provider-measured boundary. It is text-only: GLM-5.3's
 multimodal variant is GLM-5.3-Flash, so the full-size route declares `text`
 modality instead of inheriting Flash's image path.
 
+Every GLM-5.3-Flash route therefore declares `["text", "image"]`, and the
+exceptions were the mistake. Z.ai files this model under its vision-language
+guides and gives its input modality as `Video / Image / Text / File`, documents
+the `image_url` content block for it, and says it is fully available on the GLM
+Coding Plan; OpenRouter's own catalog publishes `["text","image","video"]` for
+`z-ai/glm-5.3-flash`. Three routes nevertheless shipped text-only — the two
+Z.ai ones and OpenRouter's — because each entry was written fresh when the
+withdrawn Ox Alpha preset was replaced and took the conservative default rather
+than the preset's measured modality set, with no note saying otherwise (#756).
+A text-only declaration is not inert: `bridgeVisionInput` in `src/router.mjs`
+reads exactly this field, so it spent a second model's quota transcribing every
+pasted screenshot for a model that could read it directly, and the catalog told
+Codex the route was text-only. Two things about the Coding Plan endpoint are
+worth keeping straight, because they look like counter-evidence and are not.
+Z.ai's Vision MCP Server is an addition for Coding Plan users, not a substitute
+for a modality the endpoint lacks — its own page says a pasted image bypasses
+it because the client "will by default transcode the image and call the model
+interface directly". And the `Uncheck Support Images` line in the Cline and
+tool-integration guides is written against `glm-5.2`, which is text-only; those
+pages do not mention GLM-5.3-Flash at all. Z.ai publishes no modality table for
+`api/coding/paas/v4` in either direction, so the endpoint's acceptance of an
+image is documented only at the model level. A route that claims a modality it
+cannot serve trades a bridged read for a 400 on the whole turn, and it becomes
+a bridge **engine** for other text-only models as well, so a future Flash route
+on a new reseller is sourced from that reseller's own catalog rather than
+inherited from this paragraph.
+
 ## A provider whose models each name their own endpoint
 
 `custom` is a **container, not a destination**. It declares no `baseUrl`, no

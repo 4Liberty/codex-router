@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+- **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
+  paying another model to describe them.** `zai-coding/glm-5.3-flash`,
+  `zai-api/glm-5.3-flash`, and `openrouter/glm-5.3-flash` declared
+  `inputModalities: ["text"]`, so `bridgeVisionInput` sent every image in the
+  turn to a vision engine and substituted a transcript — spending a second
+  provider's quota, and losing whatever a transcript cannot carry — for a model
+  Z.ai documents as natively multimodal (#756). Z.ai gives the model's input
+  modality as `Video / Image / Text / File`, documents its `image_url` content
+  block, and says it is fully available on the GLM Coding Plan; OpenRouter's own
+  catalog publishes `["text","image","video"]` for `z-ai/glm-5.3-flash`. All
+  three entries now declare `["text", "image"]`. The text-only values were never
+  a measurement: each entry was written fresh when the withdrawn Ox Alpha preset
+  was removed and took the conservative default, while the preset it replaced
+  had carried image input from three provider catalogs. The full-size GLM-5.3
+  routes stay text-only, which is the same fact rather than an inconsistency —
+  Flash is the multimodal member of that family — and a test now holds both
+  halves. `compHash` is bumped on each changed entry, so rebuild the catalog and
+  fully quit and reopen Codex before pasting an image.
+
 - **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
   planning into the answer.** Hy4 Preview writes its own markup with a
   per-message nonce (`</think:6124c78e>`, the family
