@@ -2465,32 +2465,15 @@ function normalizeNativeInput(
   { statelessReasoning = false, dropUnstoredReasoningReferences = false } = {},
 ) {
   if (!Array.isArray(input)) return input;
-  // A routed turn can leave its full reasoning item and a following rs_
-  // reference in the next native request even though that item was produced
-  // with store=false. A null/empty encrypted payload on the full item is
-  // request-local proof that native storage cannot resolve the paired id.
-  // Keep unrelated bare references intact for credential-bearing native
-  // callers; they may still name items that ChatGPT actually stored.
-  const explicitlyUnstoredReasoningIds = new Set(
-    input
-      .filter((item) =>
-        item?.type === "reasoning" &&
-        typeof item.id === "string" &&
-        item.id.startsWith("rs_") &&
-        Object.hasOwn(item, "encrypted_content") &&
-        (typeof item.encrypted_content !== "string" || item.encrypted_content.length === 0)
-      )
-      .map((item) => item.id),
-  );
-  return input.flatMap((item) => {
+  const normalized = input.flatMap((item) => {
     if (item?.type === "reasoning") {
       const reasoning = sanitizeReasoningForNative(item, {
-        stateless: statelessReasoning || explicitlyUnstoredReasoningIds.has(item.id),
+        stateless: statelessReasoning,
       });
       return reasoning === undefined ? [] : [reasoning];
     }
     if (
-      (dropUnstoredReasoningReferences || explicitlyUnstoredReasoningIds.has(item?.id)) &&
+      dropUnstoredReasoningReferences &&
       item?.type === "item_reference" &&
       typeof item.id === "string" &&
       item.id.startsWith("rs_")
@@ -2517,6 +2500,24 @@ function normalizeNativeInput(
       ? messageItem(renderCompactionValue(item.encrypted_content))
       : item];
   });
+
+  // Some clients replay a full reasoning item and an item_reference for the
+  // same rs_ id. The full item already carries the input, so the reference is
+  // redundant and can make the native endpoint reject the duplicate id. Build
+  // this set after normalization: a reference is removed only when its full
+  // reasoning item is still present, while a sole stored-item pointer survives.
+  const inlineReasoningIds = new Set(
+    normalized
+      .filter((item) =>
+        item?.type === "reasoning" &&
+        typeof item.id === "string" &&
+        item.id.startsWith("rs_")
+      )
+      .map((item) => item.id),
+  );
+  return normalized.filter((item) =>
+    item?.type !== "item_reference" || !inlineReasoningIds.has(item.id)
+  );
 }
 
 function extractUserMessages(input) {

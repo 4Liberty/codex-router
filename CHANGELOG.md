@@ -20,6 +20,14 @@
   delta channel has already emitted cannot be retracted, so a leak split across
   deltas can still flash on screen; `output_text.done` and the stored message
   item -- what is replayed into the next turn -- are cleaned either way.
+- **Native replay no longer sends both a full reasoning item and its duplicate
+  reference.** A request can contain an inline `reasoning` item followed by an
+  `item_reference` with the same `rs_` id. Native input normalization now keeps
+  the full item and removes only that redundant reference after all existing
+  reasoning cleanup has run. A null, empty, or non-string `encrypted_content`
+  value is not treated as evidence that the item was never stored: direct-
+  credential callers retain the existing stored-namespace fallback, and a bare
+  reference with no surviving inline item remains untouched.
 
 - **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
   preserve recoverable types when breaking recursive tool references.** No
