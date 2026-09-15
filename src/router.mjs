@@ -57,12 +57,28 @@ import {
   isEmptyCompletionPreludeLimitError,
 } from "./empty-completion-guard.mjs";
 import { itemLifecycleNormalizerTransform } from "./item-lifecycle-normalizer.mjs";
+import {
+  leakedToolCallRecoveryTransform,
+  usesHy4NonceMarkup,
+  usesLeakedToolCallRecovery,
+} from "./leaked-tool-call-recovery.mjs";
+import { moonshotSchemaRoute } from "./moonshot-schema-routes.mjs";
 import { reasoningTagStripperTransform } from "./reasoning-tag-stripper.mjs";
 import {
   ZaiResponsesCompatTransform,
   zaiResponsesCompatTransform,
 } from "./zai-responses-compat.mjs";
-import { grokReasoningSummaryCompatTransform } from "./grok-reasoning-summary-compat.mjs";
+import { reasoningSummaryCompatTransform } from "./grok-reasoning-summary-compat.mjs";
+import { earlyToolItemDoneTransform } from "./early-tool-item-done.mjs";
+import {
+  applyGrokEditFacade,
+  encodeGrokFacadeHistory,
+  GROK_FACADE_TOOL_NAMES,
+  grokEditFacadeEnabled,
+  nativeExecRelayTarget,
+  rewriteGrokFacadeToolChoice,
+} from "./grok-tool-facade.mjs";
+import { applyGrokFileToolsOverlay } from "./instruction-overlays.mjs";
 import { ResponsesHeartbeatTransform } from "./responses-heartbeat.mjs";
 import { messagePhaseTransform } from "./message-phase.mjs";
 import { translatedToolMessageCompatTransform } from "./deepseek-tool-message-compat.mjs";
@@ -81,8 +97,10 @@ import {
 import {
   MODEL_BY_SLUG,
   RUNTIME_PROVIDERS,
+  USER_MODELS_SKIPPED,
   providerForModel,
 } from "./model-registry.mjs";
+import { isProviderPrefixedSlug, unroutedModelError } from "./unrouted-model.mjs";
 import { createHealthCache } from "./health-cache.mjs";
 import { discoveryDisabled } from "./discovery-mode.mjs";
 import { readNativeAliases } from "./native-alias.mjs";
@@ -1056,16 +1074,8 @@ function needsNonRecursiveToolSchemaCompatibility(route) {
 // schema flavor. Console Go's Kimi K2.7 Code route has now returned the same
 // validator error (#488), so include that exact measured route without
 // projecting the behavior onto unrelated OpenCode Go models.
-const MOONSHOT_PROVIDER_IDS = new Set(["kimi-oauth", "kimi-api", "kimi-api-cn"]);
-const OPENCODE_GO_MOONSHOT_MODELS = new Set(["kimi-k2.7-code"]);
-
 function needsMoonshotSchemaCompatibility(route) {
-  const providerId = providerForModel(route)?.id;
-  return (
-    MOONSHOT_PROVIDER_IDS.has(providerId) ||
-    (providerId === "opencode-go" &&
-      OPENCODE_GO_MOONSHOT_MODELS.has(route.upstreamModel))
-  );
+  return moonshotSchemaRoute(providerForModel(route)?.id, route.upstreamModel);
 }
 
 function zenFreeCompatibleInput(input, route) {
@@ -2126,6 +2136,7 @@ async function readVisionEvidence({ url, engine, nativeCall, effort, question, k
 function carryReasoningThroughInput(input, {
   nativeThinking = false,
   removeCarriedReasoning = false,
+  dropReasoning = false,
 } = {}) {
   if (!Array.isArray(input) || input.length < 2) return;
   for (let index = 0; index < input.length - 1; index += 1) {
@@ -2143,7 +2154,19 @@ function carryReasoningThroughInput(input, {
     const text = texts.join("\n");
     const next = input[end];
     let removed = 0;
-    if (text && next) {
+    if (dropReasoning) {
+      // A thinking model on a Chat route that is outside the native-reasoning
+      // contract must not be shown its own past thinking as prose. It reads
+      // the replay as something it once said aloud, moves new thinking into
+      // the answer channel, and loops on its last progress note (#755, and the
+      // Hy4 measurements in chat-reasoning.mjs). Before #708 widened the
+      // reasoning-lifecycle repair to every `openai`-protocol provider these
+      // routes stored no reasoning item at all, so there was nothing to carry
+      // and the path was inert; now there is, and dropping is the only replay
+      // that asserts nothing about a vendor's reasoning_content handling.
+      // The in-contract routes above still carry theirs as `thinking` parts.
+      removed = end - index;
+    } else if (text && next) {
       if (next.type === "function_call" || next.type === "custom_tool_call") {
         input[end - 1] = assistantTextItem(text, nativeThinking);
         if (removeCarriedReasoning) removed = end - index - 1;
@@ -2398,6 +2421,30 @@ function sanitizeReasoningForNative(item, { stateless = false } = {}) {
   return storedItem;
 }
 
+// A routed model's reasoning cannot ride into the native backend as reasoning
+// items. Measured against the live backend: `content` is capped at zero parts
+// ("array_above_max_length"), a non-`rs_` id is rejected, an `rs_` id this
+// backend never stored is a 404, and a foreign ciphertext fails to decrypt.
+// Dropping the item throws away thinking the conversation was built on, and
+// moving the text into `summary` keeps the bytes but not the meaning -- a
+// passphrase that appears only in a reasoning summary never reaches the
+// model's answer. Carry the text as a visible assistant message instead: the
+// one replay form that both validates and is actually read. Native items have
+// no visible `content`, so they keep their exact shape and continuation token.
+// `CODEX_ROUTER_NATIVE_REASONING_AS_TEXT=0` restores the old passthrough.
+const NATIVE_REASONING_AS_TEXT =
+  process.env.CODEX_ROUTER_NATIVE_REASONING_AS_TEXT !== "0";
+const NATIVE_REASONING_PREFIX = "[internal reasoning from an earlier turn]";
+
+function nativeReasoningReplay(item) {
+  if (!NATIVE_REASONING_AS_TEXT) return [item];
+  const content = reasoningItemText({ content: item?.content });
+  if (!content) return [item];
+  const summary = reasoningSummaryText(item);
+  const body = summary && summary !== content ? `${summary}\n${content}` : content;
+  return [assistantTextItem(`${NATIVE_REASONING_PREFIX}\n${body}`)];
+}
+
 // The mirror of normalizeRoutedAgentInput. When the parent agent is routed, its
 // turn never touches the native backend, so Codex has no opaque ciphertext to
 // put in a delegated task and stores the payload as plain text under
@@ -2469,12 +2516,12 @@ function normalizeNativeInput(
   { statelessReasoning = false, dropUnstoredReasoningReferences = false } = {},
 ) {
   if (!Array.isArray(input)) return input;
-  return input.flatMap((item) => {
+  const normalized = input.flatMap((item) => {
     if (item?.type === "reasoning") {
       const reasoning = sanitizeReasoningForNative(item, {
         stateless: statelessReasoning,
       });
-      return reasoning === undefined ? [] : [reasoning];
+      return reasoning === undefined ? [] : nativeReasoningReplay(reasoning);
     }
     if (
       dropUnstoredReasoningReferences &&
@@ -2504,6 +2551,24 @@ function normalizeNativeInput(
       ? messageItem(renderCompactionValue(item.encrypted_content))
       : item];
   });
+
+  // Some clients replay a full reasoning item and an item_reference for the
+  // same rs_ id. The full item already carries the input, so the reference is
+  // redundant and can make the native endpoint reject the duplicate id. Build
+  // this set after normalization: a reference is removed only when its full
+  // reasoning item is still present, while a sole stored-item pointer survives.
+  const inlineReasoningIds = new Set(
+    normalized
+      .filter((item) =>
+        item?.type === "reasoning" &&
+        typeof item.id === "string" &&
+        item.id.startsWith("rs_")
+      )
+      .map((item) => item.id),
+  );
+  return normalized.filter((item) =>
+    item?.type !== "item_reference" || !inlineReasoningIds.has(item.id)
+  );
 }
 
 function extractUserMessages(input) {
@@ -3017,14 +3082,19 @@ async function handleRoutedCompaction(
 }
 
 async function handleModels(response) {
-  const data = catalogModels().map((model) => ({
+  const models = catalogModels();
+  const data = models.map((model) => ({
     id: model.slug,
     object: "model",
     owned_by: MODEL_BY_SLUG.has(model.slug)
       ? providerForModel(MODEL_BY_SLUG.get(model.slug)).ownedBy
       : "openai",
   }));
-  writeJson(response, 200, { object: "list", data });
+  // OpenAI-compatible clients read `data`; current Codex custom-provider
+  // discovery reads its account-catalog shape from `models` on the same
+  // endpoint. Serving both keeps the provider switch compatible with either
+  // reader without duplicating discovery work.
+  writeJson(response, 200, { object: "list", data, models });
 }
 
 // What the Gemini surface will accept a turn for.
@@ -3228,9 +3298,16 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   // DeepSeek route already has exactly one plaintext reasoning item and must
   // not copy it into an assistant message for Chat translation.
   if (!deepSeekResponses) {
+    // Three replay channels, not two. A Chat route inside the native-reasoning
+    // contract carries its thinking as `thinking` parts for the forwarder to
+    // restore as reasoning_content; a Chat route outside it drops the thinking
+    // rather than replaying it as visible prose (#755); a native Responses
+    // provider keeps its existing item semantics untouched.
+    const nativeChatReasoning = chatCompletionsProvider && usesNativeChatReasoning(route);
     carryReasoningThroughInput(input, {
-      nativeThinking: chatCompletionsProvider && usesNativeChatReasoning(route),
+      nativeThinking: nativeChatReasoning,
       removeCarriedReasoning: chatCompletionsProvider,
+      dropReasoning: chatCompletionsProvider && !nativeChatReasoning,
     });
   }
   // Models marked requiresTrailingUserTurn reject requests ending with a model
@@ -3313,10 +3390,12 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   if (needsMoonshotSchemaCompatibility(route)) {
     // After the namespace flattening above, so the connector tools Codex ships
     // inside `codex_app` are repaired in the shape Moonshot actually receives.
-    tools = repairToolSchemaRoots(tools, { inlineForeignRefs: true });
+    tools = repairToolSchemaRoots(tools, { inlineForeignRefs: true, declareTypes: true });
   }
   let routedInput = input;
   let routedToolChoice = payload.tool_choice;
+  let installedFacade = new Set();
+  let facadeNameCollision = false;
   const patchHook = grokPatchHookEnabled(route, request.headers, process.env, request.codexRouterPatchHookCapability);
   const structuredPatch = (patchHook || grokStructuredPatchEnabled(route)) &&
     Array.isArray(tools) && tools.some(
@@ -3340,6 +3419,19 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     tools = customTools.tools;
     routedInput = customTools.input;
     routedToolChoice = customTools.toolChoice;
+    if (grokEditFacadeEnabled(route, structuredPatch)) {
+      const incomingFacadeNames = new Set(
+        (Array.isArray(tools) ? tools : []).map((tool) => tool?.name).filter(Boolean),
+      );
+      const nativeExec = nativeExecRelayTarget(tools, flattenedNamespaces);
+      tools = applyGrokEditFacade(tools, flattenedNamespaces, route, structuredPatch, {
+        patchHook,
+        installed: installedFacade,
+      });
+      routedInput = encodeGrokFacadeHistory(routedInput, nativeExec, installedFacade);
+      routedToolChoice = rewriteGrokFacadeToolChoice(routedToolChoice, installedFacade);
+      facadeNameCollision = GROK_FACADE_TOOL_NAMES.some((name) => incomingFacadeNames.has(name));
+    }
   }
   if (chatCompletionsProvider || consoleGoResponsesCompatibility || deepSeekResponses) {
     let searchHistory;
@@ -3422,6 +3514,16 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     model: route.gatewayModel,
     input: routedInput,
   };
+  if (
+    grokEditFacadeEnabled(route, structuredPatch) &&
+    installedFacade.size > 0 &&
+    !facadeNameCollision
+  ) {
+    routed.instructions = applyGrokFileToolsOverlay(
+      typeof payload.instructions === "string" ? payload.instructions : "",
+      installedFacade,
+    );
+  }
   applyRoutedServiceTier(routed, payload, route);
   routed = applyZenFreeIncludeCompatibility(routed, route);
   if (routedToolChoice !== payload.tool_choice) routed.tool_choice = routedToolChoice;
@@ -3813,6 +3915,27 @@ async function handleResponses(request, response, requestUrl) {
     let registeredRoute =
       MODEL_BY_SLUG.get(requestedModel) ??
       MODEL_BY_SLUG.get(readNativeAliases()[requestedModel]);
+    // A provider-prefixed slug with no route is a routed model this process
+    // never loaded -- added to user-models.json after startup, or skipped at
+    // load as invalid -- and never native GPT traffic: no native slug contains
+    // "/". Forwarding it earned ChatGPT's "not supported when using Codex with
+    // a ChatGPT account" refusal and sent the prompt to OpenAI (#689). Refuse
+    // it here, before the native redirect or the passthrough can take it.
+    if (!registeredRoute && isProviderPrefixedSlug(requestedModel)) {
+      const prefix = requestedModel.slice(0, requestedModel.indexOf("/"));
+      const provider = RUNTIME_PROVIDERS.get(prefix);
+      writeJson(response, 400, unroutedModelError(requestedModel, {
+        provider,
+        providerEnabled: Boolean(provider) && routeProviderEnabled(prefix),
+        skippedReason: USER_MODELS_SKIPPED.get(requestedModel),
+      }));
+      // Not gated on QUIET: this is a configuration fault the operator has to
+      // be able to find in the service log, not per-turn chatter.
+      console.error(
+        `[codex-router] refused unrouted model=${JSON.stringify(requestedModel.slice(0, 160))} status=400`,
+      );
+      return;
+    }
     // An unregistered model on this endpoint is native GPT traffic -- Codex's
     // background agent sessions arrive here hardwired to a native slug no
     // matter which model the user picked. With the redirect opted in, send
@@ -4320,13 +4443,15 @@ async function handleResponses(request, response, requestUrl) {
         envelopeCompat = new ZaiResponsesCompatTransform();
       }
       if (envelopeCompat) transforms.push(envelopeCompat);
-      const grokReasoningSummaryCompat = route
-        ? grokReasoningSummaryCompatTransform(providerForModel(route), contentType)
+      // LiteLLM's Chat Completions bridge streams reasoning under hashed
+      // per-delta ids that Codex drops; rebuild one reasoning item. Grok OAuth
+      // also normalizes gateway error envelopes here. Observe the canonical
+      // terminal for metering and activity; the leading byte observer still
+      // measures the original upstream bytes.
+      const reasoningSummaryCompat = route
+        ? reasoningSummaryCompatTransform(providerForModel(route), contentType)
         : undefined;
-      // Grok gateway error envelopes are normalized along with its reasoning
-      // lifecycle. Observe the canonical terminal for metering and activity;
-      // the leading byte observer still measures the original upstream bytes.
-      if (grokReasoningSummaryCompat) transforms.splice(1, 0, grokReasoningSummaryCompat);
+      if (reasoningSummaryCompat) transforms.splice(1, 0, reasoningSummaryCompat);
       // LiteLLM can add blank assistant envelopes while translating either
       // Chat Completions or Messages. The factory refuses native traffic and
       // providers that already speak Responses, so those paths gain no stage.
@@ -4334,6 +4459,26 @@ async function handleResponses(request, response, requestUrl) {
         ? translatedToolMessageCompatTransform(providerForModel(route), contentType)
         : undefined;
       if (translatedToolMessageCompat) transforms.push(translatedToolMessageCompat);
+      // #701's stage first, so it only ever sees tool items the upstream
+      // actually sent. The recovery stage below injects its own complete
+      // added/done pairs just before the terminal event, and those must not
+      // look to this one like a new item opening beside an unclosed one.
+      const earlyToolDone = route
+        ? earlyToolItemDoneTransform(providerForModel(route), contentType)
+        : undefined;
+      if (earlyToolDone) transforms.push(earlyToolDone);
+      // Recover tool calls a routed model wrote as text. Hy4 Preview has a
+      // native `<tool_calls:NONCE>` syntax that some serving stacks fail to
+      // parse, so the calls arrive on the reasoning channel and the turn ends
+      // with an empty assistant message and no `function_call` -- Codex shows
+      // the "Worked for ..." group and no answer at all. Runs before the
+      // namespace transform so a recovered flattened call is restored like any
+      // other. Native streams (no route) never carry the markup, and neither
+      // does any routed family but Hy4 -- see `usesLeakedToolCallRecovery`.
+      const leakedToolCalls = usesLeakedToolCallRecovery(route)
+        ? leakedToolCallRecoveryTransform(contentType)
+        : undefined;
+      if (leakedToolCalls) transforms.push(leakedToolCalls);
       // Restore flattened namespace calls for routed chat-completions providers
       // and pin an omitted spawn_agent model to every routed parent, including
       // providers that already speak Responses. Also inject missing finished-
@@ -4375,7 +4520,17 @@ async function handleResponses(request, response, requestUrl) {
       // reasoning channel. Runs before the lifecycle normalizer so the reorder
       // sees already-cleaned message text. Native OpenAI streams (no route) never
       // carry these tags and are left untouched.
-      const tagStripper = route ? reasoningTagStripperTransform(contentType) : undefined;
+      // Hy4 spells its own delimiters with a per-message nonce
+      // (`</think:6124c78e>`), and a stack that eats the opening tag leaves the
+      // planning prose in the answer with only that orphan close behind it
+      // (#654). Reading the suffix -- and the prose in front of an orphan close
+      // -- is gated to the family that writes the nonce, the same gate the
+      // tool-call recovery above uses.
+      const tagStripper = route
+        ? reasoningTagStripperTransform(contentType, {
+            nonceDelimiters: usesHy4NonceMarkup(route),
+          })
+        : undefined;
       if (tagStripper) transforms.push(tagStripper);
       // Restore sequential output-item lifecycles for routed providers, whose
       // chat-completions -> Responses bridge can leave an assistant `message`
@@ -4401,11 +4556,12 @@ async function handleResponses(request, response, requestUrl) {
       ) {
         transforms.push(new ResponsesHeartbeatTransform({ intervalMs: GROK_HEARTBEAT_MS }));
       }
-      return { transforms, usageObserver, guard };
+      return { transforms, usageObserver, guard, leakedToolCalls };
     };
     const firstPipeline = createResponsePipeline(upstreamContentType);
     usageTransform = firstPipeline.usageObserver;
     emptyCompletionGuard = firstPipeline.guard;
+    const leakedToolCallRecovery = firstPipeline.leakedToolCalls;
     const relayOpen = Boolean(emptyCompletionGuard);
     let streamedPreludeFailureKind;
     try {
@@ -4435,6 +4591,15 @@ async function handleResponses(request, response, requestUrl) {
       } else {
         throw error;
       }
+    }
+    // A turn that leaked its tool calls as text would otherwise end silently,
+    // so say when the router put them back: without this the only evidence a
+    // recovery happened is the absence of a failure.
+    const recoveredToolCalls = leakedToolCallRecovery?.recoveredCalls() || 0;
+    if (recoveredToolCalls > 0) {
+      console.error(
+        `[codex-router] recovered ${recoveredToolCalls} tool call(s) the model wrote as text model=${requestedModel || "unknown"} provider=${route?.provider || "unknown"}`,
+      );
     }
     usage = usageTransform?.tokenUsage();
     // Time to the first generated token, which is what an output-tokens-per-

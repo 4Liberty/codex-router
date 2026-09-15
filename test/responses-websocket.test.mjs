@@ -8,6 +8,7 @@ import {
   handleResponsesWebSocketUpgrade,
   RESPONSES_WEBSOCKET_BETA,
 } from "../src/responses-websocket.mjs";
+import { unroutedModelError } from "../src/unrouted-model.mjs";
 
 const CALLER_KEY = "test-responses-websocket-caller-capability-0123456789abcdef";
 const WS_KEY = Buffer.from("0123456789abcdef").toString("base64");
@@ -864,6 +865,35 @@ test("wraps HTTP failures and serializes requests on a reused connection", async
   assert.equal((await peer.nextJson()).type, "response.created");
   assert.equal((await peer.nextJson()).type, "response.completed");
   assert.equal(maximumActive, 1);
+  peer.close();
+});
+
+// The WebSocket has no model resolution of its own: it re-enters the HTTP
+// Responses route, which refuses an unrouted provider-prefixed slug (#689).
+// Codex must receive that refusal as a terminal 400 with its code intact.
+test("relays a local unrouted_model refusal with its status and code", async (t) => {
+  const refusal = unroutedModelError("unorouter/gpt-6-astra", {});
+  let calls = 0;
+  const { server, port } = await startServer(async (request, response) => {
+    for await (const _chunk of request) {
+      // Drain the body before answering, like the real HTTP route.
+    }
+    calls += 1;
+    response.writeHead(400, { "content-type": "application/json" });
+    response.end(JSON.stringify(refusal));
+  });
+  t.after(() => server.close());
+  const { peer } = await connect(port);
+  peer.sendJson(createRequest({ model: "unorouter/gpt-6-astra" }));
+  const error = await peer.nextJson();
+  assert.equal(error.type, "error");
+  assert.equal(error.status, 400);
+  assert.deepEqual(error.error, {
+    type: "invalid_request_error",
+    code: "unrouted_model",
+    message: refusal.error.message,
+  });
+  assert.equal(calls, 1);
   peer.close();
 });
 

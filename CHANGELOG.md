@@ -1,7 +1,6 @@
 # Changelog
 
 ## Unreleased
-
 - **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
   anonymous Responses route is a Console proxy, so Meta-issued reasoning
   `encrypted_content` is bound to Console's caller, not this router. Replaying
@@ -9,17 +8,346 @@
   caller". The exact Muse Contributor Free Responses gate now drops that
   continuation token (keeping any summary text) and stops asking for it on
   `include`. Paid Zen/Go keep a stable key and are unchanged.
+
+- **Routed models can be published ahead of the native GPT picker entries.**
+  Codex renders its picker by `priority`, and routed models always landed in a
+  band after the highest visible native entry, so an operator whose everyday
+  models are external could not put them first. `model-picker.json` now
+  carries an `order` (`native-first`, the unchanged default, or
+  `routed-first`), set with `./bin/model-router codex picker-order`. Under
+  `routed-first` every routed model -- certified v2 spawn routes included, so
+  none interleaves with the shifted natives -- publishes at 1..N in the
+  existing vendor-group order and the natives move after them. Visibility
+  writers preserve the choice; an older file or an unrecognized value keeps
+  the default.
+- **Generic Ollama providers are curated at the model's served context length
+  and modalities instead of the conservative default.** Ollama's
+  OpenAI-compatible `/v1/models` lists ids only, so a curated Ollama model
+  carried the 131072-token guess (#266) and text-only input even when the
+  server runs it at 1M with vision. Generic discovery now asks the same origin's
+  `/api/show` for each listed model when the provider is an OpenAI-chat
+  endpoint rooted at `/v1`, proves the answer is Ollama-shaped, and fills in
+  only the fields the list left blank. The probe is bounded like the catalog
+  fetch, stops on a missing route or after three leading refusals, and skips a
+  model the server cannot describe. Curation stores the advertised window and
+  image input; discovery reports them as `contextLengths` and the new
+  `inputModalities` map, so a documented or default modality never masquerades
+  as a served one.
+- **GLM-5.3-Flash on Command Code no longer sends an effort rung the model
+  refuses by name.** `commandcode/glm-5.3-flash` declares the model's
+  `low`/`high`/`max` ladder and carried no `requestProfile`, and the profile
+  chain in `src/api-forwarder.mjs` is keyed entirely on that field — so the
+  effort Codex sent went upstream verbatim. Codex older than 0.143 has no `max`
+  in its effort enum, so `clampModelEfforts` rewrites this route's default down
+  to `xhigh`, which is the rung GLM-5.3-Flash answers with `400 — [1210] This
+  model always engages in thinking and cannot be disabled; please use low,
+  high, or max`. The route now carries the same `ox-alpha` clamp the OpenCode Go
+  and OpenRouter Flash routes use, so `xhigh`/`ultra` land on `max` and
+  `medium`/`minimal` on `low`, an absent effort stays absent, and no rung the
+  entry does not advertise can leave the router. This asserts nothing about
+  Command Code's own validation, which the provider does not document; the plan
+  fallback at `/alpha/generate` carries no effort at all and is unchanged.
+  `compHash` is bumped, so rebuild the catalog and fully quit and reopen Codex.
+
+- **GLM-5.3-Flash on Command Code now compacts at 400K like every other route
+  for that model.** `commandcode/glm-5.3-flash` shipped with
+  `autoCompact: 900000` — the Command Code house value for a 1M window, carried
+  by two dozen of that provider's entries — while the five other checked-in
+  GLM-5.3-Flash routes compact at 400,000. That threshold is a property of the
+  model: large live multimodal Flash histories repeatedly returned empty
+  completions before the advertised limit, which is why
+  `nousresearch/glm-5.3-flash` was dropped rather than shipped at 943K. The
+  Command Code entry was written fresh in a bulk catalog pin and took the
+  provider default; no commit message, comment, or research note argued for
+  900K, and the earlier incarnation of the same file carried 400,000. Codex
+  therefore ran this route 500,000 tokens past the point where the model has
+  been seen to go blank. The route is also now named in the
+  `test/glm-5.3-flash.test.mjs` inventory — its absence there is what let the
+  outlier live — and that inventory is now derived from the registry, so the
+  next Flash route cannot be omitted silently. `compHash` is bumped, so rebuild
+  the catalog and fully quit and reopen Codex to pick up the new threshold.
+
+## 0.6.0
+
+- **Thinking models on Chat resellers outside the native-reasoning contract no
+  longer see their own past reasoning replayed as visible prose.** #708 widened
+  the reasoning-lifecycle repair from `grok-oauth` to every `openai`-protocol
+  provider, which is what finally let reasoning reach Codex on these routes —
+  and as a side effect made Codex store a reasoning item for those turns. Most
+  Command Code thinking models match no entry in the native-reasoning family
+  table (`commandcode/qwen3.8-flash` resolves to upstream `Qwen/Qwen3.8-Flash`),
+  and for those the carry turned the stored reasoning into `output_text` on the
+  next turn. A model that reads its own thinking as prose it once said moves new
+  thinking into the answer channel and loops on its last progress note — the
+  documented 2, 4, 5, 8, 16 copies per message (#755). Those routes now drop the
+  reasoning from the carry instead of converting it, which asserts nothing about
+  any vendor's `reasoning_content` handling; routes inside the contract still
+  carry theirs as `thinking` parts, and native Responses providers are
+  untouched. Before #708 this was inert on these routes, because no reasoning
+  item was stored to carry.
+- **A slow first start no longer uninstalls the service the installer just
+  installed.** On a clean machine the install wrote its launchers and registered
+  its service correctly, then a cold-starting LiteLLM gateway with a large model
+  set overran the 300-second health wait. The installer treated that as a failed
+  install and rolled back — `service.mjs uninstall` deletes the service *and*
+  unlinks both launchers — so the operator was left with `"installed":true` in
+  the log, no `start-codex-router.cmd` on disk, no scheduled task, and a bare
+  `fetch failed` naming nothing (#760). The earlier guard for this only covered
+  a reinstall over an already-working router; a first install had no prior state
+  to compare against and was torn out anyway. `service.mjs` now exits **75**
+  (`EX_TEMPFAIL`) when the service is installed and running but health has not
+  answered yet, and both installers leave the service and the client config
+  exactly as installed for that case, printing what to check instead. A crash
+  loop or a dead launcher is still a rollback: those are broken rather than
+  slow, and the readiness layer tags only the retryable timeout.
+
+- **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
+  paying another model to describe them.** `zai-coding/glm-5.3-flash`,
+  `zai-api/glm-5.3-flash`, and `openrouter/glm-5.3-flash` declared
+  `inputModalities: ["text"]`, so `bridgeVisionInput` sent every image in the
+  turn to a vision engine and substituted a transcript — spending a second
+  provider's quota, and losing whatever a transcript cannot carry — for a model
+  Z.ai documents as natively multimodal (#756). Z.ai gives the model's input
+  modality as `Video / Image / Text / File`, documents its `image_url` content
+  block, and says it is fully available on the GLM Coding Plan; OpenRouter's own
+  catalog publishes `["text","image","video"]` for `z-ai/glm-5.3-flash`. All
+  three entries now declare `["text", "image"]`. The text-only values were never
+  a measurement: each entry was written fresh when the withdrawn Ox Alpha preset
+  was removed and took the conservative default, while the preset it replaced
+  had carried image input from three provider catalogs. The full-size GLM-5.3
+  routes stay text-only, which is the same fact rather than an inconsistency —
+  Flash is the multimodal member of that family — and a test now holds both
+  halves. `compHash` is bumped on each changed entry, so rebuild the catalog and
+  fully quit and reopen Codex before pasting an image.
+
+- **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
+  planning into the answer.** Hy4 Preview writes its own markup with a
+  per-message nonce (`</think:6124c78e>`, the family
+  `src/leaked-tool-call-recovery.mjs` already parses tool calls out of). A
+  serving stack that consumes the opening tag but relays the close left the
+  model's internal prose in `output_text` with only an orphan close behind it,
+  and the reasoning-tag stripper's exact `</think>` grammar could not see it, so
+  the chain-of-thought was shown as the answer and replayed into later turns
+  (#654, `commandcode/hy4-preview`). The stripper now reads the suffix, and an
+  orphan nonce close -- one whose opening tag never appeared -- ends the leaked
+  reasoning and takes the text in front of it. Both are gated to Hy4 routes by
+  the same `usesHy4NonceMarkup` check the tool-call recovery uses: a bare
+  `</think>` keeps its prefix everywhere, since that spelling can appear in an
+  answer about reasoning tags. Tool-call markup spans are still relayed
+  verbatim; only an orphan close of one is read as a terminator. Bytes the
+  delta channel has already emitted cannot be retracted, so a leak split across
+  deltas can still flash on screen; `output_text.done` and the stored message
+  item -- what is replayed into the next turn -- are cleaned either way.
+- **Native replay no longer sends both a full reasoning item and its duplicate
+  reference.** A request can contain an inline `reasoning` item followed by an
+  `item_reference` with the same `rs_` id. Native input normalization now keeps
+  the full item and removes only that redundant reference after all existing
+  reasoning cleanup has run. A null, empty, or non-string `encrypted_content`
+  value is not treated as evidence that the item was never stored: direct-
+  credential callers retain the existing stored-namespace fallback, and a bare
+  reference with no surviving inline item remains untouched.
+
+- **Locally curated Moonshot models with `toolSchemaRecursion: "flatten"`
+  preserve recoverable types when breaking recursive tool references.** No
+  shipped Kimi model enables flattening; stock Kimi and Meta payloads are
+  unchanged. Explicit types and type-implying siblings take precedence over
+  the referenced definition. Pure reference aliases are followed safely.
+  Untyped recursive unions and reference-only rings still cannot supply a
+  target type and remain permissive; this is not a general fix for Moonshot's
+  `missing type in anyOf properties` error. The route behind #726 has not been
+  established, so that issue is not claimed resolved by this change.
+
+- **Routed coding clients can be kept current from the Harness page.**
+  `control client-update <id>` and `control client-update --all`, plus an
+  **Update** button on each row and **Update all** in the header, move
+  opencode, pi, Command Code, and Hermes Agent to their latest release. Each
+  runs that client's own updater (`opencode upgrade`, `pi update --self`,
+  `command-code update`, `hermes update --yes`) rather than `npm install -g`,
+  so a CLI installed by Homebrew or a `curl | sh` script is updated in place
+  instead of gaining a second npm copy that may win or lose on PATH. omp ships
+  neither a package this router installs nor a self-update subcommand, so its
+  row prints the project's own three installs. Updating stays a separate,
+  explicit action: publishing a model list never changes a client's version.
+  `--all` skips clients that are not installed and reports each one instead of
+  stopping at the first failure.
+- **pi is installed from its maintained package.** The pi coding agent moved
+  from `@mariozechner/pi-coding-agent` (last published at 0.73.1) to
+  `@earendil-works/pi-coding-agent`. Setup installed the abandoned name, which
+  still installs and still answers `pi --version`, so the stale agent looked
+  healthy. pi's own `--ignore-scripts` install flag is used as well.
+- **Muse Spark Responses turns no longer end in a gateway error.** OpenCode Go
+  and Zen send `event: ping` (`{"type":"ping","cost":"0"}`) after every
+  `response.completed`. The API forwarder treated it as data after the terminal
+  event and appended `invalid_responses_stream`, which LiteLLM re-raised as
+  `Response API in-stream error` on every completed `opencode-go-responses` and
+  `opencode-free-responses` turn. Codex ignores bytes after a terminal event, so
+  it went unnoticed; opencode and pi validate them and failed every turn. A
+  keep-alive or SSE comment after the terminal event is now dropped; real data
+  after it is still refused.
+- **Thinking models behind resellers now get their reasoning replayed the way
+  their vendors require.** The replay contract was keyed on request profiles,
+  so `zai-coding/glm-5.3` replayed reasoning as `reasoning_content` while the
+  same GLM on opencode Go, OpenRouter, or Command Code -- and Kimi K3, Hy3,
+  MiniMax M3, DeepSeek there -- had it replayed as visible assistant text, the
+  shape that made Hy4 loop on its own progress notes. The contract is now
+  keyed on the upstream model family for Chat Completions resellers: DeepSeek
+  (the API 400s without it), GLM-5.x (Z.ai requires the history replayed with
+  preserved thinking), Kimi K3 (Moonshot requires it in tool loops), MiniMax
+  M3 (interleaved thinking), and Tencent Hy3/Hy4. Verified live on every
+  reachable route on opencode Go, OpenRouter, and Command Code; Anthropic
+  protocol variants and resellers that were not probed keep their existing
+  channel.
+- **Hy4 Preview no longer loops on its own progress notes mid-turn.** Its
+  reasoning is now replayed to it the way DeepSeek's and GLM's already were --
+  as `reasoning_content` on the assistant turn that produced it -- instead of
+  as visible assistant text. Replayed as prose, the model read its own past
+  thinking as something it had said aloud, moved new thinking into the answer
+  channel (reasoning tokens went from 174 to 0 in one step), and from there
+  repeated its last note 2, 4, 5, 8, then 16 times per message while Codex
+  showed "Reconnecting". Applies to every route on the `hy4-reasoning` profile
+  (opencode Go, OpenRouter, NanoGPT, Nous); Command Code's own Hy4 shim and
+  Cline are unchanged.
+- **A routed turn no longer dies silently when the model writes its tool calls
+  as text.** Tencent Hy4 Preview has a tool-call syntax of its own
+  (`<tool_calls:NONCE>...`). When a serving stack fails to parse it, the calls
+  arrive as ordinary text on the reasoning channel, nothing reaches the
+  `tool_calls` array, and the turn ends on an assistant message with no content
+  and no `function_call`. Codex reads that as the end of the turn and writes
+  `task_complete` with `last_agent_message: null`, so the user is left with the
+  "Worked for ..." group and no answer at all -- in the capture this was found
+  in, four minutes of work vanished mid-investigation. The router now parses the
+  leaked markup back into real `function_call` items, strips it from the text it
+  was buried in, and emits the calls before the turn closes, so the model's own
+  work continues. Only the model's calls are recovered: a malformed, unterminated
+  or nonce-mismatched span is relayed verbatim, a stream without the markup is
+  passed through byte-for-byte, and native turns gain no stage.
+- **Reasoning from Chat Completions models now shows in Codex.** LiteLLM's
+  Chat Completions to Responses bridge opens the assistant message first and
+  streams the model's reasoning under a fresh hashed item id per delta, with no
+  reasoning item around it. Codex drops deltas that belong to no open item, so
+  routed models such as Hy4 Preview (Command Code), DeepSeek V4.1 Flash on
+  opencode Go, and every other Chat Completions route showed no reasoning at
+  all, and none was saved to the thread. The repair that already rebuilt one
+  reasoning item for Grok OAuth now runs for every Chat Completions route.
+  Direct DeepSeek keeps its own bridge repair, Responses and Messages providers
+  are untouched, canonical streams pass byte-identical, and the Grok-specific
+  gateway-error wording stays on Grok OAuth. Its first-frame bound also rises
+  from 256 KiB to 10 MiB: LiteLLM echoes the whole Codex tool list in
+  `response.created`, and in Codex Desktop that frame used to switch the repair
+  off for the entire stream.
+- **Blank tool-call messages and direct DeepSeek reasoning are repaired behind
+  large tool lists.** LiteLLM echoes the request's instructions and whole tool
+  list in `response.created` and `response.in_progress`. The stream repairs
+  that remove LiteLLM's blank assistant message before a tool call (every Chat
+  Completions and Messages route) and rebuild direct DeepSeek's reasoning item
+  gave up on any frame over 256 KiB or with more than 8,192 JSON members, so a
+  session whose tool list crossed either had both repairs switched off from
+  its first event. Mock gateways send a bare envelope and never showed it. The
+  frame bound now matches the namespace relay's 10 MiB, the JSON scan budgets
+  grow with it, and malformed, ambiguous, or over-budget streams still pass
+  through byte-identical.
+- **Kimi no longer rejects a tool schema whose union leaf declares no type.**
+  A nullable field written the ordinary way --
+  `{"anyOf":[{"type":"string"},{"type":"null"}]}` -- carries no `type` of its
+  own, and Moonshot's validator refuses the whole request with HTTP 400
+  `tools.function.parameters missing type in anyOf properties`, losing the turn
+  on every Kimi model (#641). Nothing in the pipeline supplied one:
+  `normalizeSchemaLiterals` only removes literals that contradict a type a node
+  already declares. The Moonshot compatibility pass now declares a type where
+  the node already implies one -- from `properties`/`required`, `items`, a
+  single-typed `enum`/`const`, or a union whose branches all agree -- alongside
+  the existing `$ref` inlining. A node that implies nothing (a bare `{}`, a
+  lone `not`, a mixed `enum`) is left open, because narrowing a schema the
+  client meant to leave open is worse than the rejection. Every other provider
+  keeps the exact wire payload it has today.
+
+- **A streamed answer no longer loses the whitespace it starts with.** The
+  inline-reasoning stripper trimmed the leading whitespace of every message it
+  streamed, but `stripThinkTags` -- the same module's whole-string form, used
+  for the `output_text.done` snapshot and the stored message item -- trims only
+  when it actually removed a tag, and returns an untagged message by identity.
+  So an ordinary answer opening with a newline (a fenced code block, a leading
+  blank line) reached the client without it, while the terminal snapshot beside
+  it kept it: the rendered answer and the stored one disagreed on a route that
+  had leaked no reasoning at all. A first delta made only of whitespace was
+  dropped from the stream outright. The stripper now holds that whitespace until
+  the first visible character, by which point it knows whether a tag was
+  removed, and emits or drops it to match. The hold is bounded: nothing is kept
+  once a tag has been removed, only the new delta is scanned rather than the
+  accumulation, and past 8 KiB of unbroken whitespace the stripper emits what it
+  holds instead of growing further. The observed leak shapes are unchanged --
+  reasoning arrives before the answer, so the removal is always known in time.
+- **opencode Zen's quota headers no longer overwrite the Go plan's.** Both
+  plans share one credential and one selection toggle, but Zen bills at its own
+  endpoint, which is why `cooldownScope` keeps Zen's identity where
+  `canonicalProviderId` folds it into Go. The forwarder harvested the observed
+  rate-limit headers under the canonical id instead, so every Zen response
+  overwrote the Go plan's entry in `rate-limits.json` and every Go response
+  overwrote Zen's -- one key holding whichever plan answered last, under the
+  name of the other. Zen's window could not be read back either: every
+  cooldown-scope consumer looks it up as `opencode-zen`, an id the file never
+  held. The snapshot is now keyed by cooldown scope, the same identity the
+  cooldown store beside it already uses, so the two cannot drift apart again
+  (#575). Every other provider and variant keeps the key it has today, and a
+  stale entry is replaced by the next response that carries headers.
+
+- **A routed model the router has not loaded now fails locally, not at
+  ChatGPT.** A model added to or renamed in `user-models.json` shows up in the
+  Codex picker as soon as the catalog is rebuilt, but the running router reads
+  its routes only at startup. Until the service restarted, the router forwarded
+  that slug to ChatGPT like a native model, and the turn failed with "The
+  'unorouter/gpt-6-astra' model is not supported when using Codex with a
+  ChatGPT account". That read as an OpenAI restriction, and the prompt went to
+  OpenAI besides. A user model the registry skipped as invalid failed the same
+  way (#689). No native slug contains a `/`, so the router now answers a
+  `provider/model` slug it has no route for with HTTP 400 `unrouted_model`
+  before the native redirect or passthrough can take it. The message names the
+  slug, says whether its provider is registered and enabled, gives the reason a
+  user model with that slug was skipped, and says to restart with
+  `bin/control service restart`. Native slugs, native aliases, the native
+  redirect, and routed slugs behave as before. `doctor` now warns about each
+  skipped user model that has no route.
+- **Control Center loads Codex account usage again when both account reads
+  answer.** The conflict resolution that merged #662 onto #648 renamed the
+  shared normalizer to `partialUsage` but left the both-answered call site on
+  the removed `usageFromReplies`, so every healthy poll threw a
+  `ReferenceError` and Control Center painted "Some router data could not
+  load" over the snapshot. The test fake answered synchronously from inside
+  the probe's guarded stdin write, whose `catch` swallowed the error; it now
+  has a `deferred` mode that answers on a later tick like a real pipe, and a
+  both-answered test that fails without the fix.
 - **Routed models' turns now render like native ones in Codex.** Native models
   label each assistant message `commentary` (a progress note before more tool
   calls) or `final_answer`, and Codex folds commentary into "Worked for ..."
   and shows the final answer below it. Routed providers never send the label,
   so every progress note rendered as a standalone answer. The router now labels
-  routed messages from the stream's item order: a message another item follows
-  is commentary, and the last message of a completed response is the final
-  answer. A phase the provider sent always wins, text still streams live, and
-  failed or unterminated responses are relayed unlabelled. The label costs no
-  model tokens, and LiteLLM drops it from history before any chat-completions
-  provider sees it.
+  routed messages from the stream's item order: a message a tool call or
+  another message follows is commentary, and the last message of a completed
+  response is the final answer, even when only reasoning follows it. A phase
+  the provider sent always wins, text still streams live, and failed,
+  incomplete, or unterminated responses are relayed unlabelled; a stream the
+  upstream breaks off loses the held message frame along with the rest of the
+  turn. The label costs no model tokens, but Codex sends it back on later
+  turns. Chat-translated routes drop it from history. Responses-surface
+  providers (Meta, OpenCode, OpenCode free, GitHub Copilot, DeepSeek Responses)
+  receive it, as OpenAI's Responses schema allows. Endpoints added with
+  `--adapter openai-responses` have it removed before the request leaves the
+  router, since nothing shows that their validators accept it.
+- **`apply_patch` calls no longer abort routed turns mid-stream when a model
+  skips LiteLLM's wrapper.** LiteLLM sends native custom tools such as
+  `apply_patch` to Chat Completions providers as a function with one `content`
+  string, and relays whatever arguments come back. Models do not always comply:
+  they put `content` after another key, answer `{"input": ...}` or `{}`, or send
+  the raw patch. The router accepted only a leading `{"content": "..."}` and
+  aborted the already-streaming response, and Codex retried the identical turn
+  until it failed ("stream closed before response.completed"). The router log
+  showed "invalid custom tool arguments done" or "incomplete custom tool
+  argument delta sequence" on DeepSeek V4.1 Flash, DeepSeek V4 Flash, GLM-5.3,
+  and Grok 4.5. The relay now derives the input exactly as LiteLLM does, so
+  Codex receives the same call LiteLLM produced and a malformed patch comes
+  back to the model as an ordinary tool error. A non-string `content`, a
+  completed item that disagrees, and streamed text contradicted by the final
+  input still fail closed. Reproduced offline against pinned LiteLLM 1.96.0.
 - **Switching a conversation back to OpenAI no longer fails on routed item IDs.**
   Routed providers mint their own item IDs (`call_...`, `tool_...`,
   `chatcmpl-...`), Codex saves them, and OpenAI rejects them on replay with
@@ -31,6 +359,7 @@
   history is unchanged. Tests cover continuing and compacting a conversation,
   sessions supplied by the caller or the router, and replaying normalized
   history. Based on #664 by @webhype.
+
 - **Tok/s counts reasoning tokens exactly when they were generated inside the
   timed window.** The Sep 5 change subtracted `reasoning_tokens` from the
   numerator on every route, but the first-token clock already started on the
@@ -55,6 +384,25 @@
   e.g. 150 output against 499 reasoning), so the inclusive total is rebuilt
   first instead of clamping the sample to zero and silently dropping it.
   Provider totals and billing are unchanged.
+- **Meta API routes for Muse Spark 1.3 and its Contributor tier.**
+  `meta/muse-spark-1.3` and `meta/muse-spark-1.3-contributor` mirror the Muse
+  Spark 1.2 Meta routes: 1M context compacting at 900K, text and image input,
+  the minimal-to-xhigh ladder defaulting to high, reasoning summaries, and
+  `auto-tool-choice`. Meta's model page documents both ids, the window, and
+  image input; the Contributor tier is cheaper because Meta may use its traffic
+  to improve its products.
+- **Command Code route for Muse Spark 1.3.** `commandcode/muse-spark-1.3`
+  follows `commandcode/muse-spark-1.2`: 1M context compacting at 900K, text and
+  image input, `auto-tool-choice`, and only the `high` effort, because Command
+  Code does not document effort values. Command Code also lists the
+  Contributor tier, but no Command Code Contributor route is checked in for
+  either version; it remains available through `bin/curate-models commandcode`.
+- **OpenRouter route for DeepSeek V4.1 Flash.**
+  `openrouter/deepseek-v4.1-flash` takes OpenRouter's catalog values (1,048,576
+  context, text and image input, low/high/max) and compacts at 900K to keep
+  DeepSeek's 128K max-effort completion. It carries `auto-tool-choice` because
+  DeepSeek rejects forced tool choices in thinking mode. Live verification has
+  not been run; see `docs/research/deepseek-v4-1-flash-2026-09-11.md`.
 - **Preserve tool calls after large fragmented response preludes.** Allow one
   unfinished initial event within the existing 10 MiB bound and match the
   namespace relay's limit, so later MCP calls retain their client identities.
@@ -194,6 +542,28 @@
   A native 401 is also preserved with a sanitized local error, allowing Codex's
   own ChatGPT authentication recovery to refresh the session and retry without
   exposing the upstream response body.
+- **Five more coding clients can be published to from the Harness page.**
+  opencode, pi, omp (oh-my-pi), Command Code, and Hermes Agent each keep their
+  providers in a configuration document the user also owns, so one shared
+  publisher (`src/routed-harness-*.mjs`) writes the single `codex-router`
+  provider key each of them reads and leaves every other byte alone.
+  **Set up** installs the client's CLI where this router can (updating a
+  Command Code older than 1.30.0, the first release that reads
+  `providers.json`) and publishes the whole routed catalog in one action; omp
+  and Hermes install from their own instructions first; `control client-setup <id>` and
+  `control client-disconnect <id>` are the same thing from a terminal. Clients
+  that speak the Responses API reach the authenticated loopback `/v1` path with
+  the router's own slugs; Command Code and Hermes, which have no Responses
+  client, reach the same Anthropic Messages surface Claude Code uses with
+  `codex_router/anthropic/<slug>` ids. Enabling a provider, storing a key, or
+  curating a model republishes all five alongside the existing clients, and a
+  caller-capability rotation refreshes them. YAML documents are spliced by line
+  range so comments and sibling providers survive; a JSON document the router
+  cannot round-trip is refused rather than reformatted; a `codex-router`
+  provider whose base URL this router did not issue is never replaced or
+  removed; and opencode's default model is claimed only when the user has not
+  chosen one. Devin CLI and T3 Code are deliberately not rows: Devin CLI has no
+  custom base URL, and T3 Code drives whichever official CLI is already routed.
 
 - **Command Code forced tool choices now use the same bounded alias as the tool definition.**
   The 64-character compatibility added in #643 shortened provider-facing tool names but

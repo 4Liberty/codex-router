@@ -2315,7 +2315,7 @@ test("response transform restores namespace on unambiguous unprefixed calls", as
   assert.match(output, /"namespace":"codex_app"/);
 });
 
-test("response transform pins spawn-agent model overrides to the routed parent", async () => {
+test("response transform pins only an unadvertised spawn-agent override to the routed parent", async () => {
   const { namespaces } = flattenNamespaceTools(clientRoutedTools());
   const lookups = buildNamespaceLookups(namespaces);
   const invalid = rewriteNamespaceResponsePayload(
@@ -2367,7 +2367,9 @@ test("response transform pins spawn-agent model overrides to the routed parent",
     model: "opencode-go/deepseek-v4-flash",
   });
 
-  const allowedButCrossProvider = rewriteNamespaceResponsePayload(
+  // The client advertised this model, so it is a deliberate delegation target
+  // and survives a routed parent instead of being pinned back to it.
+  const advertisedCrossProvider = rewriteNamespaceResponsePayload(
     {
       output: [
         {
@@ -2380,9 +2382,9 @@ test("response transform pins spawn-agent model overrides to the routed parent",
     lookups,
     "opencode-go/deepseek-v4-flash",
   );
-  assert.deepEqual(JSON.parse(allowedButCrossProvider.output[0].arguments), {
+  assert.deepEqual(JSON.parse(advertisedCrossProvider.output[0].arguments), {
     message: "verify",
-    model: "opencode-go/deepseek-v4-flash",
+    model: "gpt-5.6-terra",
   });
 });
 
@@ -4383,6 +4385,84 @@ test("native custom-tool legacy arguments still fail closed when streamed input 
   );
   assert.equal(error.code, "ERR_NAMESPACE_RELAY_COMMITTED_STREAM");
   assert.match(error.message, /custom tool argument deltas disagree with completed input/u);
+});
+
+function litellmNativeCustomEvents(id, argumentsText, completedInput) {
+  return [
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { type: "custom_tool_call", id, call_id: id, name: "apply_patch", status: "in_progress", input: "" },
+    },
+    ...[...argumentsText].map((delta) => ({
+      type: "response.function_call_arguments.delta",
+      item_id: id,
+      output_index: 0,
+      delta,
+    })),
+    { type: "response.function_call_arguments.done", item_id: id, output_index: 0, arguments: argumentsText },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: { type: "custom_tool_call", id, call_id: id, name: "apply_patch", status: "completed", input: completedInput },
+    },
+  ].map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+}
+
+// LiteLLM 1.96 unwrap_custom_tool_arguments(): a string `content` from a JSON
+// object, otherwise the provider arguments verbatim. Each case pairs the
+// provider arguments with the input LiteLLM puts on the completed item.
+const PATCH_FIXTURE = "*** Begin Patch\n*** Update File: src/a.js\n@@\n-const a = 1;\n+const re = /\\d+/;\n*** End Patch";
+
+test("native custom-tool arguments LiteLLM keeps verbatim relay as its completed input", async () => {
+  for (const [name, argumentsText, completedInput] of [
+    ["content after another key", JSON.stringify({ path: "src/a.js", content: PATCH_FIXTURE }), PATCH_FIXTURE],
+    ["input key instead of content", JSON.stringify({ input: PATCH_FIXTURE }), JSON.stringify({ input: PATCH_FIXTURE })],
+    ["empty object", "{}", "{}"],
+    ["raw patch text", PATCH_FIXTURE, PATCH_FIXTURE],
+    ["bare JSON string", JSON.stringify(PATCH_FIXTURE), JSON.stringify(PATCH_FIXTURE)],
+  ]) {
+    const id = `call_${name.replaceAll(" ", "_")}`;
+    const output = await collect(
+      Readable.from(litellmNativeCustomEvents(id, argumentsText, completedInput))
+        .pipe(new NamespaceToolCallTransform(new Map(), "text/event-stream")),
+    );
+    const payloads = output.split(/\n\n/).filter(Boolean)
+      .map((block) => JSON.parse(block.split("\n").find((line) => line.startsWith("data: ")).slice(6)));
+    assert.equal(
+      payloads.find((event) => event.type === "response.custom_tool_call_input.done")?.input,
+      completedInput,
+      name,
+    );
+    assert.equal(payloads.at(-1).item.input, completedInput, name);
+    // The decoder follows only a leading content wrapper; nothing it could not
+    // decode reaches the client as streamed input.
+    assert.equal(
+      payloads.some((event) => event.type === "response.custom_tool_call_input.delta"),
+      false,
+      name,
+    );
+    assert.doesNotMatch(output, /response\.function_call_arguments/u, name);
+  }
+});
+
+test("native custom-tool arguments still fail closed where LiteLLM's input cannot be matched", async () => {
+  for (const [name, argumentsText, completedInput, reason] of [
+    // Python str() of a non-string content has no faithful JavaScript form.
+    ["non-string content", JSON.stringify({ content: null }), "None", /invalid custom tool arguments done/u],
+    // The completed item must carry the input the relay already committed.
+    ["completed item disagrees", JSON.stringify({ input: "one" }), "two", /custom tool call input changed before close/u],
+    // Decoded text already streamed cannot be contradicted by the final input.
+    ["streamed text then invalid", '{"content": "*** Begin Patch"}', '{"content": "*** Begin Patch"}',
+      /incomplete custom tool argument delta sequence/u],
+  ]) {
+    const { error } = await collectUntilPipelineError(
+      litellmNativeCustomEvents(`call_${name.replaceAll(" ", "_")}`, argumentsText, completedInput),
+      new NamespaceToolCallTransform(new Map(), "text/event-stream"),
+    );
+    assert.equal(error?.code, "ERR_NAMESPACE_RELAY_COMMITTED_STREAM", name);
+    assert.match(error.message, reason, name);
+  }
 });
 
 test("a bridged custom tool without a grammar carries only what it was given", () => {

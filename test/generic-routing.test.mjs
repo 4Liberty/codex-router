@@ -223,3 +223,139 @@ test("one generic gateway routes ordinary and explicitly profiled models without
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("a generic Responses gateway receives replayed messages without Codex's phase label", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "generic-responses-phase-"));
+  const providersFile = path.join(directory, "generic-providers.json");
+  const userModelsFile = path.join(directory, "user-models.json");
+  const stateDir = path.join(directory, "state");
+  const upstreamRequests = [];
+  const upstream = await listen(async (request, response) => {
+    upstreamRequests.push({ url: request.url, body: await requestJson(request) });
+    json(response, 200, {
+      id: "resp_generic_1",
+      object: "response",
+      status: "completed",
+      model: upstreamRequests.at(-1).body.model,
+      output: [{
+        id: "msg_generic_1",
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "ok", annotations: [] }],
+      }],
+    });
+  });
+  const model = userModelEntry({
+    providerId: "responses-gateway",
+    upstreamId: "responses-model",
+    priority: 100,
+  });
+  writeFileSync(providersFile, `${JSON.stringify({
+    version: 1,
+    providers: [{
+      id: "responses-gateway",
+      displayName: "Responses Gateway",
+      baseUrl: `http://127.0.0.1:${upstream.port}/v1`,
+      adapter: "openai-responses",
+      headers: {},
+      allowPrivate: true,
+      enabled: true,
+    }],
+  }, null, 2)}\n`);
+  writeFileSync(userModelsFile, `${JSON.stringify({ version: 1, models: [model] }, null, 2)}\n`);
+  const forwarderPort = await openPort();
+  const forwarder = runForwarder({
+    MODEL_ROUTER_API_PORT: String(forwarderPort),
+    MODEL_ROUTER_STATE_DIR: stateDir,
+    MODEL_ROUTER_GENERIC_PROVIDERS: providersFile,
+    MODEL_ROUTER_USER_MODELS: userModelsFile,
+  });
+  const commentary = {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "output_text", text: "Checking." }],
+  };
+  const answer = {
+    type: "message",
+    role: "assistant",
+    content: [{ type: "output_text", text: "Done." }],
+  };
+  const input = [
+    { type: "message", role: "user", content: [{ type: "input_text", text: "Inspect it." }] },
+    { ...commentary, phase: "commentary" },
+    { type: "function_call", call_id: "call_1", name: "inspect", arguments: "{}" },
+    { type: "function_call_output", call_id: "call_1", output: "fine" },
+    { ...answer, phase: "final_answer" },
+    { type: "message", role: "user", content: [{ type: "input_text", text: "Again." }] },
+  ];
+
+  try {
+    await waitForForwarder(forwarderPort, forwarder);
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: `responses/${model.gatewayModel}`, input }),
+    });
+    assert.equal(response.status, 200, forwarder.testErrors());
+    assert.equal((await response.json()).output[0].content[0].text, "ok");
+
+    assert.equal(upstreamRequests.length, 1);
+    assert.equal(upstreamRequests[0].url, "/v1/responses");
+    const sent = upstreamRequests[0].body;
+    assert.equal(sent.model, model.upstreamModel);
+    assert.deepEqual(sent.input, [input[0], commentary, input[2], input[3], answer, input[5]]);
+  } finally {
+    await stop(forwarder);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("forwarder preserves types only for curated Moonshot flattening", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "moonshot-flatten-"));
+  const userModelsFile = path.join(directory, "user-models.json");
+  const bodies = [];
+  const upstream = await listen(async (request, response) => {
+    bodies.push(await requestJson(request));
+    json(response, 200, { id: "test", object: "chat.completion", choices: [
+      { index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" },
+    ] });
+  });
+  const models = [
+    userModelEntry({ providerId: "kimi-api", upstreamId: "curated-flatten", priority: 100, metadata: { toolSchemaRecursion: "flatten" } }),
+    userModelEntry({ providerId: "opencode-go", upstreamId: "flatten-control", priority: 101, metadata: { toolSchemaRecursion: "flatten" } }),
+    userModelEntry({ providerId: "opencode-go", upstreamId: "plain-control", priority: 102 }),
+  ];
+  writeFileSync(userModelsFile, JSON.stringify({ version: 1, models }));
+  const port = await openPort();
+  const child = runForwarder({
+    MODEL_ROUTER_API_PORT: String(port),
+    MODEL_ROUTER_STATE_DIR: path.join(directory, "state"),
+    MODEL_ROUTER_USER_MODELS: userModelsFile,
+    OPENCODE_GO_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    OPENCODE_API_KEY: "test-only-key",
+    KIMI_API_KEY: "test-only-key",
+    KIMI_API_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    MODEL_ROUTER_QUIET: "0",
+  });
+  const schema = { type: "object", properties: { root: { $ref: "#/$defs/N" } },
+    $defs: { N: { type: "object", properties: { child: { $ref: "#/$defs/N" } } } } };
+  try {
+    await waitForForwarder(port, child);
+    for (const model of models) {
+      const response = await fetch(`http://127.0.0.1:${port}/v1/chat/completions`, {
+        method: "POST", headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ model: model.gatewayModel, messages: [{ role: "user", content: "test" }],
+          tools: [{ type: "function", function: { name: "inspect", parameters: schema } }] }),
+      });
+      assert.equal(response.status, 200, `${await response.text()} ${child.testErrors()}`);
+    }
+    const edges = bodies.map((body) => body.tools[0].function.parameters.$defs.N.properties.child);
+    assert.deepEqual(edges, [{ type: "object" }, {}, { $ref: "#/$defs/N" }]);
+  } finally {
+    await stop(child);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});

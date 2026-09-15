@@ -261,7 +261,7 @@ export function readCodexAccountUsage({
         responses.set(message.id, message.result);
       }
       if (responses.size === 2) {
-        finish(undefined, usageFromReplies());
+        finish(undefined, partialUsage());
       }
     });
 

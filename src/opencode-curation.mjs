@@ -194,6 +194,8 @@ const CURATION_ROUTES = Object.freeze({
       "gpt-5.6-sol",
       "gpt-5.6-terra",
       "meta/muse-spark-1.2",
+      "meta/muse-spark-1.3",
+      "meta/muse-spark-1.3-contributor",
       "moonshotai/Kimi-K2.7-Code",
       "moonshotai/Kimi-K2.7-Code-Highspeed",
       "moonshotai/Kimi-K3",

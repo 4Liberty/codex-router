@@ -11,7 +11,11 @@ import {
   readCodexAccountUsage,
 } from "../src/codex-account-usage.mjs";
 
-function fakeAppServer(replies) {
+// `deferred` answers on a later tick, the way a real app-server's pipe does.
+// Answering synchronously runs the probe's line handler inside its own guarded
+// stdin write, whose catch swallowed a ReferenceError on the both-answered
+// path, so every test here stayed green while Control Center failed each poll.
+function fakeAppServer(replies, { deferred = false } = {}) {
   const stdout = new PassThrough();
   const stdin = new PassThrough();
   const child = new EventEmitter();
@@ -26,6 +30,10 @@ function fakeAppServer(replies) {
   };
   child.kill = () => end(0);
   stdin.on("data", (chunk) => {
+    if (deferred) setImmediate(() => answer(chunk));
+    else answer(chunk);
+  });
+  const answer = (chunk) => {
     for (const line of String(chunk).split("\n").filter(Boolean)) {
       let message;
       try {
@@ -43,7 +51,7 @@ function fakeAppServer(replies) {
       for (const item of outbound) stdout.write(`${JSON.stringify(item)}\n`);
       if (exitAfter || exitBeforeWrite) end(1, { exited: Boolean(exitBeforeWrite) });
     }
-  });
+  };
   return child;
 }
 
@@ -234,6 +242,35 @@ test("the usage panel names a missing Codex instead of blaming the app-server", 
   // machine with Codex installed. It only looked green because CI runners have
   // none -- which is the one environment where this assertion cannot fail.
   await assert.rejects(readCodexAccountUsage({ binary: null }), /no Codex binary was found/);
+});
+
+test("a healthy app-server that answers both account reads returns full usage", async () => {
+  const value = await readCodexAccountUsage({
+    binary: "/fake/codex",
+    platform: "darwin",
+    timeoutMs: 2_000,
+    spawnImpl: () => fakeAppServer((message) => {
+      if (message.id === 1) return { id: 1, result: {} };
+      if (message.id === 2) {
+        return { id: 2, result: { rateLimits: { planType: "pro", primary: { usedPercent: 12 } } } };
+      }
+      if (message.id === 3) {
+        return {
+          id: 3,
+          result: {
+            summary: { lifetimeTokens: 99 },
+            dailyUsageBuckets: [{ startDate: "2026-09-11", tokens: 5 }],
+          },
+        };
+      }
+      return undefined;
+    }, { deferred: true }),
+  });
+
+  assert.equal(value.planType, "pro");
+  assert.equal(value.primary.usedPercent, 12);
+  assert.equal(value.summary.lifetimeTokens, 99);
+  assert.deepEqual(value.dailyUsageBuckets, [{ startDate: "2026-09-11", tokens: 5 }]);
 });
 
 test("a refused rateLimits read still returns usage instead of failing the panel", async () => {
