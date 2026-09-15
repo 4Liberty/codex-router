@@ -18,6 +18,21 @@
   carry theirs as `thinking` parts, and native Responses providers are
   untouched. Before #708 this was inert on these routes, because no reasoning
   item was stored to carry.
+- **A slow first start no longer uninstalls the service the installer just
+  installed.** On a clean machine the install wrote its launchers and registered
+  its service correctly, then a cold-starting LiteLLM gateway with a large model
+  set overran the 300-second health wait. The installer treated that as a failed
+  install and rolled back — `service.mjs uninstall` deletes the service *and*
+  unlinks both launchers — so the operator was left with `"installed":true` in
+  the log, no `start-codex-router.cmd` on disk, no scheduled task, and a bare
+  `fetch failed` naming nothing (#760). The earlier guard for this only covered
+  a reinstall over an already-working router; a first install had no prior state
+  to compare against and was torn out anyway. `service.mjs` now exits **75**
+  (`EX_TEMPFAIL`) when the service is installed and running but health has not
+  answered yet, and both installers leave the service and the client config
+  exactly as installed for that case, printing what to check instead. A crash
+  loop or a dead launcher is still a rollback: those are broken rather than
+  slow, and the readiness layer tags only the retryable timeout.
 
 - **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
   paying another model to describe them.** `zai-coding/glm-5.3-flash`,
