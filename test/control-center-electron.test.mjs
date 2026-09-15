@@ -1316,6 +1316,8 @@ test("preload exposes only the named control operations", async () => {
     "setupHarness",
     "prepareCursorTunnel",
     "connectCursor",
+    "disconnectCursor",
+    "disconnectHarness",
     "openHarnessSession",
     "openExternal",
   ]) {
@@ -1394,6 +1396,8 @@ test("preload constructs exact positional IPC payloads", async () => {
     ["setupHarness", ["cursor", "cursor-router.example.com"], { harnessId: "cursor", hostname: "cursor-router.example.com" }],
     ["prepareCursorTunnel", [], null],
     ["connectCursor", ["cursor-router.example.com"], { hostname: "cursor-router.example.com" }],
+    ["disconnectCursor", [], null],
+    ["disconnectHarness", ["openclaw"], { harnessId: "openclaw" }],
     ["openHarnessSession", ["codex", "session", "terminal", "model"], { harnessId: "codex", sessionId: "session", surface: "terminal", model: "model" }],
     ["openExternal", ["https://example.com"], { url: "https://example.com" }],
   ];
@@ -2005,23 +2009,35 @@ test("Harness page renders fixed client rows backed by the shared session index"
   assert.match(harness, /const TERMINAL_ONLY_CLIENTS = new Set<HarnessId>\(\["opencode", "pi", "omp", "commandcode", "hermes"\]\)/);
   assert.match(harness, /api\.getContextSessions\(\)/);
   assert.match(harness, /api\.getAgentBridges\(\)/);
-  assert.match(harness, /Official-client agent/);
+  assert.match(harness, /Agent · \$\{bridge\.sessions\}|Agent/);
   assert.match(harness, /bridgeForHarness\(harness\.id, agentBridges\)/);
   assert.doesNotMatch(harness, /Subscription agent bridges|Credentials.*Unavailable/);
   assert.match(harness, /api\.connectCursor\(cursorHostname\.trim\(\) \|\| undefined\)/);
+  assert.match(harness, /api\.disconnectCursor\(\)/);
+  assert.match(harness, /api\.disconnectHarness\(harness\.id\)/);
+  assert.match(harness, /Route \$\{harness\.displayName\} through Codex Router/);
+  assert.match(harness, /Custom API keys/);
   assert.match(harness, /Use an existing Cloudflare hostname/);
-  assert.match(harness, /Connect Cursor/);
-  assert.match(harness, /One guided setup/);
+  assert.match(harness, /lhc-harness-toolbar/);
+  assert.match(harness, /lhc-harness-hint-tooltip/);
+  assert.doesNotMatch(harness, /CircleHelp/);
+  assert.match(harness, /Turn Route on to install the connector/);
   assert.match(harness, /Cursor setup progress/);
-  // A routed harness has no desktop app, so its Open action must reach a
-  // terminal rather than falling through to the client's marketing site.
-  assert.match(
-    harness,
-    /const surface = TERMINAL_ONLY_CLIENTS\.has\(harness\.id\) && harness\.cliInstalled \? "terminal" : "app"/,
-  );
+  assert.match(styles, /\.lhc-harness-toolbar/);
+  assert.match(styles, /\.lhc-harness-hint-tooltip/);
+  assert.match(styles, /\.lhc-harness-hint:hover/);
+  assert.match(styles, /\.lhc-harness-launch/);
+  assert.match(styles, /\.lhc-harness-icon-btn/);
+  assert.match(styles, /minmax\(220px, 1\.6fr\) 56px 56px 168px/);
+  assert.match(harness, /lhc-harness-setup-btn/);
+  assert.match(harness, /lhc-harness-launch/);
+  assert.match(harness, /className="lhc-harness-setup-btn"/);
+  assert.doesNotMatch(harness, /openHintId|aria-expanded=\{hintOpen\}|Show routing tip/);
+  assert.doesNotMatch(styles, /\.lhc-harness-hint-panel/);
   assert.match(harness, /api\.launchHarness\(harness\.id, surface\)/);
-  assert.match(harness, /<AppWindow[^>]*\/> Open/);
-  assert.doesNotMatch(harness, /BookOpen|SquareTerminal|Open agent/);
+  assert.match(harness, /<AppWindow aria-hidden size=\{14\} strokeWidth=\{1\.7\} \/>/);
+  assert.match(harness, /<SquareTerminal aria-hidden size=\{14\} strokeWidth=\{1\.7\} \/>/);
+  assert.doesNotMatch(harness, /BookOpen|Open agent|TERMINAL_ONLY_CLIENTS\.has\(harness\.id\) && harness\.cliInstalled/);
   assert.doesNotMatch(harness, /Stable public HTTPS origin|127\.0\.0\.1:4214/);
   assert.match(harness, /assets\/clients\/cursor\.svg/);
   assert.match(harness, /assets\/clients\/deepseek-harness\.svg/);
