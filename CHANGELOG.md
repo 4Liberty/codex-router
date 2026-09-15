@@ -36,6 +36,59 @@
   next Flash route cannot be omitted silently. `compHash` is bumped, so rebuild
   the catalog and fully quit and reopen Codex to pick up the new threshold.
 
+## 0.6.0
+
+- **Thinking models on Chat resellers outside the native-reasoning contract no
+  longer see their own past reasoning replayed as visible prose.** #708 widened
+  the reasoning-lifecycle repair from `grok-oauth` to every `openai`-protocol
+  provider, which is what finally let reasoning reach Codex on these routes —
+  and as a side effect made Codex store a reasoning item for those turns. Most
+  Command Code thinking models match no entry in the native-reasoning family
+  table (`commandcode/qwen3.8-flash` resolves to upstream `Qwen/Qwen3.8-Flash`),
+  and for those the carry turned the stored reasoning into `output_text` on the
+  next turn. A model that reads its own thinking as prose it once said moves new
+  thinking into the answer channel and loops on its last progress note — the
+  documented 2, 4, 5, 8, 16 copies per message (#755). Those routes now drop the
+  reasoning from the carry instead of converting it, which asserts nothing about
+  any vendor's `reasoning_content` handling; routes inside the contract still
+  carry theirs as `thinking` parts, and native Responses providers are
+  untouched. Before #708 this was inert on these routes, because no reasoning
+  item was stored to carry.
+- **A slow first start no longer uninstalls the service the installer just
+  installed.** On a clean machine the install wrote its launchers and registered
+  its service correctly, then a cold-starting LiteLLM gateway with a large model
+  set overran the 300-second health wait. The installer treated that as a failed
+  install and rolled back — `service.mjs uninstall` deletes the service *and*
+  unlinks both launchers — so the operator was left with `"installed":true` in
+  the log, no `start-codex-router.cmd` on disk, no scheduled task, and a bare
+  `fetch failed` naming nothing (#760). The earlier guard for this only covered
+  a reinstall over an already-working router; a first install had no prior state
+  to compare against and was torn out anyway. `service.mjs` now exits **75**
+  (`EX_TEMPFAIL`) when the service is installed and running but health has not
+  answered yet, and both installers leave the service and the client config
+  exactly as installed for that case, printing what to check instead. A crash
+  loop or a dead launcher is still a rollback: those are broken rather than
+  slow, and the readiness layer tags only the retryable timeout.
+
+- **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
+  paying another model to describe them.** `zai-coding/glm-5.3-flash`,
+  `zai-api/glm-5.3-flash`, and `openrouter/glm-5.3-flash` declared
+  `inputModalities: ["text"]`, so `bridgeVisionInput` sent every image in the
+  turn to a vision engine and substituted a transcript — spending a second
+  provider's quota, and losing whatever a transcript cannot carry — for a model
+  Z.ai documents as natively multimodal (#756). Z.ai gives the model's input
+  modality as `Video / Image / Text / File`, documents its `image_url` content
+  block, and says it is fully available on the GLM Coding Plan; OpenRouter's own
+  catalog publishes `["text","image","video"]` for `z-ai/glm-5.3-flash`. All
+  three entries now declare `["text", "image"]`. The text-only values were never
+  a measurement: each entry was written fresh when the withdrawn Ox Alpha preset
+  was removed and took the conservative default, while the preset it replaced
+  had carried image input from three provider catalogs. The full-size GLM-5.3
+  routes stay text-only, which is the same fact rather than an inconsistency —
+  Flash is the multimodal member of that family — and a test now holds both
+  halves. `compHash` is bumped on each changed entry, so rebuild the catalog and
+  fully quit and reopen Codex before pasting an image.
+
 - **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
   planning into the answer.** Hy4 Preview writes its own markup with a
   per-message nonce (`</think:6124c78e>`, the family

@@ -1447,6 +1447,33 @@ threshold is not a provider-measured boundary. It is text-only: GLM-5.3's
 multimodal variant is GLM-5.3-Flash, so the full-size route declares `text`
 modality instead of inheriting Flash's image path.
 
+Every GLM-5.3-Flash route therefore declares `["text", "image"]`, and the
+exceptions were the mistake. Z.ai files this model under its vision-language
+guides and gives its input modality as `Video / Image / Text / File`, documents
+the `image_url` content block for it, and says it is fully available on the GLM
+Coding Plan; OpenRouter's own catalog publishes `["text","image","video"]` for
+`z-ai/glm-5.3-flash`. Three routes nevertheless shipped text-only — the two
+Z.ai ones and OpenRouter's — because each entry was written fresh when the
+withdrawn Ox Alpha preset was replaced and took the conservative default rather
+than the preset's measured modality set, with no note saying otherwise (#756).
+A text-only declaration is not inert: `bridgeVisionInput` in `src/router.mjs`
+reads exactly this field, so it spent a second model's quota transcribing every
+pasted screenshot for a model that could read it directly, and the catalog told
+Codex the route was text-only. Two things about the Coding Plan endpoint are
+worth keeping straight, because they look like counter-evidence and are not.
+Z.ai's Vision MCP Server is an addition for Coding Plan users, not a substitute
+for a modality the endpoint lacks — its own page says a pasted image bypasses
+it because the client "will by default transcode the image and call the model
+interface directly". And the `Uncheck Support Images` line in the Cline and
+tool-integration guides is written against `glm-5.2`, which is text-only; those
+pages do not mention GLM-5.3-Flash at all. Z.ai publishes no modality table for
+`api/coding/paas/v4` in either direction, so the endpoint's acceptance of an
+image is documented only at the model level. A route that claims a modality it
+cannot serve trades a bridged read for a 400 on the whole turn, and it becomes
+a bridge **engine** for other text-only models as well, so a future Flash route
+on a new reseller is sourced from that reseller's own catalog rather than
+inherited from this paragraph.
+
 ## A provider whose models each name their own endpoint
 
 `custom` is a **container, not a destination**. It declares no `baseUrl`, no
@@ -2074,7 +2101,19 @@ retry rules on the shared path.
   evidence the vendor expects `reasoning_content` back, and a reseller only
   after a live probe shows the route returns reasoning and accepts the
   echo-back; Anthropic-protocol variants never enter it. Do not special-case
-  the carry instead. Remove only successfully carried
+  the carry instead. A Chat Completions route **outside** the contract drops the
+  reasoning from the carry rather than replaying it as `output_text`: the
+  visible-text replay is the loop trigger named above, and dropping asserts
+  nothing about a vendor's `reasoning_content` handling, so it needs none of the
+  evidence a family entry does. That path was inert until #708 widened the
+  reasoning-lifecycle repair to every `openai`-protocol provider and Codex began
+  storing reasoning items for these turns (#755). Adding a family is still the
+  better outcome where the evidence exists — dropping keeps the model coherent,
+  but it does lose the thinking. This is a routed-path rule only, and it does
+  not generalise: the native backend faces the opposite constraint, since it
+  rejects a foreign reasoning item outright and never reads a reasoning
+  `summary`, so visible text can be the only replay that survives there. Weigh
+  the two separately rather than making either the house style. Remove only successfully carried
   reasoning runs so plaintext cannot also become a user message. Do not mutate
   source items or change other native Responses routes. Keep this policy shared
   between hops without applying direct DeepSeek sampling parameters to resellers.
