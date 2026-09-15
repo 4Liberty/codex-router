@@ -17,6 +17,11 @@ const { MODEL_BY_SLUG } = await import("../src/model-registry.mjs");
 // candidate until its own current-head router-level exact-route certificate is
 // recorded; presence in this array is not that proof.
 const ROUTES = [
+  // Command Code shipped with neither the 400K threshold nor a clamp profile,
+  // which is what being absent from this inventory bought it: the provider's
+  // house 900K compaction value, and a pre-0.143 Codex sending `xhigh` --
+  // the one rung this model names in its own refusal -- straight through.
+  ["commandcode/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
   ["opencode-go/glm-5.3-flash", "glm-5.3-flash", "ox-alpha"],
   ["ollama-cloud/glm-5.3-flash", "glm-5.3-flash:cloud", "ollama-cloud-glm-5-3-flash"],
   ["openrouter/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
@@ -47,6 +52,16 @@ test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
     assert.deepEqual(model.inputModalities, IMAGE_INPUT, slug);
     assert.equal(model.requestProfile, requestProfile);
   }
+});
+
+// A shipped route that no inventory names is a route whose metadata nobody
+// rereads: `commandcode/glm-5.3-flash` sat outside ROUTES from the day it was
+// added and kept a threshold that contradicts the rule above for two weeks.
+// Deriving the expected set from the registry makes the next omission a
+// failure here rather than a silent one.
+test("the ROUTES inventory names every checked-in GLM-5.3-Flash route", () => {
+  const shipped = [...MODEL_BY_SLUG.keys()].filter((slug) => /(^|\/)glm-5\.3-flash$/.test(slug));
+  assert.deepEqual(shipped.sort(), ROUTES.map(([slug]) => slug).sort());
 });
 
 test("withdrawn or uncertified reseller routes stay absent while direct-proven routes remain", () => {

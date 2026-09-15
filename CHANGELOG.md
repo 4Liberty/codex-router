@@ -26,6 +26,39 @@
   image input; discovery reports them as `contextLengths` and the new
   `inputModalities` map, so a documented or default modality never masquerades
   as a served one.
+- **GLM-5.3-Flash on Command Code no longer sends an effort rung the model
+  refuses by name.** `commandcode/glm-5.3-flash` declares the model's
+  `low`/`high`/`max` ladder and carried no `requestProfile`, and the profile
+  chain in `src/api-forwarder.mjs` is keyed entirely on that field — so the
+  effort Codex sent went upstream verbatim. Codex older than 0.143 has no `max`
+  in its effort enum, so `clampModelEfforts` rewrites this route's default down
+  to `xhigh`, which is the rung GLM-5.3-Flash answers with `400 — [1210] This
+  model always engages in thinking and cannot be disabled; please use low,
+  high, or max`. The route now carries the same `ox-alpha` clamp the OpenCode Go
+  and OpenRouter Flash routes use, so `xhigh`/`ultra` land on `max` and
+  `medium`/`minimal` on `low`, an absent effort stays absent, and no rung the
+  entry does not advertise can leave the router. This asserts nothing about
+  Command Code's own validation, which the provider does not document; the plan
+  fallback at `/alpha/generate` carries no effort at all and is unchanged.
+  `compHash` is bumped, so rebuild the catalog and fully quit and reopen Codex.
+
+- **GLM-5.3-Flash on Command Code now compacts at 400K like every other route
+  for that model.** `commandcode/glm-5.3-flash` shipped with
+  `autoCompact: 900000` — the Command Code house value for a 1M window, carried
+  by two dozen of that provider's entries — while the five other checked-in
+  GLM-5.3-Flash routes compact at 400,000. That threshold is a property of the
+  model: large live multimodal Flash histories repeatedly returned empty
+  completions before the advertised limit, which is why
+  `nousresearch/glm-5.3-flash` was dropped rather than shipped at 943K. The
+  Command Code entry was written fresh in a bulk catalog pin and took the
+  provider default; no commit message, comment, or research note argued for
+  900K, and the earlier incarnation of the same file carried 400,000. Codex
+  therefore ran this route 500,000 tokens past the point where the model has
+  been seen to go blank. The route is also now named in the
+  `test/glm-5.3-flash.test.mjs` inventory — its absence there is what let the
+  outlier live — and that inventory is now derived from the registry, so the
+  next Flash route cannot be omitted silently. `compHash` is bumped, so rebuild
+  the catalog and fully quit and reopen Codex to pick up the new threshold.
 
 ## 0.6.0
 
