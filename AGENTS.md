@@ -1393,13 +1393,44 @@ The ladder also collides with the effort clamp in `src/catalog.mjs`. Codex
 gained the `max` variant in 0.143.0, so on anything older the catalog rewrites
 this model's default down to `xhigh` — a rung every route refuses. The
 legacy-named `ox-alpha` request profile in `src/api-forwarder.mjs` closes that
-loop for the OpenCode Go and OpenRouter named routes: it clamps whatever Codex
-sent onto the rungs the registry entry declares, so `xhigh` and `ultra` land on
-`max`, while `medium` and `minimal` land on `low`. An absent effort stays absent
+loop for the OpenCode Go, OpenRouter, and Command Code named routes: it clamps
+whatever Codex sent onto the rungs the registry entry declares, so `xhigh` and
+`ultra` land on `max`, while `medium` and `minimal` land on `low`. An absent effort stays absent
 so the upstream default applies, and undocumented `thinking` is stripped. Z.ai
 Coding uses its own `glm-thinking` profile. These named routes advertise a
 1,000,000-token window, compact at the directly proved conservative 400,000
 threshold, and preserve forced `tool_choice: "required"`.
+
+That 400,000 threshold belongs to the **model**, not to one reseller. Every
+checked-in GLM-5.3-Flash route carries it, including `commandcode/glm-5.3-flash`
+and the Ollama Cloud candidate, because the empty completions came from the
+model's own large multimodal histories rather than from a provider's serving
+stack, and each of these routes advertises the same 1M window over the same
+upstream id. `nousresearch/glm-5.3-flash` was dropped for compacting at 943,000
+against this rule; `commandcode/glm-5.3-flash` shipped at 900,000 for two weeks
+because that is the Command Code house value for a 1M window — the entry was
+written fresh in a bulk catalog pin, took the provider default, and no commit
+message, comment, or research note ever argued for it. A per-provider exception
+here is a claim about that provider's serving stack, so it needs its own
+evidence in the entry or in this file; a provider's boilerplate ratio is not
+that evidence.
+
+`commandcode/glm-5.3-flash` needed that clamp for the same reason and shipped
+without it. The profile chain in `src/api-forwarder.mjs` is keyed entirely on
+`requestProfile`, so a route that declares none forwards `reasoning_effort`
+verbatim — and this entry declares the model's `low`/`high`/`max` ladder, which
+is exactly the ladder whose top rung a pre-0.143 Codex cannot spell. Command
+Code documents no effort vocabulary of its own (which is why
+`commandcode/muse-spark-1.3` ships `high` alone), so the clamp is not a claim
+about that reseller's serving stack: it only guarantees the router sends a rung
+the entry itself advertises. Note that the clamp governs the Provider API path
+only. The `/alpha/generate` plan fallback in `src/commandcode-generate.mjs`
+builds its own schema-strict params and carries no effort at all, so on a
+coding-plan account the three rungs in the picker reach nothing either way.
+Other Command Code entries — `glm-5.3`, `glm-5.2`, the DeepSeek V4 routes, the
+GPT-5.x routes, and the `commandcode-messages` Claude routes — publish `max` or
+`xhigh` rungs with no clamp of their own and are in the same unproven position;
+none of them has a measured Command Code effort vocabulary behind it.
 
 `ollama-cloud/glm-5.3-flash` is checked in as candidate registry metadata with a
 model-scoped request profile that clamps both flat and nested reasoning effort
@@ -1415,6 +1446,33 @@ the router-level exact-route suite before it is called certified. That
 threshold is not a provider-measured boundary. It is text-only: GLM-5.3's
 multimodal variant is GLM-5.3-Flash, so the full-size route declares `text`
 modality instead of inheriting Flash's image path.
+
+Every GLM-5.3-Flash route therefore declares `["text", "image"]`, and the
+exceptions were the mistake. Z.ai files this model under its vision-language
+guides and gives its input modality as `Video / Image / Text / File`, documents
+the `image_url` content block for it, and says it is fully available on the GLM
+Coding Plan; OpenRouter's own catalog publishes `["text","image","video"]` for
+`z-ai/glm-5.3-flash`. Three routes nevertheless shipped text-only — the two
+Z.ai ones and OpenRouter's — because each entry was written fresh when the
+withdrawn Ox Alpha preset was replaced and took the conservative default rather
+than the preset's measured modality set, with no note saying otherwise (#756).
+A text-only declaration is not inert: `bridgeVisionInput` in `src/router.mjs`
+reads exactly this field, so it spent a second model's quota transcribing every
+pasted screenshot for a model that could read it directly, and the catalog told
+Codex the route was text-only. Two things about the Coding Plan endpoint are
+worth keeping straight, because they look like counter-evidence and are not.
+Z.ai's Vision MCP Server is an addition for Coding Plan users, not a substitute
+for a modality the endpoint lacks — its own page says a pasted image bypasses
+it because the client "will by default transcode the image and call the model
+interface directly". And the `Uncheck Support Images` line in the Cline and
+tool-integration guides is written against `glm-5.2`, which is text-only; those
+pages do not mention GLM-5.3-Flash at all. Z.ai publishes no modality table for
+`api/coding/paas/v4` in either direction, so the endpoint's acceptance of an
+image is documented only at the model level. A route that claims a modality it
+cannot serve trades a bridged read for a 400 on the whole turn, and it becomes
+a bridge **engine** for other text-only models as well, so a future Flash route
+on a new reseller is sourced from that reseller's own catalog rather than
+inherited from this paragraph.
 
 ## A provider whose models each name their own endpoint
 
@@ -2043,7 +2101,19 @@ retry rules on the shared path.
   evidence the vendor expects `reasoning_content` back, and a reseller only
   after a live probe shows the route returns reasoning and accepts the
   echo-back; Anthropic-protocol variants never enter it. Do not special-case
-  the carry instead. Remove only successfully carried
+  the carry instead. A Chat Completions route **outside** the contract drops the
+  reasoning from the carry rather than replaying it as `output_text`: the
+  visible-text replay is the loop trigger named above, and dropping asserts
+  nothing about a vendor's `reasoning_content` handling, so it needs none of the
+  evidence a family entry does. That path was inert until #708 widened the
+  reasoning-lifecycle repair to every `openai`-protocol provider and Codex began
+  storing reasoning items for these turns (#755). Adding a family is still the
+  better outcome where the evidence exists — dropping keeps the model coherent,
+  but it does lose the thinking. This is a routed-path rule only, and it does
+  not generalise: the native backend faces the opposite constraint, since it
+  rejects a foreign reasoning item outright and never reads a reasoning
+  `summary`, so visible text can be the only replay that survives there. Weigh
+  the two separately rather than making either the house style. Remove only successfully carried
   reasoning runs so plaintext cannot also become a user message. Do not mutate
   source items or change other native Responses routes. Keep this policy shared
   between hops without applying direct DeepSeek sampling parameters to resellers.

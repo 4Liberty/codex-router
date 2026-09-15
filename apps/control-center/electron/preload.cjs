@@ -73,6 +73,8 @@ const routerControl = Object.freeze({
   updateHarness: (harnessId) => call("updateHarness", { harnessId }),
   prepareCursorTunnel: () => call("prepareCursorTunnel"),
   connectCursor: (hostname) => call("connectCursor", { hostname }),
+  disconnectCursor: () => call("disconnectCursor"),
+  disconnectHarness: (harnessId) => call("disconnectHarness", { harnessId }),
   openHarnessSession: (harnessId, sessionId, surface, model) => call("openHarnessSession", { harnessId, sessionId, surface, model }),
   openExternal: (url) => call("openExternal", { url }),
   onNavigation(listener) {

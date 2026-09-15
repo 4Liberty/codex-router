@@ -571,6 +571,18 @@ test("Windows exposes signed-routing and the shared refresh transaction", () => 
   assert.match(posix, /exec node .*src\/refresh-catalog\.mjs" "\$@"/);
 });
 
+test("Windows exposes picker-order with the same verbs as POSIX", () => {
+  const windows = readScript("codex-router.ps1");
+  const branches = windowsSwitchBranches(windows);
+  assert.match(windows, /"picker-order"/);
+  assert.ok(branches.has("picker-order"), "codex-router.ps1 must dispatch picker-order");
+  assert.match(branches.get("picker-order"), /\$Arguments/);
+  assert.match(branches.get("picker-order"), /native-first/);
+  assert.match(branches.get("picker-order"), /routed-first/);
+  const posix = readScript("bin", "model-router");
+  assert.match(posix, /\|picker-order\|/);
+});
+
 test("both bootstrap installers refuse on tracked edits only", () => {
   // Run without -CheckoutInstall / from a pipe, these are the curl|sh and
   // irm|iex self-update paths. They reimplement requireReplaceableCheckout()
@@ -994,4 +1006,64 @@ test("Windows prepare-only restores the caller foreign-state override live", {
   } finally {
     rmSync(testRoot, { recursive: true, force: true });
   }
+});
+
+// #760, the half that actually happened. The reporter's install wrote its
+// launchers and registered its task correctly -- `installed:true` was true --
+// and then a cold-starting LiteLLM gateway overran the 300 s health wait. The
+// rollback ran `service.mjs uninstall`, which deletes the task *and* unlinks
+// both launchers, so `start-codex-router.cmd` was gone from a machine whose
+// install had just reported writing it. The earlier guard here (`undoes only
+// what the run created`) protected a reinstall over a working router; a first
+// install on a clean machine has nothing to compare against and was torn out
+// anyway. `service.mjs` exits 75 for that case specifically, so both
+// installers can tell "still starting" from "failed".
+test("a readiness timeout leaves the installed service and config in place", () => {
+  const posix = readFileSync(path.join(root, "bin", "install"), "utf8");
+  const windows = readFileSync(path.join(root, "install.ps1"), "utf8");
+
+  // Both must branch on the exit code rather than treating every non-zero as
+  // a failed install.
+  assert.match(posix, /node src\/service\.mjs install \|\| service_status=\$\?/);
+  assert.match(posix, /\[ "\$service_status" -eq 75 \]/);
+  assert.match(windows, /\$LASTEXITCODE -eq 75/);
+
+  // ...and the teardown must be skipped wholesale, service and config alike:
+  // a router that comes up healthy moments later needs its client config
+  // still pointing at it.
+  assert.match(posix, /if \[ "\$readiness_timeout" = true \]; then\s*\n\s*return/);
+  assert.match(windows, /if \(\$ReadinessTimedOut\) \{ throw \}/);
+  assert.ok(
+    posix.indexOf('if [ "$readiness_timeout" = true ]') <
+      posix.indexOf("node src/service.mjs uninstall"),
+    "the POSIX timeout guard must precede the service teardown it skips",
+  );
+  assert.ok(
+    windows.indexOf("if ($ReadinessTimedOut) { throw }") <
+      windows.indexOf("& node src/service.mjs uninstall"),
+    "the Windows timeout guard must precede the service teardown it skips",
+  );
+
+  // The flag has to be set before the rollback can read it. Under `set -u` an
+  // unset variable would abort the trap itself.
+  assert.ok(
+    posix.indexOf("readiness_timeout=false") < posix.indexOf("rollback() {"),
+    "POSIX must initialise the flag before defining the rollback that reads it",
+  );
+  assert.ok(
+    windows.indexOf("$ReadinessTimedOut = $false") <
+      windows.indexOf("if ($ReadinessTimedOut) { throw }"),
+    "Windows must initialise the flag before the rollback guard that reads it",
+  );
+
+  // A second full health wait on the same cold start can only fail the same
+  // way, so the timeout branch must stop rather than fall through to it.
+  assert.ok(
+    posix.indexOf('[ "$service_status" -eq 75 ]') < posix.indexOf("node src/wait-health.mjs"),
+    "POSIX must decide on the timeout before the second health wait",
+  );
+  assert.ok(
+    windows.indexOf("$LASTEXITCODE -eq 75") < windows.indexOf("& node src/wait-health.mjs"),
+    "Windows must decide on the timeout before the second health wait",
+  );
 });

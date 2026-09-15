@@ -2122,6 +2122,7 @@ async function readVisionEvidence({ url, engine, nativeCall, effort, question, k
 function carryReasoningThroughInput(input, {
   nativeThinking = false,
   removeCarriedReasoning = false,
+  dropReasoning = false,
 } = {}) {
   if (!Array.isArray(input) || input.length < 2) return;
   for (let index = 0; index < input.length - 1; index += 1) {
@@ -2139,7 +2140,19 @@ function carryReasoningThroughInput(input, {
     const text = texts.join("\n");
     const next = input[end];
     let removed = 0;
-    if (text && next) {
+    if (dropReasoning) {
+      // A thinking model on a Chat route that is outside the native-reasoning
+      // contract must not be shown its own past thinking as prose. It reads
+      // the replay as something it once said aloud, moves new thinking into
+      // the answer channel, and loops on its last progress note (#755, and the
+      // Hy4 measurements in chat-reasoning.mjs). Before #708 widened the
+      // reasoning-lifecycle repair to every `openai`-protocol provider these
+      // routes stored no reasoning item at all, so there was nothing to carry
+      // and the path was inert; now there is, and dropping is the only replay
+      // that asserts nothing about a vendor's reasoning_content handling.
+      // The in-contract routes above still carry theirs as `thinking` parts.
+      removed = end - index;
+    } else if (text && next) {
       if (next.type === "function_call" || next.type === "custom_tool_call") {
         input[end - 1] = assistantTextItem(text, nativeThinking);
         if (removeCarriedReasoning) removed = end - index - 1;
@@ -2394,6 +2407,30 @@ function sanitizeReasoningForNative(item, { stateless = false } = {}) {
   return storedItem;
 }
 
+// A routed model's reasoning cannot ride into the native backend as reasoning
+// items. Measured against the live backend: `content` is capped at zero parts
+// ("array_above_max_length"), a non-`rs_` id is rejected, an `rs_` id this
+// backend never stored is a 404, and a foreign ciphertext fails to decrypt.
+// Dropping the item throws away thinking the conversation was built on, and
+// moving the text into `summary` keeps the bytes but not the meaning -- a
+// passphrase that appears only in a reasoning summary never reaches the
+// model's answer. Carry the text as a visible assistant message instead: the
+// one replay form that both validates and is actually read. Native items have
+// no visible `content`, so they keep their exact shape and continuation token.
+// `CODEX_ROUTER_NATIVE_REASONING_AS_TEXT=0` restores the old passthrough.
+const NATIVE_REASONING_AS_TEXT =
+  process.env.CODEX_ROUTER_NATIVE_REASONING_AS_TEXT !== "0";
+const NATIVE_REASONING_PREFIX = "[internal reasoning from an earlier turn]";
+
+function nativeReasoningReplay(item) {
+  if (!NATIVE_REASONING_AS_TEXT) return [item];
+  const content = reasoningItemText({ content: item?.content });
+  if (!content) return [item];
+  const summary = reasoningSummaryText(item);
+  const body = summary && summary !== content ? `${summary}\n${content}` : content;
+  return [assistantTextItem(`${NATIVE_REASONING_PREFIX}\n${body}`)];
+}
+
 // The mirror of normalizeRoutedAgentInput. When the parent agent is routed, its
 // turn never touches the native backend, so Codex has no opaque ciphertext to
 // put in a delegated task and stores the payload as plain text under
@@ -2470,7 +2507,7 @@ function normalizeNativeInput(
       const reasoning = sanitizeReasoningForNative(item, {
         stateless: statelessReasoning,
       });
-      return reasoning === undefined ? [] : [reasoning];
+      return reasoning === undefined ? [] : nativeReasoningReplay(reasoning);
     }
     if (
       dropUnstoredReasoningReferences &&
@@ -3246,9 +3283,16 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   // DeepSeek route already has exactly one plaintext reasoning item and must
   // not copy it into an assistant message for Chat translation.
   if (!deepSeekResponses) {
+    // Three replay channels, not two. A Chat route inside the native-reasoning
+    // contract carries its thinking as `thinking` parts for the forwarder to
+    // restore as reasoning_content; a Chat route outside it drops the thinking
+    // rather than replaying it as visible prose (#755); a native Responses
+    // provider keeps its existing item semantics untouched.
+    const nativeChatReasoning = chatCompletionsProvider && usesNativeChatReasoning(route);
     carryReasoningThroughInput(input, {
-      nativeThinking: chatCompletionsProvider && usesNativeChatReasoning(route),
+      nativeThinking: nativeChatReasoning,
       removeCarriedReasoning: chatCompletionsProvider,
+      dropReasoning: chatCompletionsProvider && !nativeChatReasoning,
     });
   }
   // Models marked requiresTrailingUserTurn reject requests ending with a model

@@ -577,6 +577,46 @@ test("Connect Cursor resumes through install, login, quit, publish, verify, and 
   }
 });
 
+test("Disconnect Cursor waits for quit then clears the routed App endpoint", async () => {
+  const handlers = new Map();
+  const events = [];
+  const commands = [];
+  let processReads = 0;
+  let configured = true;
+  registerIpcHandlers({
+    ipcMain: { handle: (name, handler) => handlers.set(name, handler) },
+    BrowserWindow: {
+      getAllWindows: () => [{
+        isDestroyed: () => false,
+        webContents: { send: (_channel, payload) => events.push(payload) },
+      }],
+    },
+    shell: {},
+    cursorProcessReader: () => processReads++ === 0 ? [{ pid: 42 }] : [],
+    cursorWait: async () => {},
+    controlJsonRunner: async (args, options) => {
+      commands.push({ args, options });
+      configured = false;
+      return { removed: true };
+    },
+    harnessSnapshotReader: () => ({
+      harnesses: [{
+        id: "cursor",
+        appConfigured: configured,
+        agentConfigured: false,
+      }],
+    }),
+    senderGuard: () => true,
+  });
+
+  const disconnect = handlers.get("router-control:disconnectCursor");
+  assert.deepEqual(await disconnect({}, {}), { removed: true });
+  assert.deepEqual(commands[0].args, ["client-disconnect", "cursor"]);
+  assert.equal(events.some((event) => /Fully quit Cursor/.test(event.message || "")), true);
+  assert.equal(events.some((event) => /restoring Cursor's own endpoint/.test(event.message || "")), true);
+  assert.equal(events.at(-1).status, "completed");
+});
+
 test("service stop and restart are rejected at the IPC boundary", async () => {
   const handlers = new Map();
   const priorRoot = process.env.CODEX_ROUTER_SOURCE_ROOT;

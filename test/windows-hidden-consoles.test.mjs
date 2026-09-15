@@ -15,10 +15,10 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // A source assertion is the only cheap guard here: the failure is invisible on
 // macOS and Linux, and reproducing it needs a Windows desktop session.
 //
-// The exemption is a property of the call, not a list of files: a process that
-// inherits stdin is prompting the operator through a console that already
-// exists, and `windowsHide` is not what governs that case. Everything else --
-// stdio `ignore` or `pipe` -- is a background helper with nothing to show.
+// Only direct PowerShell calls with non-inherited stdio are covered by this
+// static guard. Inherited-stdio calls are excluded; their background safety
+// is not established here. The variable-command spawn in process-tree.mjs is
+// outside this scan and is covered separately by its native owner-console test.
 function sourceFiles(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
     const full = path.join(directory, entry.name);

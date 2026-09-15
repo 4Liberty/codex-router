@@ -3192,6 +3192,98 @@ test("router normalizes reasoning and removes only redundant native references",
   }
 });
 
+test("native replay carries routed visible reasoning as text instead of dropping it", async () => {
+  const nativeRequests = [];
+  const native = await mockServer(async (request, response) => {
+    nativeRequests.push({ url: request.url, body: await bodyJson(request) });
+    json(response, 200, { route: "native" });
+  });
+  const testRoot = mkdtempSync(path.join(os.tmpdir(), "native-visible-reasoning-"));
+  const authPath = path.join(testRoot, "auth.json");
+  writeFileSync(
+    authPath,
+    JSON.stringify({
+      auth_mode: "chatgpt",
+      tokens: {
+        access_token: "test-native-session-token",
+        account_id: "test-native-account",
+      },
+    }),
+    { mode: 0o600 },
+  );
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_NATIVE_BASE_URL: `http://127.0.0.1:${native.port}/backend-api/codex`,
+    CODEX_ROUTER_NATIVE_SESSION_FALLBACK: "1",
+    MODEL_ROUTER_CODEX_AUTH: authPath,
+    MODEL_ROUTER_STATE_DIR: path.join(testRoot, "state"),
+    CODEX_HOME: path.join(testRoot, "codex"),
+    CODEX_ROUTER_QUIET: "1",
+  });
+
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    // The shape a routed thinking provider leaves behind: visible reasoning in
+    // `content`, a provider-minted id, and a ciphertext the native backend
+    // cannot decrypt. All three are illegal on native input, so the text has to
+    // survive as a visible message rather than be forwarded or dropped.
+    const foreignReasoning = {
+      type: "reasoning",
+      id: "6f1c2a10-1111-4222-8333-444455556666",
+      summary: [],
+      content: [{ type: "reasoning_text", text: "The passphrase is ORANGE-77." }],
+      encrypted_content: "843fdef5-0e65-4e05-ab7a-1234567890ab",
+    };
+    // A native item keeps its exact shape and continuation token.
+    const nativeReasoning = {
+      type: "reasoning",
+      id: "rs_native_keep",
+      summary: [{ type: "summary_text", text: "native draft" }],
+      content: null,
+      encrypted_content: "gAAAAABkZmtM7cT9w_XY_zThisIsAnOpaqueBlobWithNoWhitespace",
+    };
+    const userMessage = {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: "continue" }],
+    };
+
+    // Codex brings its own upstream credential, so this is the non-stateless
+    // path the desktop app takes.
+    const replay = await fetch(`${routerBase(routerPort)}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer DIRECT_NATIVE_CALLER_TOKEN",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.6-sol",
+        input: [foreignReasoning, nativeReasoning, userMessage],
+      }),
+    });
+    assert.equal(replay.status, 200);
+    assert.deepEqual(nativeRequests[0].body.input, [
+      {
+        type: "message",
+        role: "assistant",
+        content: [
+          {
+            type: "output_text",
+            text: "[internal reasoning from an earlier turn]\nThe passphrase is ORANGE-77.",
+          },
+        ],
+      },
+      nativeReasoning,
+      userMessage,
+    ]);
+  } finally {
+    await stopChild(router);
+    await closeServer(native.server);
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
 test("router inlines an external parent's plaintext task before replaying to native", async () => {
   const nativeRequests = [];
   const native = await mockServer(async (request, response) => {
@@ -12386,5 +12478,155 @@ test("an oversize zstd body is refused with 413 before decoding and the router s
     await stopChild(router);
     await closeServer(native.server);
     await closeServer(gateway.server);
+  }
+});
+
+// #755. #708 widened the reasoning-lifecycle repair from grok-oauth to every
+// `openai`-protocol provider, so Codex now stores a reasoning item for turns on
+// Chat resellers like Command Code. Most of their thinking models are outside
+// the native-reasoning contract -- `commandcode/qwen3.8-flash` resolves to
+// upstream `Qwen/Qwen3.8-Flash`, which matches no family -- and for those the
+// carry used to convert the stored reasoning into `output_text`. A model that
+// sees its own past thinking replayed as prose moves new thinking into the
+// answer channel and loops on its last progress note (the Hy4 measurements in
+// chat-reasoning.mjs: 2, 4, 5, 8, 16 copies of one sentence). A live two-turn
+// probe on 14 September 2026 confirmed this route really does store reasoning
+// items -- 89 and 69 reasoning tokens, input_tokens 81 -> 419 on the replay --
+// so the path is reached rather than theoretical. Dropping asserts nothing
+// about any vendor's reasoning_content handling, which is what the family
+// table would require evidence for.
+test("an off-contract Chat route drops past reasoning instead of replaying it as prose", async () => {
+  const gatewayBodies = [];
+  const gateway = await mockServer(async (request, response) => {
+    gatewayBodies.push(await bodyJson(request));
+    json(response, 200, { output: [{ type: "message", role: "assistant", content: "ok" }] });
+  });
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "offcontract-reasoning-"));
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_ROUTER_GATEWAY_BASE_URL: `http://127.0.0.1:${gateway.port}/v1`,
+    MODEL_ROUTER_STATE_DIR: stateDir,
+    CODEX_ROUTER_QUIET: "1",
+  });
+  const SECRET_THOUGHT = "I should check the config before answering.";
+  const input = [
+    { type: "message", role: "user", content: [{ type: "input_text", text: "is it configured?" }] },
+    {
+      type: "reasoning",
+      id: "rs_offcontract",
+      summary: [{ type: "summary_text", text: SECRET_THOUGHT }],
+      content: null,
+    },
+    { type: "message", role: "assistant", content: [{ type: "output_text", text: "Yes, it is." }] },
+    { type: "message", role: "user", content: [{ type: "input_text", text: "and now?" }] },
+  ];
+
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    const response = await fetch(`${routerBase(routerPort)}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer CODEX_CALLER_SECRET",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model: "commandcode/qwen3.8-flash", stream: false, input }),
+    });
+    assert.equal(response.status, 200, await response.text());
+    const forwarded = gatewayBodies[0].input;
+    const serialized = JSON.stringify(forwarded);
+
+    // The thought must not reach the model in any channel: not as visible
+    // prose, and not as a surviving reasoning item either.
+    assert.ok(
+      !serialized.includes(SECRET_THOUGHT),
+      `past reasoning reached an off-contract Chat route:\n${serialized}`,
+    );
+    assert.equal(
+      forwarded.some((item) => item?.type === "reasoning"),
+      false,
+      "an unconverted reasoning item must not be left for the Chat translation",
+    );
+
+    // Everything the model actually said is untouched -- only the thinking is
+    // dropped, and the turn structure it needs to answer survives.
+    const assistant = forwarded.filter(
+      (item) => item?.type === "message" && item.role === "assistant",
+    );
+    assert.equal(assistant.length, 1);
+    assert.match(JSON.stringify(assistant[0].content), /Yes, it is\./);
+    assert.equal(forwarded[forwarded.length - 1].role, "user");
+  } finally {
+    await stopChild(router);
+    await closeServer(gateway.server);
+    rmSync(stateDir, { recursive: true, force: true });
+  }
+});
+
+// The counterpart: a route inside the contract must keep carrying its
+// reasoning, or this fix would silently delete the history those providers
+// require back (#703's HTTP 400, and the interleaved-thinking models that
+// depend on the prior round).
+test("an in-contract Chat route still carries its reasoning as thinking", async () => {
+  const gatewayBodies = [];
+  const gateway = await mockServer(async (request, response) => {
+    gatewayBodies.push(await bodyJson(request));
+    json(response, 200, { output: [{ type: "message", role: "assistant", content: "ok" }] });
+  });
+  const stateDir = mkdtempSync(path.join(os.tmpdir(), "incontract-reasoning-"));
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_ROUTER_GATEWAY_BASE_URL: `http://127.0.0.1:${gateway.port}/v1`,
+    MODEL_ROUTER_STATE_DIR: stateDir,
+    CODEX_ROUTER_QUIET: "1",
+  });
+  const THOUGHT = "Hunyuan keeps its own reasoning channel.";
+
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    const response = await fetch(`${routerBase(routerPort)}/responses`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer CODEX_CALLER_SECRET",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "commandcode/hy4-preview",
+        stream: false,
+        input: [
+          { type: "message", role: "user", content: [{ type: "input_text", text: "ping" }] },
+          {
+            type: "reasoning",
+            id: "rs_incontract",
+            summary: [{ type: "summary_text", text: THOUGHT }],
+            content: null,
+          },
+          { type: "message", role: "assistant", content: [{ type: "output_text", text: "pong" }] },
+          { type: "message", role: "user", content: [{ type: "input_text", text: "again" }] },
+        ],
+      }),
+    });
+    assert.equal(response.status, 200, await response.text());
+    const forwarded = gatewayBodies[0].input;
+    const assistant = forwarded.find(
+      (item) => item?.type === "message" && item.role === "assistant",
+    );
+    // Carried as a `thinking` part, which the API forwarder restores as
+    // reasoning_content -- never as output_text.
+    const thinking = assistant.content.find((part) => part?.type === "thinking");
+    assert.ok(thinking, `in-contract reasoning was not carried:\n${JSON.stringify(assistant)}`);
+    assert.match(thinking.text, /Hunyuan keeps its own reasoning channel\./);
+    assert.equal(
+      assistant.content.some(
+        (part) => part?.type === "output_text" && part.text.includes(THOUGHT),
+      ),
+      false,
+      "in-contract reasoning must not also appear as visible prose",
+    );
+  } finally {
+    await stopChild(router);
+    await closeServer(gateway.server);
+    rmSync(stateDir, { recursive: true, force: true });
   }
 });

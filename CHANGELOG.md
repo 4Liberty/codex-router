@@ -23,6 +23,117 @@
   Legacy malformed root sections retain their best-effort line matching so
   Windows prototype installations can still be disabled; prose preservation
   is only guaranteed when that root section can be scanned.
+- **Routed models can be published ahead of the native GPT picker entries.**
+  Codex renders its picker by `priority`, and routed models always landed in a
+  band after the highest visible native entry, so an operator whose everyday
+  models are external could not put them first. `model-picker.json` now
+  carries an `order` (`native-first`, the unchanged default, or
+  `routed-first`), set with `./bin/model-router codex picker-order`. Under
+  `routed-first` every routed model -- certified v2 spawn routes included, so
+  none interleaves with the shifted natives -- publishes at 1..N in the
+  existing vendor-group order and the natives move after them. Visibility
+  writers preserve the choice; an older file or an unrecognized value keeps
+  the default.
+- **Generic Ollama providers are curated at the model's served context length
+  and modalities instead of the conservative default.** Ollama's
+  OpenAI-compatible `/v1/models` lists ids only, so a curated Ollama model
+  carried the 131072-token guess (#266) and text-only input even when the
+  server runs it at 1M with vision. Generic discovery now asks the same origin's
+  `/api/show` for each listed model when the provider is an OpenAI-chat
+  endpoint rooted at `/v1`, proves the answer is Ollama-shaped, and fills in
+  only the fields the list left blank. The probe is bounded like the catalog
+  fetch, stops on a missing route or after three leading refusals, and skips a
+  model the server cannot describe. Curation stores the advertised window and
+  image input; discovery reports them as `contextLengths` and the new
+  `inputModalities` map, so a documented or default modality never masquerades
+  as a served one.
+- **GLM-5.3-Flash on Command Code no longer sends an effort rung the model
+  refuses by name.** `commandcode/glm-5.3-flash` declares the model's
+  `low`/`high`/`max` ladder and carried no `requestProfile`, and the profile
+  chain in `src/api-forwarder.mjs` is keyed entirely on that field — so the
+  effort Codex sent went upstream verbatim. Codex older than 0.143 has no `max`
+  in its effort enum, so `clampModelEfforts` rewrites this route's default down
+  to `xhigh`, which is the rung GLM-5.3-Flash answers with `400 — [1210] This
+  model always engages in thinking and cannot be disabled; please use low,
+  high, or max`. The route now carries the same `ox-alpha` clamp the OpenCode Go
+  and OpenRouter Flash routes use, so `xhigh`/`ultra` land on `max` and
+  `medium`/`minimal` on `low`, an absent effort stays absent, and no rung the
+  entry does not advertise can leave the router. This asserts nothing about
+  Command Code's own validation, which the provider does not document; the plan
+  fallback at `/alpha/generate` carries no effort at all and is unchanged.
+  `compHash` is bumped, so rebuild the catalog and fully quit and reopen Codex.
+
+- **GLM-5.3-Flash on Command Code now compacts at 400K like every other route
+  for that model.** `commandcode/glm-5.3-flash` shipped with
+  `autoCompact: 900000` — the Command Code house value for a 1M window, carried
+  by two dozen of that provider's entries — while the five other checked-in
+  GLM-5.3-Flash routes compact at 400,000. That threshold is a property of the
+  model: large live multimodal Flash histories repeatedly returned empty
+  completions before the advertised limit, which is why
+  `nousresearch/glm-5.3-flash` was dropped rather than shipped at 943K. The
+  Command Code entry was written fresh in a bulk catalog pin and took the
+  provider default; no commit message, comment, or research note argued for
+  900K, and the earlier incarnation of the same file carried 400,000. Codex
+  therefore ran this route 500,000 tokens past the point where the model has
+  been seen to go blank. The route is also now named in the
+  `test/glm-5.3-flash.test.mjs` inventory — its absence there is what let the
+  outlier live — and that inventory is now derived from the registry, so the
+  next Flash route cannot be omitted silently. `compHash` is bumped, so rebuild
+  the catalog and fully quit and reopen Codex to pick up the new threshold.
+
+## 0.6.0
+
+- **Thinking models on Chat resellers outside the native-reasoning contract no
+  longer see their own past reasoning replayed as visible prose.** #708 widened
+  the reasoning-lifecycle repair from `grok-oauth` to every `openai`-protocol
+  provider, which is what finally let reasoning reach Codex on these routes —
+  and as a side effect made Codex store a reasoning item for those turns. Most
+  Command Code thinking models match no entry in the native-reasoning family
+  table (`commandcode/qwen3.8-flash` resolves to upstream `Qwen/Qwen3.8-Flash`),
+  and for those the carry turned the stored reasoning into `output_text` on the
+  next turn. A model that reads its own thinking as prose it once said moves new
+  thinking into the answer channel and loops on its last progress note — the
+  documented 2, 4, 5, 8, 16 copies per message (#755). Those routes now drop the
+  reasoning from the carry instead of converting it, which asserts nothing about
+  any vendor's `reasoning_content` handling; routes inside the contract still
+  carry theirs as `thinking` parts, and native Responses providers are
+  untouched. Before #708 this was inert on these routes, because no reasoning
+  item was stored to carry.
+- **A slow first start no longer uninstalls the service the installer just
+  installed.** On a clean machine the install wrote its launchers and registered
+  its service correctly, then a cold-starting LiteLLM gateway with a large model
+  set overran the 300-second health wait. The installer treated that as a failed
+  install and rolled back — `service.mjs uninstall` deletes the service *and*
+  unlinks both launchers — so the operator was left with `"installed":true` in
+  the log, no `start-codex-router.cmd` on disk, no scheduled task, and a bare
+  `fetch failed` naming nothing (#760). The earlier guard for this only covered
+  a reinstall over an already-working router; a first install had no prior state
+  to compare against and was torn out anyway. `service.mjs` now exits **75**
+  (`EX_TEMPFAIL`) when the service is installed and running but health has not
+  answered yet, and both installers leave the service and the client config
+  exactly as installed for that case, printing what to check instead. A crash
+  loop or a dead launcher is still a rollback: those are broken rather than
+  slow, and the readiness layer tags only the retryable timeout.
+
+- **GLM-5.3-Flash reads pasted images itself on Z.ai and OpenRouter instead of
+  paying another model to describe them.** `zai-coding/glm-5.3-flash`,
+  `zai-api/glm-5.3-flash`, and `openrouter/glm-5.3-flash` declared
+  `inputModalities: ["text"]`, so `bridgeVisionInput` sent every image in the
+  turn to a vision engine and substituted a transcript — spending a second
+  provider's quota, and losing whatever a transcript cannot carry — for a model
+  Z.ai documents as natively multimodal (#756). Z.ai gives the model's input
+  modality as `Video / Image / Text / File`, documents its `image_url` content
+  block, and says it is fully available on the GLM Coding Plan; OpenRouter's own
+  catalog publishes `["text","image","video"]` for `z-ai/glm-5.3-flash`. All
+  three entries now declare `["text", "image"]`. The text-only values were never
+  a measurement: each entry was written fresh when the withdrawn Ox Alpha preset
+  was removed and took the conservative default, while the preset it replaced
+  had carried image input from three provider catalogs. The full-size GLM-5.3
+  routes stay text-only, which is the same fact rather than an inconsistency —
+  Flash is the multimodal member of that family — and a test now holds both
+  halves. `compHash` is bumped on each changed entry, so rebuild the catalog and
+  fully quit and reopen Codex before pasting an image.
+
 - **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
   planning into the answer.** Hy4 Preview writes its own markup with a
   per-message nonce (`</think:6124c78e>`, the family
