@@ -115,6 +115,13 @@ const AUTO_COMPACT_RATIO = 0.85;
 // prompt tokens errs high on purpose, so against an eight-times-too-small
 // threshold it lands above the compaction limit on turn after turn and the
 // session compacts forever without finishing anything (#266).
+// The picker text for an entry whose sizing or modalities came from the
+// provider's own catalog rather than a documented table or the default.
+export function advertisedModelDescription(providerId, fields) {
+  const named = fields.length === 2 ? `${fields[0]} and ${fields[1]}` : fields[0];
+  return `User-curated ${providerId} model; ${named} as advertised by the provider's catalog at curation time.`;
+}
+
 export function curatedSizing(contextLength) {
   if (!Number.isInteger(contextLength) || contextLength < 1) return undefined;
   return {
@@ -516,7 +523,19 @@ async function main() {
     let omitContextNote = Boolean(advertised);
     let omitReasoningNote = Boolean(flagEfforts);
     const describe = () => {
-      if (!documented && !documentedEfforts) return;
+      if (!documented && !documentedEfforts) {
+        // Nothing documented, but the provider's own catalog may have sized
+        // the model or named its input. The generic entry text calls its
+        // metadata a conservative default; that stops being true here.
+        const advertisedFields = [
+          advertised ? "context window" : undefined,
+          Array.isArray(advertisedModalities) && advertisedModalities.length > 0 ? "input modalities" : undefined,
+        ].filter(Boolean);
+        if (advertisedFields.length > 0) {
+          metadata.description = advertisedModelDescription(providerId, advertisedFields);
+        }
+        return;
+      }
       const description = curatedModelDescription(providerId, id, {
         omitContextNote,
         omitReasoningNote,
