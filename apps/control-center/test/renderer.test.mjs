@@ -442,6 +442,28 @@ const bridgeSource = String.raw`
               ],
             },
           },
+          {
+            id: "venice",
+            displayName: "Venice",
+            credentialType: "api",
+            totalTokens: 0,
+            requests: 0,
+            last24hTokens: 0,
+            last24hRequests: 0,
+            dailyUsageBuckets: [],
+            account: {
+              status: "available",
+              metrics: [
+                {
+                  kind: "balance",
+                  label: "DIEM balance",
+                  value: 8.25,
+                  currency: "DIEM",
+                  detail: "Daily DIEM allowance",
+                },
+              ],
+            },
+          },
         ],
       };
     },
@@ -629,6 +651,7 @@ test("the production renderer exposes model discovery and picker actions", { tim
       true,
     );
     await page.getByRole("heading", { name: "Usage", exact: true }).waitFor();
+    await page.getByText("8.25 DIEM", { exact: true }).waitFor();
     assert.equal(
       await page.evaluate(() => window.routerControlTest.navigate({ destination: "usage-resets", sourceId: "deepseek" })),
       true,
