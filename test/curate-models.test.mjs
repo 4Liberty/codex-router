@@ -1363,8 +1363,9 @@ test("scripted curation records that a served window and modalities came from th
   const file = path.join(dir, "user-models.json");
   const fixture = path.join(dir, "models.json");
   writeFileSync(fixture, JSON.stringify({ data: [
-    { id: upstreamModel, context_length: 1048576, architecture: { input_modalities: ["text", "image"] } },
+    { id: upstreamModel, context_length: 1048576, architecture: { input_modalities: ["text", "image", "file"] } },
     { id: "vendor/silent" },
+    { id: "vendor/audio-only", architecture: { input_modalities: ["audio"] } },
   ] }));
   try {
     const result = spawnSync(
@@ -1373,7 +1374,7 @@ test("scripted curation records that a served window and modalities came from th
         path.join(root, "src", "curate-models.mjs"),
         providerId,
         "--models",
-        `${upstreamModel},vendor/silent`,
+        `${upstreamModel},vendor/silent,vendor/audio-only`,
         "--fixture",
         fixture,
         "--no-apply",
@@ -1395,8 +1396,11 @@ test("scripted curation records that a served window and modalities came from th
     const models = JSON.parse(readFileSync(file, "utf8")).models;
     const sized = models.find((model) => model.upstreamModel === upstreamModel);
     assert.equal(sized.contextWindow, 1048576);
-    assert.deepEqual(sized.inputModalities, ["text", "image"]);
+    assert.deepEqual(sized.inputModalities, ["text", "image"], "file is advertised but not publishable; text and image survive");
     assert.match(sized.description, /context window and input modalities as advertised by the provider's catalog/);
+    const audioOnly = models.find((model) => model.upstreamModel === "vendor/audio-only");
+    assert.deepEqual(audioOnly.inputModalities, ["text"], "an unpublishable modality set falls back to the default, never an empty list");
+    assert.match(audioOnly.description, /conservative default metadata/);
     const silent = models.find((model) => model.upstreamModel === "vendor/silent");
     assert.equal(silent.contextWindow, 131072);
     assert.match(silent.description, /conservative default metadata/);

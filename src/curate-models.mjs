@@ -102,6 +102,9 @@ if (Object.keys(REQUEST_PROFILE_DESCRIPTIONS).some((profile) => !curatableReques
   throw new Error("Curatable request-profile descriptions are out of sync.");
 }
 
+// Input modalities a published route may declare; mirrors the registry check.
+const SUPPORTED_INPUT_MODALITIES = ["text", "image"];
+
 // Codex compacts at this fraction of the declared window.
 const AUTO_COMPACT_RATIO = 0.85;
 
@@ -508,8 +511,13 @@ async function main() {
     // What the live catalog says about image input outranks the documented
     // table the same way its context length does; both beat the text-only
     // default, which is a guess.
-    const advertisedModalities = discovery.inputModalities?.[id];
-    if (Array.isArray(advertisedModalities) && advertisedModalities.length > 0) {
+    // The registry publishes only text and image input (model-registry.mjs
+    // refuses any other value), while resellers advertise file, audio, and
+    // video as well. Keep the served answer for the inputs Codex can carry;
+    // a model that advertises none of them is treated as unsized here.
+    const advertisedModalities = (discovery.inputModalities?.[id] || [])
+      .filter((value) => SUPPORTED_INPUT_MODALITIES.includes(value));
+    if (advertisedModalities.length > 0) {
       metadata.inputModalities = [...advertisedModalities];
     } else if (documentedModalities) {
       metadata.inputModalities = [...documentedModalities];
@@ -529,7 +537,7 @@ async function main() {
         // metadata a conservative default; that stops being true here.
         const advertisedFields = [
           advertised ? "context window" : undefined,
-          Array.isArray(advertisedModalities) && advertisedModalities.length > 0 ? "input modalities" : undefined,
+          advertisedModalities.length > 0 ? "input modalities" : undefined,
         ].filter(Boolean);
         if (advertisedFields.length > 0) {
           metadata.description = advertisedModelDescription(providerId, advertisedFields);
