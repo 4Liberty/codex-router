@@ -2070,7 +2070,19 @@ retry rules on the shared path.
   evidence the vendor expects `reasoning_content` back, and a reseller only
   after a live probe shows the route returns reasoning and accepts the
   echo-back; Anthropic-protocol variants never enter it. Do not special-case
-  the carry instead. Remove only successfully carried
+  the carry instead. A Chat Completions route **outside** the contract drops the
+  reasoning from the carry rather than replaying it as `output_text`: the
+  visible-text replay is the loop trigger named above, and dropping asserts
+  nothing about a vendor's `reasoning_content` handling, so it needs none of the
+  evidence a family entry does. That path was inert until #708 widened the
+  reasoning-lifecycle repair to every `openai`-protocol provider and Codex began
+  storing reasoning items for these turns (#755). Adding a family is still the
+  better outcome where the evidence exists — dropping keeps the model coherent,
+  but it does lose the thinking. This is a routed-path rule only, and it does
+  not generalise: the native backend faces the opposite constraint, since it
+  rejects a foreign reasoning item outright and never reads a reasoning
+  `summary`, so visible text can be the only replay that survives there. Weigh
+  the two separately rather than making either the house style. Remove only successfully carried
   reasoning runs so plaintext cannot also become a user message. Do not mutate
   source items or change other native Responses routes. Keep this policy shared
   between hops without applying direct DeepSeek sampling parameters to resellers.

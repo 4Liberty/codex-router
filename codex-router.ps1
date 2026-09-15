@@ -950,8 +950,16 @@ switch ($Command) {
     } else {
       "interactive"
     }
+    # `control tray` names the two lifecycle verbs enable and disable, and this
+    # wrapper named the same transactions install and uninstall. So the one
+    # command the control surface's own usage line prints -- `tray disable` --
+    # died here on "Unknown tray action 'disable'" (issue #751). Fold the
+    # control aliases onto the supervisor verbs before validation so both
+    # surfaces accept the same words and dispatch the same transaction.
+    $TrayActionAliases = @{ "enable" = "install"; "disable" = "uninstall" }
+    if ($TrayActionAliases.ContainsKey($Action)) { $Action = $TrayActionAliases[$Action] }
     if ($Action -notin @("install", "refresh", "status", "start", "stop", "restart", "uninstall", "rebuild", "repair")) {
-      throw "Unknown tray action '$Action'. Choose: install, refresh, status, start, stop, restart, uninstall, rebuild, repair."
+      throw "Unknown tray action '$Action'. Choose: install, refresh, status, start, stop, restart, uninstall, rebuild, repair (enable and disable are accepted for install and uninstall)."
     }
     # A durable interrupted replacement is reconciled before any later
     # mutation. Status remains read-only; its next mutating follow-up performs
