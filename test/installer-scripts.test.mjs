@@ -571,6 +571,18 @@ test("Windows exposes signed-routing and the shared refresh transaction", () => 
   assert.match(posix, /exec node .*src\/refresh-catalog\.mjs" "\$@"/);
 });
 
+test("Windows exposes picker-order with the same verbs as POSIX", () => {
+  const windows = readScript("codex-router.ps1");
+  const branches = windowsSwitchBranches(windows);
+  assert.match(windows, /"picker-order"/);
+  assert.ok(branches.has("picker-order"), "codex-router.ps1 must dispatch picker-order");
+  assert.match(branches.get("picker-order"), /\$Arguments/);
+  assert.match(branches.get("picker-order"), /native-first/);
+  assert.match(branches.get("picker-order"), /routed-first/);
+  const posix = readScript("bin", "model-router");
+  assert.match(posix, /\|picker-order\|/);
+});
+
 test("both bootstrap installers refuse on tracked edits only", () => {
   // Run without -CheckoutInstall / from a pipe, these are the curl|sh and
   // irm|iex self-update paths. They reimplement requireReplaceableCheckout()

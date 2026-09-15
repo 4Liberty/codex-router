@@ -16,7 +16,8 @@ $Commands = @(
   "setup", "install", "doctor", "status", "providers", "provider-key", "caller-key", "key-pool", "search-sidecar", "enable",
   "disable", "chatgpt-session", "skills", "uninstall", "update", "rollback", "support-bundle",
   "smoke-test", "start", "stop", "test-model", "discover-models", "local-mlx",
-  "signed-routing", "refresh-catalog", "media", "tray", "panel", "companion", "activity"
+  "signed-routing", "refresh-catalog", "media", "tray", "panel", "companion", "activity",
+  "picker-order"
 )
 if ($Command -notin $Commands) {
   throw "Unknown command '$Command'. Choose: $($Commands -join ', ')."
@@ -1137,6 +1138,27 @@ switch ($Command) {
     Write-Warning "'companion' is now an alias of the unified 'tray' command."
     & powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File $PSCommandPath tray $Action
     exit $LASTEXITCODE
+  }
+  "picker-order" {
+    if ($Target -ne "codex") {
+      throw "Picker order is a Codex picker concept; other targets render their own catalogs."
+    }
+    $Action = if ($Arguments.Count) { [string]$Arguments[0] } else { "status" }
+    if ($Action -notin @("status", "native-first", "routed-first")) {
+      throw "Usage: picker-order status|native-first|routed-first"
+    }
+    Push-Location $Root
+    try {
+      if ($Action -ne "status") {
+        & node --input-type=module -e "import { setPickerOrder } from './src/model-picker-state.mjs'; setPickerOrder(process.argv[1])" $Action
+        if ($LASTEXITCODE -ne 0) { throw "picker-order exited with status $LASTEXITCODE." }
+        Invoke-RouterNode "src\catalog.mjs"
+      }
+      & node --input-type=module -e 'import { readPickerOrder, MODEL_PICKER_STATE_PATH } from "./src/model-picker-state.mjs"; process.stdout.write(readPickerOrder() + " " + MODEL_PICKER_STATE_PATH + "\n")'
+      if ($LASTEXITCODE -ne 0) { throw "picker-order exited with status $LASTEXITCODE." }
+    } finally {
+      Pop-Location
+    }
   }
 }
 
