@@ -2354,6 +2354,48 @@ export function registerIpcHandlers({
     if (failure) throw new Error("Cursor was configured but could not be reopened.");
     return { configured: true, hostname: selectedHostname, opened: true };
   });
+  const runCursorDisconnect = async (context) => {
+    const quitDeadline = Date.now() + CURSOR_QUIT_TIMEOUT_MS;
+    let waitingAnnounced = false;
+    while ((await cursorProcessReader()).length) {
+      if (!waitingAnnounced) {
+        context.progress("Fully quit Cursor. Disconnect will resume here automatically…");
+        waitingAnnounced = true;
+      }
+      if (Date.now() >= quitDeadline) {
+        throw new Error("Cursor is still running. Fully quit it, then turn routing off again.");
+      }
+      await cursorWait(1_000);
+    }
+
+    context.progress("Removing router models and restoring Cursor's own endpoint…");
+    await controlJsonRunner(
+      ["client-disconnect", "cursor"],
+      { timeoutMs: REPAIR_TIMEOUT_MS },
+    );
+    const cursor = harnessSnapshotReader().harnesses.find((entry) => entry.id === "cursor");
+    if (cursor?.appConfigured || cursor?.agentConfigured) {
+      throw new Error("Cursor disconnect finished without clearing the routed App and Agent surfaces.");
+    }
+    return { removed: true };
+  };
+  handleAction("disconnectCursor", async (_input, context) => {
+    return runCursorDisconnect(context);
+  });
+  handleAction("disconnectHarness", async ({ harnessId } = {}, context) => {
+    const harness = oneOf(harnessId, HARNESS_IDS, "Harness");
+    if (harness === "cursor") return runCursorDisconnect(context);
+    context.progress(`Removing the routed catalog from ${harness}…`);
+    await controlJsonRunner(
+      ["client-disconnect", harness],
+      { timeoutMs: REPAIR_TIMEOUT_MS },
+    );
+    const next = harnessSnapshotReader().harnesses.find((entry) => entry.id === harness);
+    if (next?.configured) {
+      throw new Error(`${harness} disconnect finished without clearing its router publication.`);
+    }
+    return { removed: true, harnessId: harness };
+  });
   handleAction("openHarnessSession", async ({ harnessId, sessionId, surface, model } = {}) => {
     const harness = oneOf(harnessId, HARNESS_IDS, "Harness");
     const destination = oneOf(surface, HARNESS_SURFACES, "Harness surface");

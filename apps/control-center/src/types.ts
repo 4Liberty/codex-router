@@ -840,6 +840,8 @@ export interface RouterControlApi {
   updateHarness(harnessId: HarnessId | "all"): Promise<unknown>;
   prepareCursorTunnel(): Promise<unknown>;
   connectCursor(hostname?: string): Promise<unknown>;
+  disconnectCursor(): Promise<unknown>;
+  disconnectHarness(harnessId: HarnessId): Promise<unknown>;
   openHarnessSession(harnessId: HarnessId, sessionId: string, surface: HarnessSurface, model?: string): Promise<unknown>;
   openExternal(url: string): Promise<void>;
   onNavigation?(listener: (request: {

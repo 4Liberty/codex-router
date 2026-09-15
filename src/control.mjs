@@ -3165,15 +3165,82 @@ async function handleClientSetup(target, publicUrl, hostname) {
 }
 
 // Removing one published client is never a reason to tear the shared plane
-// down: `bin/disable` retires the service only once `installedTargets()` is
-// empty, and this command deliberately never touches the service at all.
+// down on its own: the service is retired only once `installedTargets()` is
+// empty. Cursor is the exception that may restart the shared service so its
+// separately tunneled public-edge child does not survive after disconnect.
 async function handleClientDisconnect(target) {
   const { ROUTED_HARNESS_IDS } = await import("./routed-harness-catalog.mjs");
-  if (!ROUTED_HARNESS_IDS.includes(target)) {
-    throw new Error("Usage: control client-disconnect opencode|pi|omp|commandcode|hermes");
+  if (ROUTED_HARNESS_IDS.includes(target)) {
+    const { createRoutedHarnessManager } = await import("./routed-harness-manager.mjs");
+    process.stdout.write(`${JSON.stringify(createRoutedHarnessManager(target).uninstall())}\n`);
+    return;
   }
-  const { createRoutedHarnessManager } = await import("./routed-harness-manager.mjs");
-  process.stdout.write(`${JSON.stringify(createRoutedHarnessManager(target).uninstall())}\n`);
+
+  // Target clients share one Node uninstall path on every OS. Do not route
+  // through currentCheckoutInstaller: on Windows that always runs install.
+  const uninstallArgv = {
+    codex: ["src/config-manager.mjs", "disable"],
+    dsh: ["src/dsh-config-manager.mjs", "uninstall"],
+    gemini: ["src/gemini-config-manager.mjs", "uninstall"],
+    cursor: ["src/cursor-config-manager.mjs", "uninstall"],
+    claude: ["src/claude-code-config-manager.mjs", "uninstall"],
+    openclaw: ["src/openclaw-config-manager.mjs", "uninstall"],
+  }[target];
+  if (!uninstallArgv) {
+    throw new Error(
+      "Usage: control client-disconnect codex|dsh|gemini|cursor|claude|openclaw|opencode|pi|omp|commandcode|hermes",
+    );
+  }
+
+  const uninstall = spawnSync(
+    process.execPath,
+    [path.join(REPO_ROOT, uninstallArgv[0]), uninstallArgv[1]],
+    {
+      cwd: REPO_ROOT,
+      env: { ...process.env, MODEL_ROUTER_TARGET: target },
+      encoding: "utf8",
+      windowsHide: true,
+    },
+  );
+  if (uninstall.error) throw uninstall.error;
+  if (uninstall.status !== 0) {
+    throw new Error(
+      String(uninstall.stderr || uninstall.stdout || `${target} disconnect failed`).trim(),
+    );
+  }
+
+  const { installedTargets } = await import("./target-integration.mjs");
+  const remaining = installedTargets();
+  const serviceAction = remaining.length === 0
+    ? "uninstall"
+    : target === "cursor"
+      ? "install"
+      : null;
+  if (serviceAction) {
+    const service = spawnSync(
+      process.execPath,
+      [path.join(REPO_ROOT, "src", "service.mjs"), serviceAction],
+      {
+        cwd: REPO_ROOT,
+        env: process.env,
+        encoding: "utf8",
+        windowsHide: true,
+      },
+    );
+    if (service.error) throw service.error;
+    if (service.status !== 0) {
+      throw new Error(
+        String(service.stderr || service.stdout || `service ${serviceAction} failed`).trim(),
+      );
+    }
+  }
+
+  process.stdout.write(`${JSON.stringify({
+    target,
+    removed: true,
+    remaining,
+    ...(serviceAction ? { serviceAction } : {}),
+  })}\n`);
 }
 
 // Move one routed harness CLI, or all of them, to its latest release.
@@ -3521,7 +3588,7 @@ if (args.includes("--probe")) {
   await handleClientSetup(args[1], publicUrl, hostname);
 } else if (args[0] === "client-disconnect") {
   if (args.length !== 2) {
-    throw new Error("Usage: control client-disconnect opencode|pi|omp|commandcode|hermes");
+    throw new Error("Usage: control client-disconnect codex|dsh|gemini|cursor|claude|openclaw|opencode|pi|omp|commandcode|hermes");
   }
   await handleClientDisconnect(args[1]);
 } else if (args[0] === "client-update") {
