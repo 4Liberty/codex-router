@@ -278,8 +278,16 @@ export async function fetchUntrustedModelCatalog(endpoint, {
   proxyResolvesDestination = fetchImpl === globalThis.fetch && environmentHttpProxyConfigured(),
   acceptNonOk = false,
   validatePayload = true,
+  // A JSON body turns the request into a POST with the same origin, redirect,
+  // and size guards; `parse: "json"` returns the decoded body without the
+  // model-catalog shape check, for provider endpoints that describe one model
+  // rather than list them (Ollama's `/api/show`).
+  body,
+  parse = "catalog",
 } = {}) {
   if (typeof fetchImpl !== "function") throw new Error("Model discovery requires a fetch implementation.");
+  if (parse !== "catalog" && parse !== "json") throw new Error("Model discovery parse mode must be catalog or json.");
+  const requestBody = body === undefined ? undefined : JSON.stringify(body);
   const credentialBearing = credentialBearingHeaders(headers);
   let current = await validateDiscoveryUrl(endpoint, { allowPrivate, credentialBearing, resolveHost });
   const originalOrigin = current.origin;
@@ -302,8 +310,13 @@ export async function fetchUntrustedModelCatalog(endpoint, {
       const requestFetch = usePinnedFetch ? undiciFetch : fetchImpl;
       dispatcher = usePinnedFetch ? createPinnedDispatcher(current) : undefined;
       const response = await requestFetch(current.url.toString(), {
-        method: "GET",
-        headers: { Accept: "application/json", ...headers },
+        method: requestBody === undefined ? "GET" : "POST",
+        headers: {
+          Accept: "application/json",
+          ...(requestBody === undefined ? {} : { "Content-Type": "application/json" }),
+          ...headers,
+        },
+        ...(requestBody === undefined ? {} : { body: requestBody }),
         redirect: "manual",
         signal: AbortSignal.timeout(timeoutMs),
         ...(dispatcher ? { dispatcher } : {}),
@@ -323,7 +336,7 @@ export async function fetchUntrustedModelCatalog(endpoint, {
         continue;
       }
       if (response?.ok && !validatePayload) return { ok: true, status: response.status };
-      const body = await boundedBody(response, maxBytes);
+      const responseBody = await boundedBody(response, maxBytes);
       if (!response?.ok) {
         if (acceptNonOk) return { ok: false, status: response.status };
         throw new Error(`Provider model discovery returned HTTP ${response.status}.`);
@@ -331,7 +344,8 @@ export async function fetchUntrustedModelCatalog(endpoint, {
       let payload;
       const contentType = responseHeader(response, "content-type");
       if (contentType && !/\bjson\b/i.test(contentType)) throw new Error("Provider model catalog did not return JSON.");
-      try { payload = JSON.parse(body); } catch { throw new Error("Provider returned invalid JSON for its model catalog."); }
+      try { payload = JSON.parse(responseBody); } catch { throw new Error("Provider returned invalid JSON for its model catalog."); }
+      if (parse === "json") return payload;
       validateModelCatalogPayload(payload, { maxModels, maxRecordBytes });
       return payload;
     }

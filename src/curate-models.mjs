@@ -498,7 +498,13 @@ async function main() {
     // Without this, scripted `--models` curation keeps the generic text-only
     // default even when OpenCode publishes attachment/image for the id.
     const documentedModalities = curatedModelInputModalities(providerId, id);
-    if (documentedModalities) {
+    // What the live catalog says about image input outranks the documented
+    // table the same way its context length does; both beat the text-only
+    // default, which is a guess.
+    const advertisedModalities = discovery.inputModalities?.[id];
+    if (Array.isArray(advertisedModalities) && advertisedModalities.length > 0) {
+      metadata.inputModalities = [...advertisedModalities];
+    } else if (documentedModalities) {
       metadata.inputModalities = [...documentedModalities];
     }
     // A documented window or effort ladder is not a conservative default, and

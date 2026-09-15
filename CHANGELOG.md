@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- **Routed models can be published ahead of the native GPT picker entries.**
+  Codex renders its picker by `priority`, and routed models always landed in a
+  band after the highest visible native entry, so an operator whose everyday
+  models are external could not put them first. `model-picker.json` now
+  carries an `order` (`native-first`, the unchanged default, or
+  `routed-first`), set with `./bin/model-router codex picker-order`. Under
+  `routed-first` every routed model -- certified v2 spawn routes included, so
+  none interleaves with the shifted natives -- publishes at 1..N in the
+  existing vendor-group order and the natives move after them. Visibility
+  writers preserve the choice; an older file or an unrecognized value keeps
+  the default.
+- **Generic Ollama providers are curated at the model's served context length
+  and modalities instead of the conservative default.** Ollama's
+  OpenAI-compatible `/v1/models` lists ids only, so a curated Ollama model
+  carried the 131072-token guess (#266) and text-only input even when the
+  server runs it at 1M with vision. Generic discovery now asks the same origin's
+  `/api/show` for each listed model when the provider is an OpenAI-chat
+  endpoint rooted at `/v1`, proves the answer is Ollama-shaped, and fills in
+  only the fields the list left blank. The probe is bounded like the catalog
+  fetch, stops on a missing route or after three leading refusals, and skips a
+  model the server cannot describe. Curation stores the advertised window and
+  image input; discovery reports them as `contextLengths` and the new
+  `inputModalities` map, so a documented or default modality never masquerades
+  as a served one.
+
 - **Hy4's nonce-suffixed reasoning delimiters no longer leak the model's
   planning into the answer.** Hy4 Preview writes its own markup with a
   per-message nonce (`</think:6124c78e>`, the family
