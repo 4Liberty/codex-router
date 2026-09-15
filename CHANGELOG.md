@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
+  anonymous Responses route is a Console proxy, so Meta-issued reasoning
+  `encrypted_content` is bound to Console's caller, not this router. Replaying
+  it came back as HTTP 400 "reasoning `encrypted_content` was not issued to this
+  caller". The exact Muse Contributor Free Responses gate now drops that
+  continuation token (keeping any summary text) and stops asking for it on
+  `include`. Paid Zen/Go keep a stable key and are unchanged.
 - **Routed models' turns now render like native ones in Codex.** Native models
   label each assistant message `commentary` (a progress note before more tool
   calls) or `final_answer`, and Codex folds commentary into "Worked for ..."
