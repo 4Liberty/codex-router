@@ -669,3 +669,43 @@ test("generic discovery keeps asking /api/show when one model is refused but the
     await closeServer(server);
   }
 });
+
+test("generic discovery stops asking /api/show after three leading transport failures", async () => {
+  const { OLLAMA_SHOW_MAX_LEADING_REFUSALS } = await import("../src/generic-providers.mjs");
+  const ids = ["a", "b", "c", "d", "e"];
+  let showCalls = 0;
+  const fetchImpl = async (url) => {
+    const pathname = new URL(url).pathname;
+    if (pathname.endsWith("/models")) {
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "application/json" }),
+        json: async () => ({ data: ids.map((id) => ({ id })) }),
+        text: async () => JSON.stringify({ data: ids.map((id) => ({ id })) }),
+      };
+    }
+    showCalls += 1;
+    throw new TypeError("fetch failed");
+  };
+  const providerId = "ollama-show-timeouts";
+  try {
+    addGenericProvider({
+      id: providerId,
+      displayName: "Ollama show timeouts",
+      baseUrl: "http://127.0.0.1:11434/v1",
+      adapter: "openai-chat",
+      allowPrivate: true,
+    });
+    const discovery = await discoverGenericProviderModels(providerId, {
+      fetchImpl,
+      cache: false,
+      proxyResolvesDestination: false,
+    });
+    assert.equal(showCalls, OLLAMA_SHOW_MAX_LEADING_REFUSALS);
+    assert.deepEqual(discovery.discovered, ids);
+    assert.deepEqual(discovery.contextLengths, {});
+  } finally {
+    removeGenericProvider(providerId);
+  }
+});

@@ -320,8 +320,10 @@ export function genericProviderDiscoverySnapshot(id) {
             ...(proxyResolvesDestination !== undefined ? { proxyResolvesDestination } : {}),
           });
         } catch {
-          // A server that is not Ollama, or one model it cannot describe, is
-          // silence for that id -- discovery is an evidence record.
+          // A hanging or unreadable /api/show is the same evidence as an
+          // HTTP refusal: the origin is not describing models this way.
+          refusals += 1;
+          if (Object.keys(details).length === 0 && refusals >= OLLAMA_SHOW_MAX_LEADING_REFUSALS) return details;
           continue;
         }
         if (payload && payload.ok === false) {

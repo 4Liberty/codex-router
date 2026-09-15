@@ -26,6 +26,7 @@
   image input; discovery reports them as `contextLengths` and the new
   `inputModalities` map, so a documented or default modality never masquerades
   as a served one.
+
 ## 0.6.0
 
 - **Thinking models on Chat resellers outside the native-reasoning contract no
