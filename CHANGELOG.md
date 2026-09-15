@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.6.0
+
 - **Thinking models on Chat resellers outside the native-reasoning contract no
   longer see their own past reasoning replayed as visible prose.** #708 widened
   the reasoning-lifecycle repair from `grok-oauth` to every `openai`-protocol
