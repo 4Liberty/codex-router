@@ -207,24 +207,29 @@ function declaredEffort(value, levels) {
 // /chat/completions and the nested `reasoning.effort` on /responses, and the
 // ladder belongs to the upstream family rather than to either endpoint:
 //
-//   qwen3.8*      none / low / medium / xhigh   (default xhigh)
-//   glm-5.3       low / high / max              (default max)
-//   deepseek-v4*  none / high / max             (default high)
+//   qwen3.8*                    none / low / medium / xhigh   (default xhigh)
+//   glm-5.3                     low / high / max              (default max)
+//   deepseek-v4-flash-0731,
+//   deepseek-v4-pro-0813        none / low / high / max       (default high)
+//   deepseek-v4.1-flash,
+//   deepseek-v4-pro,
+//   deepseek-v4-flash           none / high / max             (default high)
 //
 // Model Studio documents the fold for a rung a model does not have (minimal to
-// low and high/max to xhigh for Qwen3.8, and so on). `none` is the only rung
-// that turns thinking off and Codex's ladder has no `none`, so `minimal` is
-// mapped onto it: thinking off is the one rung a user can see from outside.
-// Qwen3.8 also refuses a forced tool_choice while thinking ("The tool_choice
-// parameter does not support being set to required or object in thinking
-// mode"), measured on both surfaces, so the same profile downgrades it.
+// low and high/max to xhigh for Qwen3.8, and so on). Codex's ladder has no
+// `none`, and thinking-off is the one rung a user can see from outside, so
+// `minimal` maps onto `none` on families that document that rung. Official
+// docs fold Qwen3.8's `minimal` onto `low`, which still thinks. Qwen3.8 also
+// refuses a forced tool_choice while thinking ("The tool_choice parameter does
+// not support being set to required or object in thinking mode"), measured on
+// both surfaces, so the same profile downgrades it.
 //
-// ponytail: only the three families the curated DashScope routes use are
-// listed; add a row with the documentation's own fold values before curating
-// a model from another family.
+// Only families Model Studio documents a fold table for are listed. Add a row
+// with that documentation's own fold values before curating a model from
+// another family.
 const DASHSCOPE_EFFORT_FAMILIES = [
   {
-    match: /(?:^|\/)qwen3\.[5-9]/i,
+    match: /(?:^|\/)qwen3\.8/i,
     fold: {
       minimal: "none",
       low: "low",
@@ -240,6 +245,18 @@ const DASHSCOPE_EFFORT_FAMILIES = [
     match: /(?:^|\/)glm-5\.3/i,
     fold: {
       minimal: "low",
+      low: "low",
+      medium: "high",
+      high: "high",
+      xhigh: "max",
+      max: "max",
+      ultra: "max",
+    },
+  },
+  {
+    match: /(?:^|\/)deepseek-v4-(?:flash-0731|pro-0813)/i,
+    fold: {
+      minimal: "none",
       low: "low",
       medium: "high",
       high: "high",
@@ -1191,10 +1208,10 @@ function normalizeBody(buffer, contentType, route) {
       payload.tool_choice = "auto";
     }
   } else if (model.requestProfile === "dashscope-reasoning") {
-    // One profile for every DashScope family the curated routes use: the fold
-    // table above is keyed on `upstreamModel`, so the same entry carries the
-    // right ladder for Qwen3.8, GLM-5.3, and DeepSeek V4. Write whichever
-    // spelling this provider's surface reads, and never both.
+    // One profile for every DashScope family Model Studio documents a ladder
+    // for: the fold table above is keyed on `upstreamModel`, so the same entry
+    // carries the right rungs for Qwen3.8, GLM-5.3, and DeepSeek V4. Write
+    // whichever spelling this provider's surface reads, and never both.
     const family = dashscopeEffortFamily(model.upstreamModel);
     const requested = typeof payload.reasoning?.effort === "string"
       ? payload.reasoning.effort

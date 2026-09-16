@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Command Code's DeepSeek V4.1 Flash route advertises image input.** The
+  checked-in entry was text-only until Command Code documented the capability
+  at the Provider API: the model page lists Image input, and the Provider FAQ
+  says message content is text and images with no per-model pre-gate. Matching
+  the other V4.1 Flash routes, `commandcode/deepseek-v4.1-flash` now declares
+  `["text", "image"]` so pasted screenshots go to the model instead of the
+  vision bridge (#783). Rebuild the catalog and fully quit and reopen Codex
+  before pasting an image.
+
 - **ainetcafe added as an API-key provider.** `ainetcafe/kimi-k3` routes to
   ainetcafe's OpenAI-compatible endpoint (`https://microquickjs.com/v1`,
   key `AINETCAFE_API_KEY`), which serves Kimi K3 from its own cluster. It
@@ -37,7 +46,8 @@
   could only publish the conservative single `high`. The new curatable
   `dashscope-reasoning` profile folds the requested rung onto the family's
   documented ladder (Qwen3.8 `none`/`low`/`medium`/`xhigh`, GLM-5.3
-  `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`), writes whichever
+  `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`, with the dated
+  `0731`/`0813` snapshots keeping `low`), writes whichever
   spelling the surface reads, maps Codex's `minimal` onto DashScope's `none`
   because Codex ships no thinking-off rung, and downgrades the forced
   `tool_choice` the Qwen3.8 family refuses in thinking mode. Measured end to

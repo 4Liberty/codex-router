@@ -28,7 +28,7 @@ export const REQUEST_PROFILES = Object.freeze([
 const PROFILE_SET = new Set(REQUEST_PROFILES);
 
 // Most profiles encode a checked-in vendor contract and are never sensible to
-// lend to an arbitrary model. These two are deliberately model-scoped
+// lend to an arbitrary model. These are deliberately model-scoped
 // compatibility observations an operator can make while curating a route.
 export const CURATABLE_REQUEST_PROFILES = Object.freeze([
   "auto-tool-choice",

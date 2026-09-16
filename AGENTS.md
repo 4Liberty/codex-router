@@ -833,11 +833,12 @@ to ship tested support to every installer.
    `dashscope-reasoning` is the same kind of model-scoped observation for
    Alibaba Model Studio's OpenAI-compatible surfaces. It folds Codex's rung
    onto the family's documented ladder (Qwen3.8 `none`/`low`/`medium`/`xhigh`,
-   GLM-5.3 `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`), writes the
-   nested spelling on `/responses` and the flat one on `/chat/completions`,
-   maps Codex's `minimal` onto DashScope's `none` — Codex has no thinking-off
-   rung of its own — and downgrades the forced tool choice the Qwen3.8 family
-   refuses in thinking mode on both surfaces.
+   GLM-5.3 `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`, with the
+   dated `0731`/`0813` snapshots keeping `low`), writes the nested spelling
+   on `/responses` and the flat one on `/chat/completions`, maps Codex's
+   `minimal` onto DashScope's `none` — Codex has no thinking-off rung of its
+   own — and downgrades the forced tool choice the Qwen3.8 family refuses in
+   thinking mode on both surfaces.
 7. Run `./bin/model-router codex doctor`. A live `bin/test-model` request uses
    provider quota, so run it only with the user's approval. Finally, tell the
    user to fully quit and reopen Codex before checking the picker.
