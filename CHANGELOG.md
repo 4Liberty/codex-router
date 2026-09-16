@@ -12,6 +12,12 @@
   guessing a vendor. Omen Alpha is still in the live catalog but deprecated in
   that same record and is not checked in. Rebuild the catalog and fully quit
   and reopen Codex to see the new picker row.
+- **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
+  Application Default Credentials from `gcloud auth application-default login`
+  (never a stored API key or a silent `gcloud auth login` user token), honors
+  `--no-discovery`, and lists Model Garden models for `bin/curate-models vertex`.
+  A discovered id is not routable until it is curated onto a reviewed adapter.
+
 - **Command Code's DeepSeek V4.1 Flash route advertises image input.** The
   checked-in entry was text-only until Command Code documented the capability
   at the Provider API: the model page lists Image input, and the Provider FAQ
@@ -45,11 +51,6 @@
   A real terminal still inherits a console. Switching the re-exec to
   `capture` would hide the window the wrong way: capture ignores stdin, which
   is how Control Center writes provider keys.
-- **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
-  Application Default Credentials from `gcloud auth application-default login`
-  (never a stored API key or a silent `gcloud auth login` user token), honors
-  `--no-discovery`, and lists Model Garden models for `bin/curate-models vertex`.
-  A discovered id is not routable until it is curated onto a reviewed adapter.
 
 - **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
   anonymous Responses route is a Console proxy, so Meta-issued reasoning
