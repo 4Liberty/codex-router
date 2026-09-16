@@ -118,6 +118,13 @@ if (!selfReplacingControl && !boundedOperationChild(process.env, {
   // escalate a full process-group termination. Catalog desktop watchdogs keep
   // another ten seconds outside this boundary; shorter ordinary operations
   // retain the larger margin chosen by their UI runner.
+  //
+  // `stdio: "inherit"` is load-bearing. The default `"capture"` mode ignores
+  // stdin, so a Control Center credential write would arrive empty at the
+  // inner process. A packaged Electron parent has no console to inherit:
+  // `process-tree.mjs` then relays the three streams through pipes and keeps
+  // CREATE_NO_WINDOW. Do not switch this re-exec to capture to hide a
+  // Windows console (#775); that was the wrong layer, and it would drop keys.
   const deadline = operationDeadlineFromEnvironment(process.env, {
     timeoutMs: maximumControlOperationMs,
     maximumMs: maximumControlOperationMs,
