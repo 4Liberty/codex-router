@@ -1165,10 +1165,13 @@ test("independent control-center reads reveal each ready page region", { timeout
       waitUntil: "domcontentloaded",
       timeout: 30_000,
     });
-    // Only the responsiveness checks use the tight budget. A cold browser
-    // navigation includes process and module startup and needs a normal timeout.
+    // Cold Chromium on Windows hosted runners can commit the first React paint
+    // after DOMContentLoaded. Keep this wait under snapshotDelayMs=3000 so a
+    // heading that waited for the delayed snapshot still fails.
+    await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor({
+      timeout: 2_500,
+    });
     page.setDefaultTimeout(1_500);
-    await page.getByRole("heading", { name: "Dashboard", exact: true }).waitFor();
     await page.locator(".service-health-strip").waitFor();
     await page.locator('.db-breakdown-list[aria-label="Providers usage breakdown"]')
       .getByText("DeepSeek", { exact: true })
