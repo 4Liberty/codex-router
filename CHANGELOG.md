@@ -1,6 +1,13 @@
 # Changelog
 
 ## Unreleased
+- **ainetcafe added as an API-key provider.** `ainetcafe/kimi-k3` routes to
+  ainetcafe's OpenAI-compatible endpoint (`https://microquickjs.com/v1`,
+  key `AINETCAFE_API_KEY`), which serves Kimi K3 from its own cluster. It
+  reuses the `kimi-k3` request profile (top-level `reasoning_effort`, no
+  `thinking`), declares the default 256K context and text + image input, and
+  stays conservative on original-detail images like the other K3 relays.
+
 - **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
   anonymous Responses route is a Console proxy, so Meta-issued reasoning
   `encrypted_content` is bound to Console's caller, not this router. Replaying

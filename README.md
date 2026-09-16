@@ -304,6 +304,7 @@ Linux installations support the Codex CLI.
 | Hy4 Preview (OpenRouter) | `openrouter/tencent/hy4-preview` | OpenRouter API key |
 | GLM-5.2 (ClinePass) | `clinepass/glm-5.2` | ClinePass API key |
 | Kimi K3 (ClinePass) | `clinepass/kimi-k3` | ClinePass API key |
+| Kimi K3 (ainetcafe) | `ainetcafe/kimi-k3` | ainetcafe API key (`AINETCAFE_API_KEY`) |
 | Kimi K2.7 Code (ClinePass) | `clinepass/kimi-k2.7-code` | ClinePass API key |
 | Kimi K2.6 (ClinePass) | `clinepass/kimi-k2.6` | ClinePass API key |
 | DeepSeek V4 Pro (ClinePass) | `clinepass/deepseek-v4-pro` | ClinePass API key |
