@@ -2197,6 +2197,7 @@ function requiresTrailingUserTurn(route) {
   const provider = providerForModel(route);
   if (
     provider?.generic !== true &&
+    provider?.protocol !== "vertex" &&
     (provider?.id === "gemini-api" || provider?.ownedBy?.toLowerCase?.() === "google")
   ) {
     return true;

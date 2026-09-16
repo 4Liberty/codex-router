@@ -5360,6 +5360,7 @@ struct ProviderSetupState: Decodable, Identifiable, Equatable {
   let credentialLabel: String?
   let disconnectable: Bool?
   let blockedNote: String?
+  let configurationNote: String?
   // Set when connecting successfully still leaves the account unable to use
   // the API, because its plan does not include one. Shown before the buttons
   // rather than after a 403 lands in Codex.
@@ -9461,6 +9462,9 @@ private struct ProviderSetupRow: View {
         : routerLocalized("Sign in with the official CLI")
     case "add-key":
       return "\(credentialLabel) \(routerLocalized("required"))"
+    case "configure":
+      return setup.configurationNote
+        ?? routerLocalized("Run the provider's local configuration command, then refresh")
     case "probe": return routerLocalized("Live test required · sends a small prompt and uses quota")
     case "blocked":
       return setup.blockedNote
@@ -9559,7 +9563,7 @@ private struct ProviderSetupRow: View {
       }
     } else {
       HStack(spacing: 10) {
-        if setup?.action != "blocked" {
+        if setup?.action != "blocked" && setup?.action != "configure" {
           Button(actionTitle) { performAction() }
             .buttonStyle(.plain)
             .font(.system(size: 10, weight: .medium))

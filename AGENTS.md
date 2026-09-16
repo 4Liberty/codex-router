@@ -76,10 +76,13 @@ user.
    environment API key; it has no router-managed CLI sign-in path. The
    catalog-only providers `groq`, `together`, `fireworks`,
    `cerebras`, `mistral`, `nvidia-nim`, `siliconflow`, `huggingface`,
-   `gemini-api`, `github-copilot`, `chutes`, and `orca` are also selectable, but they ship no
+   `gemini-api`, `github-copilot`, `chutes`, `orca`, and `vertex` are also selectable, but they ship no
    preselected models: after
    the credential is stored, the user must run `bin/curate-models PROVIDER` in an
-   interactive terminal to choose models. If they did not specify and
+   interactive terminal to choose models. Vertex uses Application Default
+   Credentials from `gcloud auth application-default login` plus
+   `./bin/control vertex set PROJECT_ID LOCATION` rather than an API key, and
+   it is never selected by `defaultProviderIds()`. If they did not specify and
    credentials already exist, use
    `configured` rather than showing providers that cannot authenticate.
    `openrouter`, `venice`, and `nousresearch` also ship live-reviewed checked-in

@@ -599,6 +599,15 @@ forced choice for that model only (`--request-profile auto-tool-choice` in the
 ./bin/curate-models PROVIDER --models MODEL_ID --request-profile auto-tool-choice
 ```
 
+Vertex also has an explicit offline mode for accounts where Model Garden's
+publisher-model list is unavailable: `./bin/curate-models vertex --static --models MODEL_ID`.
+This uses only the reviewed entries in
+`config/vertex/support-catalog.json`, never silently falls back after a live
+discovery failure, and still requires working ADC, Vertex API enablement, IAM,
+and model access when a request is sent. `--static` cannot be combined with
+`--refresh`; it is a curation escape hatch, not proof that the account can use
+every reviewed model.
+
 For an already-curated model, edit only that entry's `requestProfile` in the
 protected `user-models.json`, preserving its existing context, modalities,
 efforts, and other hand-tuned metadata; do not remove and re-add it or apply a
@@ -1024,6 +1033,13 @@ often for the repository to pin and live-verify individual entries:
 login`, the Control Center and `./bin/curate-models devin-cli` read the model
 configuration available to that account through the installed Devin CLI; the
 provider still ships no preselected models.
+
+`vertex` is the Google Cloud exception. It uses Application Default Credentials
+from `gcloud auth application-default login` plus
+`./bin/control vertex set PROJECT_ID LOCATION`, not an API key, and it is
+never selected by a default install. After connecting, run
+`./bin/curate-models vertex`. A discovered Model Garden id is not routable
+until it is curated onto a reviewed adapter.
 
 OpenRouter, NanoGPT, Venice, and Nous Research are ordinary API-key providers with
 live-reviewed checked-in routes in the model table. Use `bin/curate-models` for
