@@ -97,7 +97,7 @@ const REQUEST_PROFILE_DESCRIPTIONS = {
     "reject Codex's encrypted annotation on JSON-Schema nodes while accepting the same tool schema without it",
   "dashscope-reasoning":
     "fold Codex's effort onto DashScope's documented ladder for this model's family " +
-    "(Qwen3.8 none/low/medium/xhigh, GLM-5.3 low/high/max, DeepSeek V4.1 none/high/max), " +
+    "(Qwen3.8 none/low/medium/xhigh, GLM-5.3 low/high/max, DeepSeek V4.x none/high/max), " +
     "with `minimal` as the thinking-off rung, and downgrade Qwen3.8's forced tool_choice",
 };
 
