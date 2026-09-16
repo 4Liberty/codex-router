@@ -359,3 +359,108 @@ test("forwarder preserves types only for curated Moonshot flattening", async () 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("dashscope-reasoning folds onto the documented ladder and downgrades Qwen's forced tool choice", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "generic-dashscope-reasoning-"));
+  const providersFile = path.join(directory, "generic-providers.json");
+  const userModelsFile = path.join(directory, "user-models.json");
+  const upstreamRequests = [];
+  const upstream = await listen(async (request, response) => {
+    upstreamRequests.push({ url: request.url, body: await requestJson(request) });
+    json(response, 200, {
+      id: `resp_dashscope_${upstreamRequests.length}`,
+      object: "response",
+      status: "completed",
+      model: upstreamRequests.at(-1).body.model,
+      output: [{
+        id: "msg_dashscope_1",
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "ok", annotations: [] }],
+      }],
+    });
+  });
+  // Model Studio documents a ladder per upstream family, so the profile has to
+  // read the model rather than a single provider-wide table. Kimi K3 is sold by
+  // DashScope with no row in that table: it keeps whatever the client sent.
+  const models = [
+    ["qwen3.8-max", "dashscope-reasoning"],
+    ["glm-5.3", "dashscope-reasoning"],
+    ["deepseek-v4.1-flash", "dashscope-reasoning"],
+    ["kimi-k3", undefined],
+  ].map(([upstreamId, requestProfile], index) => userModelEntry({
+    providerId: "dashscope",
+    upstreamId,
+    requestProfile,
+    priority: 100 + index,
+  }));
+  writeFileSync(providersFile, `${JSON.stringify({
+    version: 1,
+    providers: [{
+      id: "dashscope",
+      displayName: "Alibaba DashScope",
+      baseUrl: `http://127.0.0.1:${upstream.port}/compatible-mode/v1`,
+      adapter: "openai-responses",
+      headers: {},
+      allowPrivate: true,
+      enabled: true,
+    }],
+  }, null, 2)}\n`);
+  writeFileSync(userModelsFile, `${JSON.stringify({ version: 1, models }, null, 2)}\n`);
+  const forwarderPort = await openPort();
+  const forwarder = runForwarder({
+    MODEL_ROUTER_API_PORT: String(forwarderPort),
+    MODEL_ROUTER_STATE_DIR: path.join(directory, "state"),
+    MODEL_ROUTER_GENERIC_PROVIDERS: providersFile,
+    MODEL_ROUTER_USER_MODELS: userModelsFile,
+  });
+  const modelByUpstreamId = new Map(models.map((model) => [model.upstreamModel, model]));
+
+  async function send(upstreamId, effort) {
+    const model = modelByUpstreamId.get(upstreamId);
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: `responses/${model.gatewayModel}`,
+        input: [{ role: "user", content: [{ type: "input_text", text: "Think it through." }] }],
+        reasoning: { effort },
+        tool_choice: "required",
+        tools: [{ type: "function", name: "inspect", description: "Inspect.", parameters: { type: "object" } }],
+      }),
+    });
+    assert.equal(response.status, 200, `${await response.text()} ${forwarder.testErrors()}`);
+    return upstreamRequests.at(-1).body;
+  }
+
+  try {
+    await waitForForwarder(forwarderPort, forwarder);
+    // Qwen3.8's ladder is none/low/medium/xhigh with xhigh the model default.
+    // Codex has no `none`, so `minimal` is the thinking-off rung, and the
+    // doc's own fold sends high and max to xhigh.
+    assert.deepEqual((await send("qwen3.8-max", "minimal")).reasoning, { effort: "none" });
+    assert.deepEqual((await send("qwen3.8-max", "high")).reasoning, { effort: "xhigh" });
+    // GLM-5.3 is low/high/max, with the doc sending medium to high and every
+    // rung above it to max.
+    assert.deepEqual((await send("glm-5.3", "minimal")).reasoning, { effort: "low" });
+    assert.deepEqual((await send("glm-5.3", "xhigh")).reasoning, { effort: "max" });
+    // DeepSeek V4.1 Flash is none/high/max: low and medium fold up onto high.
+    assert.deepEqual((await send("deepseek-v4.1-flash", "medium")).reasoning, { effort: "high" });
+    assert.deepEqual((await send("deepseek-v4.1-flash", "max")).reasoning, { effort: "max" });
+    // No row, no fold: the rung the client sent survives byte-identically.
+    assert.deepEqual((await send("kimi-k3", "high")).reasoning, { effort: "high" });
+
+    const sent = upstreamRequests.map((entry) => entry.body);
+    assert.ok(sent.every((body) => body.reasoning_effort === undefined));
+    assert.equal(sent[0].tool_choice, "auto");
+    assert.equal(sent[1].tool_choice, "auto");
+    for (const body of sent.slice(2)) {
+      assert.equal(body.tool_choice, "required");
+    }
+  } finally {
+    await stop(forwarder);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
