@@ -28,6 +28,16 @@
   that same record and is not checked in. Rebuild the catalog and fully quit
   and reopen Codex to see the new picker row.
 
+- **A `.env` that mixes CRLF and LF keeps both.** The Gemini integration owns a
+  marker-delimited block in `$GEMINI_HOME/.env` and treats every other byte as
+  the user's, but it detected one line ending for the whole document and
+  rejoined every line on it. A file touched by two editors came back with the
+  router's ending on lines the router never wrote -- and came back that way
+  again after the block was removed, so the rewrite outlived the integration.
+  Each line now keeps the terminator it arrived with, and the block is rendered
+  with the document's prevailing one. A file that ends without a newline still
+  gains exactly one, because the block has to start on its own line; that is the
+  only difference a publish and removal now leaves behind.
 - **Command Code's DeepSeek V4.1 Flash route advertises image input.** The
   checked-in entry was text-only until Command Code documented the capability
   at the Provider API: the model page lists Image input, and the Provider FAQ
