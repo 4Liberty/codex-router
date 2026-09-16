@@ -8,6 +8,18 @@
   `thinking`), declares the default 256K context and text + image input, and
   stays conservative on original-detail images like the other K3 relays.
 
+- **The Windows Control Center no longer flashes a console on every refresh.**
+  Ordinary `control.mjs` invocations re-exec through the process tree with
+  `stdio: "inherit"`, which is required so credential stdin and live output
+  survive. That used to map every inherit to `windowsHide: false`, so a parent
+  with no console of its own — the packaged Electron tray — made Windows
+  allocate a new visible Windows Terminal on every snapshot (#775, #731).
+  Process-tree now treats inherit without a TTY as background work: three
+  fresh pipes, live stdin/stdout/stderr relay, and `CREATE_NO_WINDOW` (#744).
+  A real terminal still inherits a console. Switching the re-exec to
+  `capture` would hide the window the wrong way: capture ignores stdin, which
+  is how Control Center writes provider keys.
+
 - **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
   anonymous Responses route is a Console proxy, so Meta-issued reasoning
   `encrypted_content` is bound to Console's caller, not this router. Replaying
@@ -15,6 +27,23 @@
   caller". The exact Muse Contributor Free Responses gate now drops that
   continuation token (keeping any summary text) and stops asking for it on
   `include`. Paid Zen/Go keep a stable key and are unchanged.
+
+- **DashScope's documented thinking ladder now reaches the model, so a curated
+  DashScope route can offer more than one rung.** Model Studio documents
+  `reasoning.effort` with a ladder per upstream family, but the router had no
+  profile on a generic provider's boundary: the nested `reasoning.effort` Codex
+  sends is ignored by `/compatible-mode/v1/chat/completions`, which reads the
+  flat `reasoning_effort`, so every rung produced the same turn and curation
+  could only publish the conservative single `high`. The new curatable
+  `dashscope-reasoning` profile folds the requested rung onto the family's
+  documented ladder (Qwen3.8 `none`/`low`/`medium`/`xhigh`, GLM-5.3
+  `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`), writes whichever
+  spelling the surface reads, maps Codex's `minimal` onto DashScope's `none`
+  because Codex ships no thinking-off rung, and downgrades the forced
+  `tool_choice` the Qwen3.8 family refuses in thinking mode. Measured end to
+  end through the router: `minimal` returns zero reasoning tokens on Qwen3.8
+  and DeepSeek V4.1 Flash, and `bin/test-model --live --yes` passes 5/5 on all
+  five curated DashScope models (#785).
 
 - **OpenCode Go no longer 400s a follow-up after `apply_patch`.** The
   custom→function bridge rewrote `custom_tool_call_output` to

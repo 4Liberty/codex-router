@@ -7,6 +7,7 @@ export const REQUEST_PROFILES = Object.freeze([
   "auto-tool-choice",
   "clinepass",
   "codex-encrypted-schema",
+  "dashscope-reasoning",
   "deepseek-nonthinking",
   "deepseek-thinking",
   "glm-thinking",
@@ -32,6 +33,7 @@ const PROFILE_SET = new Set(REQUEST_PROFILES);
 export const CURATABLE_REQUEST_PROFILES = Object.freeze([
   "auto-tool-choice",
   "codex-encrypted-schema",
+  "dashscope-reasoning",
 ]);
 
 const CURATABLE_PROFILE_SET = new Set(CURATABLE_REQUEST_PROFILES);

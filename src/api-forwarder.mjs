@@ -203,6 +203,70 @@ function declaredEffort(value, levels) {
   return atOrBelow.at(-1) || declared[0];
 }
 
+// DashScope's OpenAI-compatible surfaces take the flat `reasoning_effort` on
+// /chat/completions and the nested `reasoning.effort` on /responses, and the
+// ladder belongs to the upstream family rather than to either endpoint:
+//
+//   qwen3.8*      none / low / medium / xhigh   (default xhigh)
+//   glm-5.3       low / high / max              (default max)
+//   deepseek-v4*  none / high / max             (default high)
+//
+// Model Studio documents the fold for a rung a model does not have (minimal to
+// low and high/max to xhigh for Qwen3.8, and so on). `none` is the only rung
+// that turns thinking off and Codex's ladder has no `none`, so `minimal` is
+// mapped onto it: thinking off is the one rung a user can see from outside.
+// Qwen3.8 also refuses a forced tool_choice while thinking ("The tool_choice
+// parameter does not support being set to required or object in thinking
+// mode"), measured on both surfaces, so the same profile downgrades it.
+//
+// ponytail: only the three families the curated DashScope routes use are
+// listed; add a row with the documentation's own fold values before curating
+// a model from another family.
+const DASHSCOPE_EFFORT_FAMILIES = [
+  {
+    match: /(?:^|\/)qwen3\.[5-9]/i,
+    fold: {
+      minimal: "none",
+      low: "low",
+      medium: "medium",
+      high: "xhigh",
+      xhigh: "xhigh",
+      max: "xhigh",
+      ultra: "xhigh",
+    },
+    forcedToolChoice: true,
+  },
+  {
+    match: /(?:^|\/)glm-5\.3/i,
+    fold: {
+      minimal: "low",
+      low: "low",
+      medium: "high",
+      high: "high",
+      xhigh: "max",
+      max: "max",
+      ultra: "max",
+    },
+  },
+  {
+    match: /(?:^|\/)deepseek-v4/i,
+    fold: {
+      minimal: "none",
+      low: "high",
+      medium: "high",
+      high: "high",
+      xhigh: "max",
+      max: "max",
+      ultra: "max",
+    },
+  },
+];
+
+function dashscopeEffortFamily(upstreamModel) {
+  const upstream = String(upstreamModel || "");
+  return DASHSCOPE_EFFORT_FAMILIES.find((entry) => entry.match.test(upstream));
+}
+
 // Strict chat-completions providers (e.g. MiniMax) reject a turn whose tool
 // result messages do not immediately follow the assistant message carrying the
 // matching tool_calls. When the upstream Responses-API history is translated to
@@ -1124,6 +1188,36 @@ function normalizeBody(buffer, contentType, route) {
     // compatibility probe and, worse, decline the forced function call the
     // subagent payload relay depends on.
     if (payload.tool_choice !== undefined && payload.tool_choice !== "none") {
+      payload.tool_choice = "auto";
+    }
+  } else if (model.requestProfile === "dashscope-reasoning") {
+    // One profile for every DashScope family the curated routes use: the fold
+    // table above is keyed on `upstreamModel`, so the same entry carries the
+    // right ladder for Qwen3.8, GLM-5.3, and DeepSeek V4. Write whichever
+    // spelling this provider's surface reads, and never both.
+    const family = dashscopeEffortFamily(model.upstreamModel);
+    const requested = typeof payload.reasoning?.effort === "string"
+      ? payload.reasoning.effort
+      : payload.reasoning_effort;
+    const mapped = family && typeof requested === "string"
+      ? family.fold[requested.trim().toLowerCase()]
+      : undefined;
+    delete payload.reasoning_effort;
+    if (!mapped) {
+      // No mapping is not an error: the model keeps its own default. An
+      // unknown rung must never reach an upstream that answers it with a 400
+      // (GLM-5.3 rejects `none`, for instance).
+      delete payload.reasoning;
+    } else if (provider.protocol === "openai-responses") {
+      payload.reasoning = {
+        ...(payload.reasoning && typeof payload.reasoning === "object" ? payload.reasoning : {}),
+        effort: mapped,
+      };
+    } else {
+      delete payload.reasoning;
+      payload.reasoning_effort = mapped;
+    }
+    if (family?.forcedToolChoice && payload.tool_choice !== undefined && payload.tool_choice !== "none") {
       payload.tool_choice = "auto";
     }
   }
