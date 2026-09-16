@@ -746,17 +746,61 @@ function stripSearchContentTypes(tools) {
   return stripped ? repaired : tools;
 }
 
+// Strict Responses validators (Azure OpenAI /openai/v1, per openai/codex#37422
+// and #37952) require every `type: "namespace"` tool to carry a non-empty
+// `description` (minLength 1). OpenAI's own endpoint accepts an empty or
+// missing description leniently, but Azure 400s before inference with
+// `Invalid 'input[0].tools[N].description': empty string` or
+// `Missing required parameter: 'input[0].tools[N].description'`.
+// Codex itself emits that shape (dynamic grouping and Responses Lite both
+// serialize namespaces with `description: ""`), so a generic
+// `openai-responses` provider forwarding Codex's inventory verbatim fails on
+// every turn that carries such a namespace -- historically observed with the
+// `image_gen`/`imagegen` harness namespace while collaboration, app, MCP, and
+// shell tools carried valid descriptions and passed.
+//
+// Repair only the missing contract field, never the tool inventory: an empty
+// or absent description becomes `Tools in the {name} namespace.` The name,
+// inner tools, and every other tool (functions, MCP, collaboration, shell,
+// hosted image_generation, custom, tool_search) are preserved byte-identical,
+// and namespace restoration on the response path is unaffected because the
+// identity is the name, not the description.
+//
+// Scoped to operator-configured generic Responses endpoints (unknown
+// validators), matching the existing `withoutInputMessagePhase` boundary.
+// Built-in Responses providers keep their current wire shape.
+//
+// Returns the original array when nothing needed repair, so already-valid
+// requests are forwarded byte-identical.
+function ensureNamespaceDescriptions(tools) {
+  if (!Array.isArray(tools)) return tools;
+  let changed = false;
+  const repaired = tools.map((tool) => {
+    if (!tool || typeof tool !== "object" || Array.isArray(tool) || tool.type !== "namespace") {
+      return tool;
+    }
+    const description = tool.description;
+    if (typeof description === "string" && description.trim().length > 0) {
+      return tool;
+    }
+    changed = true;
+    const name = typeof tool.name === "string" && tool.name ? tool.name : "namespaced";
+    return { ...tool, description: `Tools in the ${name} namespace.` };
+  });
+  return changed ? repaired : tools;
+}
+
 /**
  * Strip empty `tools: []` and dangling `tool_choice` from a payload.
  * Returns whether the payload was changed.
- * 
+ *
  * The vLLM build in qwen38-community and other strict upstreams (>=0.20 Pydantic)
  * refuse an empty tools array. Codex sends `tools: []` on compaction and plain chat,
  * so without this strip every compaction against strict providers 400s. An empty tools
  * array is valid for lenient providers and explicitly permitted by OpenAI's schema, so
  * the repair belongs at this last hop rather than in the compaction path. Omitting the
  * empty field is also valid for providers like OpenCode Go.
- * 
+ *
  * Drops tool_choice only when an empty tools: [] was actually stripped, not when tools
  * was never present. Requests with tool_choice but no tools field are forwarded as-is
  * for profiles that need them.
@@ -860,6 +904,7 @@ function normalizeBody(buffer, contentType, route) {
     // shape. Built-in Responses providers keep the field.
     if (provider.generic === true) {
       payload.input = withoutInputMessagePhase(payload.input);
+      payload.tools = ensureNamespaceDescriptions(payload.tools);
     }
   }
 
