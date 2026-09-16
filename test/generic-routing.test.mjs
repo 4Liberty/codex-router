@@ -388,6 +388,7 @@ test("dashscope-reasoning folds onto the documented ladder and downgrades Qwen's
     ["qwen3.8-max", "dashscope-reasoning"],
     ["glm-5.3", "dashscope-reasoning"],
     ["deepseek-v4.1-flash", "dashscope-reasoning"],
+    ["deepseek-v4-flash-0731", "dashscope-reasoning"],
     ["kimi-k3", undefined],
   ].map(([upstreamId, requestProfile], index) => userModelEntry({
     providerId: "dashscope",
@@ -442,12 +443,17 @@ test("dashscope-reasoning folds onto the documented ladder and downgrades Qwen's
     assert.deepEqual((await send("qwen3.8-max", "minimal")).reasoning, { effort: "none" });
     assert.deepEqual((await send("qwen3.8-max", "high")).reasoning, { effort: "xhigh" });
     // GLM-5.3 is low/high/max, with the doc sending medium to high and every
-    // rung above it to max.
+    // rung above it to max. `none` is a 400, so an unmapped rung is dropped.
     assert.deepEqual((await send("glm-5.3", "minimal")).reasoning, { effort: "low" });
     assert.deepEqual((await send("glm-5.3", "xhigh")).reasoning, { effort: "max" });
+    assert.equal((await send("glm-5.3", "none")).reasoning, undefined);
     // DeepSeek V4.1 Flash is none/high/max: low and medium fold up onto high.
     assert.deepEqual((await send("deepseek-v4.1-flash", "medium")).reasoning, { effort: "high" });
     assert.deepEqual((await send("deepseek-v4.1-flash", "max")).reasoning, { effort: "max" });
+    // The dated V4 snapshots document `low` as a real rung, so it must not
+    // inherit the undated family's fold of low onto high.
+    assert.deepEqual((await send("deepseek-v4-flash-0731", "low")).reasoning, { effort: "low" });
+    assert.deepEqual((await send("deepseek-v4-flash-0731", "minimal")).reasoning, { effort: "none" });
     // No row, no fold: the rung the client sent survives byte-identically.
     assert.deepEqual((await send("kimi-k3", "high")).reasoning, { effort: "high" });
 
@@ -458,6 +464,76 @@ test("dashscope-reasoning folds onto the documented ladder and downgrades Qwen's
     for (const body of sent.slice(2)) {
       assert.equal(body.tool_choice, "required");
     }
+  } finally {
+    await stop(forwarder);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test("dashscope-reasoning writes the flat spelling on a chat-completions DashScope provider", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "generic-dashscope-chat-"));
+  const providersFile = path.join(directory, "generic-providers.json");
+  const userModelsFile = path.join(directory, "user-models.json");
+  const upstreamRequests = [];
+  const upstream = await listen(async (request, response) => {
+    upstreamRequests.push(await requestJson(request));
+    json(response, 200, {
+      id: `chatcmpl_dashscope_${upstreamRequests.length}`,
+      object: "chat.completion",
+      model: upstreamRequests.at(-1).model,
+      choices: [{ index: 0, message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+    });
+  });
+  const model = userModelEntry({
+    providerId: "dashscope",
+    upstreamId: "qwen3.8-max",
+    requestProfile: "dashscope-reasoning",
+    priority: 100,
+  });
+  writeFileSync(providersFile, `${JSON.stringify({
+    version: 1,
+    providers: [{
+      id: "dashscope",
+      displayName: "Alibaba DashScope",
+      baseUrl: `http://127.0.0.1:${upstream.port}/compatible-mode/v1`,
+      adapter: "openai-chat",
+      headers: {},
+      allowPrivate: true,
+      enabled: true,
+    }],
+  }, null, 2)}\n`);
+  writeFileSync(userModelsFile, `${JSON.stringify({ version: 1, models: [model] }, null, 2)}\n`);
+  const forwarderPort = await openPort();
+  const forwarder = runForwarder({
+    MODEL_ROUTER_API_PORT: String(forwarderPort),
+    MODEL_ROUTER_STATE_DIR: path.join(directory, "state"),
+    MODEL_ROUTER_GENERIC_PROVIDERS: providersFile,
+    MODEL_ROUTER_USER_MODELS: userModelsFile,
+  });
+
+  try {
+    await waitForForwarder(forwarderPort, forwarder);
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: model.gatewayModel,
+        messages: [{ role: "user", content: "Think it through." }],
+        reasoning: { effort: "minimal" },
+        tool_choice: "required",
+        tools: [{
+          type: "function",
+          function: { name: "inspect", description: "Inspect.", parameters: { type: "object" } },
+        }],
+      }),
+    });
+    assert.equal(response.status, 200, `${await response.text()} ${forwarder.testErrors()}`);
+    const body = upstreamRequests.at(-1);
+    assert.equal(body.reasoning_effort, "none");
+    assert.equal(body.reasoning, undefined);
+    assert.equal(body.tool_choice, "auto");
   } finally {
     await stop(forwarder);
     await close(upstream.server);
