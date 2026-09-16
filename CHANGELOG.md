@@ -7,6 +7,15 @@
   `--no-discovery`, and lists Model Garden models for `bin/curate-models vertex`.
   A discovered id is not routable until it is curated onto a reviewed adapter.
 
+- **Direct Meta Muse Spark 1.3 Contributor no longer fails on recursive Codex tool
+  schemas.** Meta's direct Responses endpoint answers a self-referencing tool
+  schema with HTTP 400 `Recursive JSON schemas are not currently supported`
+  before inference, losing the whole turn downstream of the gateway. The
+  verified `meta/muse-spark-1.3-contributor` route now breaks only the
+  cycle-closing reference edge through the existing `toolSchemaRecursion:
+  "flatten"` repair, preserving definitions, acyclic references, and sibling
+  constraints. Sibling Meta routes keep their payloads until their own endpoint
+  proves the same restriction (#792).
 - **Union Alpha is now a checked-in OpenCode Go route.** OpenCode's live Go
   catalog and docs publish this stealth model as `union-alpha` on the Messages
   API (`https://opencode.ai/zen/go/v1/messages`), currently free for a limited

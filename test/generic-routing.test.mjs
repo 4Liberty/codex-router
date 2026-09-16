@@ -532,6 +532,79 @@ test("forwarder preserves types only for curated Moonshot flattening", async () 
   }
 });
 
+test("direct Meta Muse Spark 1.3 Contributor flattens recursive tool schemas", async () => {
+  // Issue #792: Meta's direct Responses endpoint answers a Codex turn carrying
+  // a self-referencing tool schema with HTTP 400
+  // `Recursive JSON schemas are not currently supported` before inference,
+  // losing the whole turn downstream of the gateway. The live-verified
+  // 1.3-contributor route must break only the cycle-closing edge; the
+  // same-provider 1.3 route keeps its schema byte-identical as the control.
+  const directory = mkdtempSync(path.join(os.tmpdir(), "meta-recursive-schema-"));
+  const bodies = [];
+  const upstream = await listen(async (request, response) => {
+    bodies.push({ url: request.url, body: await requestJson(request) });
+    json(response, 200, {
+      id: `resp_meta_${bodies.length}`,
+      object: "response",
+      status: "completed",
+      model: bodies.at(-1).body.model,
+      output: [{
+        id: "msg_meta_1",
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [{ type: "output_text", text: "ok", annotations: [] }],
+      }],
+    });
+  });
+  const port = await openPort();
+  const child = runForwarder({
+    MODEL_ROUTER_API_PORT: String(port),
+    MODEL_ROUTER_STATE_DIR: path.join(directory, "state"),
+    META_API_KEY: "test-only-key",
+    META_BASE_URL: `http://127.0.0.1:${upstream.port}/v1`,
+    MODEL_ROUTER_QUIET: "0",
+  });
+  const schema = { type: "object", properties: { root: { $ref: "#/$defs/Node" } },
+    $defs: { Node: { type: "object", properties: { child: { $ref: "#/$defs/Node" } } } } };
+  const send = async (gatewayModel) => {
+    const response = await fetch(`http://127.0.0.1:${port}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: `responses/${gatewayModel}`,
+        input: [{ role: "user", content: [{ type: "input_text", text: "Use the tool." }] }],
+        tools: [{ type: "function", name: "inspect", description: "Inspect.", parameters: schema }],
+      }),
+    });
+    assert.equal(response.status, 200, child.testErrors());
+    return response.json();
+  };
+  try {
+    await waitForForwarder(port, child);
+    const flattened = await send("meta-muse-spark-1-3-contributor");
+    assert.equal(flattened.output[0].content[0].text, "ok");
+    const control = await send("meta-muse-spark-1-3");
+    assert.equal(control.output[0].content[0].text, "ok");
+    assert.equal(bodies.length, 2);
+    assert.ok(bodies.every((entry) => entry.url === "/v1/responses"));
+    assert.equal(bodies[0].body.model, "muse-spark-1.3-contributor");
+    assert.equal(bodies[1].body.model, "muse-spark-1.3");
+    // The cycle-closing recursive edge is blanked on the verified route...
+    const repaired = bodies[0].body.tools[0].parameters;
+    assert.deepEqual(repaired.$defs.Node.properties.child, {});
+    // ...while every acyclic edge and the declared type survive...
+    assert.deepEqual(repaired.properties.root, { $ref: "#/$defs/Node" });
+    assert.equal(repaired.$defs.Node.type, "object");
+    // ...and the control route keeps its schema byte-identical.
+    assert.deepEqual(bodies[1].body.tools[0].parameters, schema);
+  } finally {
+    await stop(child);
+    await close(upstream.server);
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test("dashscope-reasoning folds onto the documented ladder and downgrades Qwen's forced tool choice", async () => {
   const directory = mkdtempSync(path.join(os.tmpdir(), "generic-dashscope-reasoning-"));
   const providersFile = path.join(directory, "generic-providers.json");
