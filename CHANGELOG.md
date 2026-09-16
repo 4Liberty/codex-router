@@ -9,6 +9,23 @@
   continuation token (keeping any summary text) and stops asking for it on
   `include`. Paid Zen/Go keep a stable key and are unchanged.
 
+- **DashScope's documented thinking ladder now reaches the model, so a curated
+  DashScope route can offer more than one rung.** Model Studio documents
+  `reasoning.effort` with a ladder per upstream family, but the router had no
+  profile on a generic provider's boundary: the nested `reasoning.effort` Codex
+  sends is ignored by `/compatible-mode/v1/chat/completions`, which reads the
+  flat `reasoning_effort`, so every rung produced the same turn and curation
+  could only publish the conservative single `high`. The new curatable
+  `dashscope-reasoning` profile folds the requested rung onto the family's
+  documented ladder (Qwen3.8 `none`/`low`/`medium`/`xhigh`, GLM-5.3
+  `low`/`high`/`max`, DeepSeek V4.x `none`/`high`/`max`), writes whichever
+  spelling the surface reads, maps Codex's `minimal` onto DashScope's `none`
+  because Codex ships no thinking-off rung, and downgrades the forced
+  `tool_choice` the Qwen3.8 family refuses in thinking mode. Measured end to
+  end through the router: `minimal` returns zero reasoning tokens on Qwen3.8
+  and DeepSeek V4.1 Flash, and `bin/test-model --live --yes` passes 5/5 on all
+  five curated DashScope models (#785).
+
 - **OpenCode Go no longer 400s a follow-up after `apply_patch`.** The
   custom→function bridge rewrote `custom_tool_call_output` to
   `function_call_output` and kept the item `id` (`ctco_…`). Console Go
