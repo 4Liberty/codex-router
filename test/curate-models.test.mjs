@@ -483,6 +483,10 @@ test("a curated model can opt into the narrow encrypted-schema profile", () => {
   );
 });
 
+test("a curated model can opt into the DashScope reasoning profile", () => {
+  assert.equal(parseRequestProfile("dashscope-reasoning"), "dashscope-reasoning");
+});
+
 test("an unknown request profile is rejected by name", () => {
   // Nothing validates requestProfile downstream — the forwarder just runs no
   // branch — so a typo would store a model that silently keeps failing.
