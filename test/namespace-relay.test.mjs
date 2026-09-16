@@ -3821,13 +3821,14 @@ test("custom-tool bridge maps apply_patch definitions and paired history lossles
   assert.deepEqual(bridged.tools[1], ordinary);
   assert.deepEqual(bridged.toolChoice, { type: "function", name: "apply_patch" });
   assert.deepEqual(bridged.input[0], {
-    id: "ctc_1",
     call_id: "call_patch_1",
     type: "function_call",
     name: "apply_patch",
     arguments: JSON.stringify({ input: patch }),
   });
   assert.equal(bridged.input[1].type, "function_call_output");
+  assert.equal(Object.hasOwn(bridged.input[1], "id"), false);
+  assert.equal(bridged.input[1].call_id, "call_patch_1");
   assert.deepEqual(bridged.input[2], unrelatedCall);
   assert.equal(buildNamespaceLookups(namespaces).customTools.get("apply_patch"), "apply_patch");
 });
@@ -3894,7 +3895,7 @@ test("Grok 4.6 OAuth appends V4A examples to native custom apply_patch before tr
   assert.deepEqual(bridged.tools[1], ordinary);
   assert.ok(bridged.tools[0].description.includes(V4A_GRAMMAR));
   assert.ok(bridged.tools[0].description.includes(GROK_APPLY_PATCH_CREATE_EXAMPLE));
-  assert.equal(bridged.input[0].id, "ctc_keep");
+  assert.equal(Object.hasOwn(bridged.input[0], "id"), false);
   assert.equal(bridged.input[0].call_id, "call_keep");
   assert.equal(bridged.input[0].name, "codex_custom_apply_patch");
   assert.deepEqual(JSON.parse(bridged.input[0].arguments), {
@@ -4104,6 +4105,54 @@ test("strict custom bridging covers non-apply_patch definitions, history, and ch
   assert.equal(bridged.input[0].type, "function_call");
   assert.deepEqual(JSON.parse(bridged.input[0].arguments), { input: "opaque" });
   assert.equal(bridged.input[1].type, "function_call_output");
+});
+
+test("custom-tool bridge omits non-fc item ids on the rewritten function pair", () => {
+  const flattened = flattenNamespaceTools([], { maxNameLength: 64 });
+  const bridged = bridgeCustomTools(
+    [{ type: "custom", name: "apply_patch" }],
+    [
+      {
+        type: "custom_tool_call",
+        id: "ctc_patch",
+        name: "apply_patch",
+        call_id: "call_patch",
+        input: "*** Begin Patch\n*** End Patch",
+      },
+      {
+        type: "custom_tool_call_output",
+        id: "ctco_patch",
+        call_id: "call_patch",
+        output: "Done!",
+      },
+      {
+        type: "custom_tool_call",
+        id: "fc_keep",
+        name: "apply_patch",
+        call_id: "call_keep",
+        input: "*** Begin Patch\n*** End Patch",
+      },
+      {
+        type: "custom_tool_call_output",
+        id: "fc_keep_out",
+        call_id: "call_keep",
+        output: "Done!",
+      },
+    ],
+    flattened.namespaces,
+    undefined,
+    ["apply_patch"],
+    { maxNameLength: 64, bridgeAll: true },
+  );
+  const patchCall = bridged.input.find((item) => item.call_id === "call_patch" && item.type === "function_call");
+  const patchOutput = bridged.input.find((item) => item.call_id === "call_patch" && item.type === "function_call_output");
+  const keptCall = bridged.input.find((item) => item.call_id === "call_keep" && item.type === "function_call");
+  const keptOutput = bridged.input.find((item) => item.call_id === "call_keep" && item.type === "function_call_output");
+  assert.equal(Object.hasOwn(patchCall, "id"), false);
+  assert.equal(Object.hasOwn(patchOutput, "id"), false);
+  assert.equal(patchOutput.call_id, "call_patch");
+  assert.equal(keptCall.id, "fc_keep");
+  assert.equal(keptOutput.id, "fc_keep_out");
 });
 
 test("custom-tool bridge reserves native namespace names and restores the aliased call", () => {

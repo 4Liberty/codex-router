@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **OpenCode Go no longer 400s a follow-up after `apply_patch`.** The
+  custom→function bridge rewrote `custom_tool_call_output` to
+  `function_call_output` and kept the item `id` (`ctco_…`). Console Go
+  requires function-shaped ids to begin with `fc`, so the next turn failed
+  with that id at the same index and stayed broken for the rest of the
+  thread (#780). The bridge now omits a non-`fc` string `id` on the rewritten
+  call and output; `call_id` still pairs them. A native-minted `fc…` id is
+  kept.
+
 - **A multiline string in `config.toml` is no longer edited as if it were
   settings.** The root-level helpers found assignments by matching lines, so a
   line inside a multiline string -- prose in `instructions`, a documented
