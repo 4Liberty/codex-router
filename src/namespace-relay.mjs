@@ -356,6 +356,16 @@ export function bridgeCustomTools(
   }
   if (!nativeTools.size) return { tools, input, toolChoice, bridged: false };
 
+  // Console Go validates optional item ids on function-shaped history against
+  // the `fc` prefix. The rewrite used to keep `ctc_` / `ctco_` ids on the new
+  // type, which 400s every follow-up after apply_patch (#780). call_id still
+  // pairs the call with its result. A native-minted `fc…` id is kept.
+  const withoutIncompatibleFunctionItemId = (item) => {
+    if (typeof item?.id !== "string" || item.id.startsWith("fc")) return item;
+    const { id: _id, ...rest } = item;
+    return rest;
+  };
+
   const ordinaryTools = Array.isArray(tools)
     ? tools.filter((tool) => !(tool?.type === "custom" && nativeTools.has(keyOf(tool))))
     : tools;
@@ -464,12 +474,12 @@ export function bridgeCustomTools(
       const historicalArguments = item.namespace === undefined
         ? codecs?.get(item.name)?.encodeHistoryInput?.(customInput)
         : undefined;
-      const routedCall = {
+      const routedCall = withoutIncompatibleFunctionItemId({
         ...rest,
         type: "function_call",
         name: providerName,
         arguments: historicalArguments ?? JSON.stringify({ [CUSTOM_TOOL_INPUT_PROPERTY]: customInput }),
-      };
+      });
       SPECIAL_FUNCTION_REFERENCES.add(routedCall);
       return routedCall;
     }
@@ -479,7 +489,7 @@ export function bridgeCustomTools(
       bridgedCallIds.has(item.call_id)
     ) {
       changedInput = true;
-      return { ...item, type: "function_call_output" };
+      return withoutIncompatibleFunctionItemId({ ...item, type: "function_call_output" });
     }
     return item;
   });
