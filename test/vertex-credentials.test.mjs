@@ -369,6 +369,7 @@ test("Vertex ADC is not read when discovery is disabled", async () => {
   };
   writeDiscoveryMode(true);
   try {
+    assert.equal(resolveVertexAccessToken({ runCommand }), undefined);
     assert.equal(resolveProviderCredential("vertex", { runCommand }), undefined);
     const status = credentialStatus("vertex", { runCommand });
     assert.equal(status.configured, false);

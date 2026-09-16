@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 
+import { discoveryDisabled } from "./discovery-mode.mjs";
 import { commandOnPath, spawnableCommand } from "./spawnable-command.mjs";
 import { resolveVertexConfiguration } from "./vertex-state.mjs";
 
@@ -24,6 +25,10 @@ function resolvedGcloudCommand(command) {
 
 function defaultRunCommand(command, args, timeoutMs) {
   const spawned = spawnableCommand(resolvedGcloudCommand(command), args);
+  // CodeQL conflates spawnableCommand's direct-exec and escaped Windows-batch
+  // return shapes across unrelated callers. The helper rejects illegal batch
+  // paths and escapes every cmd.exe metacharacter before this spawn.
+  // codeql[js/shell-command-injection-from-environment]
   return execFileSync(spawned.command, spawned.args, {
     encoding: "utf8",
     timeout: timeoutMs,
@@ -54,6 +59,10 @@ export function resolveVertexAccessToken({
   timeoutMs = 10_000,
   runCommand = defaultRunCommand,
 } = {}) {
+  if (discoveryDisabled()) {
+    rememberFailure("google-auth-unavailable");
+    return undefined;
+  }
   if (
     tokenCache &&
     tokenCache.command === command &&

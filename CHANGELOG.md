@@ -1,6 +1,12 @@
 # Changelog
 
 ## Unreleased
+- **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
+  Application Default Credentials from `gcloud auth application-default login`
+  (never a stored API key or a silent `gcloud auth login` user token), honors
+  `--no-discovery`, and lists Model Garden models for `bin/curate-models vertex`.
+  A discovered id is not routable until it is curated onto a reviewed adapter.
+
 - **Union Alpha is now a checked-in OpenCode Go route.** OpenCode's live Go
   catalog and docs publish this stealth model as `union-alpha` on the Messages
   API (`https://opencode.ai/zen/go/v1/messages`), currently free for a limited
@@ -12,11 +18,6 @@
   guessing a vendor. Omen Alpha is still in the live catalog but deprecated in
   that same record and is not checked in. Rebuild the catalog and fully quit
   and reopen Codex to see the new picker row.
-- **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
-  Application Default Credentials from `gcloud auth application-default login`
-  (never a stored API key or a silent `gcloud auth login` user token), honors
-  `--no-discovery`, and lists Model Garden models for `bin/curate-models vertex`.
-  A discovered id is not routable until it is curated onto a reviewed adapter.
 
 - **Command Code's DeepSeek V4.1 Flash route advertises image input.** The
   checked-in entry was text-only until Command Code documented the capability
