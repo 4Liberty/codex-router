@@ -981,8 +981,10 @@ function normalizeBody(buffer, contentType, route) {
   // needs a request profile of its own, which the single-valued field cannot
   // express.
   if (model.toolSchemaRecursion === "flatten") {
-    // Only locally curated Moonshot models currently opt into flattening.
-    // Preserve recoverable types there; stock Kimi never enters this branch.
+    // Only routes whose upstream proved the same `Recursive JSON schemas`
+    // rejection opt in: the checked-in Muse Spark entries and locally curated
+    // Moonshot models. Preserve recoverable types on the Moonshot flavor;
+    // stock Kimi never enters this branch.
     flattenRecursiveToolSchemas(payload, provider.protocol, {
       keepBlankedTypes: moonshotSchemaRoute(provider.id, model.upstreamModel),
     });

@@ -1391,6 +1391,18 @@ test("every Muse Spark route on opencode flattens recursive tool schemas", () =>
   }
 });
 
+test("direct Meta Muse Spark 1.3 Contributor flattens recursive tool schemas", () => {
+  // Issue #792: Meta's direct Responses endpoint answered a Codex turn carrying
+  // a self-referencing tool schema with HTTP 400
+  // `Recursive JSON schemas are not currently supported` before inference.
+  // Only the live-verified contributor route opts into the cycle-closing-edge
+  // repair; sibling Meta routes keep their payloads until their own endpoint
+  // proves the same restriction.
+  const verified = MODELS.find((model) => model.slug === "meta/muse-spark-1.3-contributor");
+  assert.ok(verified, "expected the checked-in direct Meta 1.3 Contributor route");
+  assert.equal(verified.toolSchemaRecursion, "flatten");
+});
+
 test("curated OpenCode Free Muse overlay upgrades text-only image modalities", async () => {
   // An entry curated before modalities were documented keeps ["text"]. The
   // registry overlay must widen it on load the same way it applies isFree and
