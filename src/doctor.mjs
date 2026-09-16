@@ -473,17 +473,29 @@ try {
   requiredRoutedModels = selectedConfiguredListedModels();
   catalogRoutedModels = routedTransportActive ? requiredRoutedModels : [];
   requiredModels = new Set(catalogRoutedModels.map((model) => model.slug));
+  // Registry selection and generic providers are two lists. A Poe-only
+  // install writes `enabled-providers.json` as `[]` and still serves curated
+  // generic routes, so naming only the registry file here reported
+  // "Enabled providers: none" while the Poe row below said OK (#774).
+  const enabledGenericIds = [...RUNTIME_PROVIDERS.values()]
+    .filter((provider) => provider.generic === true && genericProviderConfigured(provider.id))
+    .map((provider) => provider.id);
+  const enabledNames = [...selection.providers, ...enabledGenericIds];
   add(
-    selection.providers.length ? "ok" : idleInstall ? "warn" : "fail",
+    enabledNames.length ? "ok" : idleInstall ? "warn" : "fail",
     "Enabled providers",
-    selection.providers.length
-      ? `${selection.providers.join(", ")}${selection.explicit ? "" : " (legacy show-all mode)"}`
+    enabledNames.length
+      ? `${enabledNames.join(", ")}${
+        selection.explicit || enabledGenericIds.length ? "" : " (legacy show-all mode)"
+      }`
       : idleInstall
         ? "none (idle install: --no-provider)"
         : "none",
-    idleInstall
-      ? "Run ./bin/setup without --no-provider to enable a provider."
-      : "Run ./bin/setup --guided and choose at least one provider.",
+    enabledNames.length
+      ? undefined
+      : idleInstall
+        ? "Run ./bin/setup without --no-provider to enable a provider."
+        : "Run ./bin/setup --guided and choose at least one provider.",
   );
   // The router no longer refuses to serve on a selection file it cannot fully
   // resolve, so the damage has to be reported here instead of as a 502.

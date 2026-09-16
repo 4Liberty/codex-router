@@ -10,6 +10,12 @@
   vision bridge (#783). Rebuild the catalog and fully quit and reopen Codex
   before pasting an image.
 
+- **Doctor no longer fails "Enabled providers: none" for a generic-only
+  install.** Registry selection and generic providers are two lists: an empty
+  `enabled-providers.json` with a credentialed Poe (or other generic) route
+  still serves traffic, but doctor only named the registry file and exited 1
+  while the generic row said OK (#774). Enabled generics now count.
+
 - **ainetcafe added as an API-key provider.** `ainetcafe/kimi-k3` routes to
   ainetcafe's OpenAI-compatible endpoint (`https://microquickjs.com/v1`,
   key `AINETCAFE_API_KEY`), which serves Kimi K3 from its own cluster. It
