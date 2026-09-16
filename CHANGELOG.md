@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+
+- **The Windows Control Center no longer flashes a console on every refresh.**
+  Ordinary `control.mjs` invocations re-exec through the process tree with
+  `stdio: "inherit"`, which is required so credential stdin and live output
+  survive. That used to map every inherit to `windowsHide: false`, so a parent
+  with no console of its own — the packaged Electron tray — made Windows
+  allocate a new visible Windows Terminal on every snapshot (#775, #731).
+  Process-tree now treats inherit without a TTY as background work: three
+  fresh pipes, live stdin/stdout/stderr relay, and `CREATE_NO_WINDOW` (#744).
+  A real terminal still inherits a console. Switching the re-exec to
+  `capture` would hide the window the wrong way: capture ignores stdin, which
+  is how Control Center writes provider keys.
+
 - **Muse Spark 1.3 Free no longer 400s on follow-up turns.** OpenCode Zen's
   anonymous Responses route is a Console proxy, so Meta-issued reasoning
   `encrypted_content` is bound to Console's caller, not this router. Replaying
