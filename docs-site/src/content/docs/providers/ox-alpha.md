@@ -52,6 +52,14 @@ threshold avoids presenting those blank turns as usable context. OpenCode Go's
 content moderation still applies to the compaction request itself, so a
 sensitive transcript may be rejected even when the ordinary task turn worked.
 
+OpenCode Go's current stealth preview is **Union Alpha** (`union-alpha` on
+the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:
+OpenCode does not name the maker, documents a 262,144-token window with
+131,072 tokens of output, text and image input, and currently lists it as
+free for a limited time. The shipped slug is
+`opencode-go-messages/union-alpha`. Omen Alpha remains in the live Go catalog
+but is deprecated in OpenCode's models.dev record and is not checked in.
+
 Command Code and Venice still expose their live catalogs to explicit curation.
 An operator with an entitled account can inspect and select whatever those
 catalogs currently publish:

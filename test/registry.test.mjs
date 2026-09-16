@@ -187,6 +187,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go-messages/qwen3.7-plus",
       "opencode-go-messages/qwen3.8-flash",
       "opencode-go-messages/qwen3.8-max",
+      "opencode-go-messages/union-alpha",
       "opencode-go-responses/gpt-5.6-luna",
       "opencode-go-responses/grok-4.5",
       "opencode-go-responses/grok-4.6",
@@ -818,6 +819,24 @@ test("GLM-5.3-Flash replaces OpenCode Go's withdrawn Ox Alpha route", () => {
   assert.equal(MODEL_BY_SLUG.get("opencode-go/ox-alpha"), model);
 });
 
+test("Union Alpha ships on OpenCode Go Messages with sourced stealth metadata", () => {
+  const model = MODEL_BY_SLUG.get("opencode-go-messages/union-alpha");
+  assert.equal(model?.upstreamModel, "union-alpha");
+  assert.equal(model?.provider, "opencode-go-messages");
+  assert.equal(PROVIDERS.get(model.provider).protocol, "anthropic");
+  assert.equal(model?.contextWindow, 262_144);
+  assert.equal(model?.autoCompact, 131_072);
+  assert.ok(model.contextWindow - model.autoCompact >= 131_072);
+  assert.deepEqual(model?.inputModalities, ["text", "image"]);
+  assert.deepEqual(model?.reasoningLevels.map((level) => level.effort), ["high"]);
+  assert.equal(model?.defaultEffort, "high");
+  assert.equal(model?.isFree, true);
+  assert.equal(model?.requestProfile, undefined);
+  assert.notEqual(model?.multiAgentVersion, "v2");
+  assert.equal(MODEL_BY_SLUG.has("opencode-go/union-alpha"), false);
+  assert.equal(MODEL_BY_SLUG.has("opencode-go/omen-alpha"), false);
+});
+
 test("OpenCode Go routes retain upstream windows instead of the generic fallback", () => {
   const expected = new Map([
     ["opencode-go/mimo-v2.5", [1_000_000, 850_000, "opencode-go-mimo-v2-5-v2"]],
@@ -1060,6 +1079,7 @@ test("LiteLLM configuration is generated from every registry route", () => {
     "Copilot stays catalog-only until account-visible models are curated",
   );
   assert.match(rendered, /model: "anthropic\/opencode-go-messages-minimax-m3"/);
+  assert.match(rendered, /model: "anthropic\/opencode-go-messages-union-alpha"/);
   const lunaBlock = rendered.slice(
     rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"'),
     rendered.indexOf('model_name:', rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"') + 1),

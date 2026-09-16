@@ -1,6 +1,17 @@
 # Changelog
 
 ## Unreleased
+- **Union Alpha is now a checked-in OpenCode Go route.** OpenCode's live Go
+  catalog and docs publish this stealth model as `union-alpha` on the Messages
+  API (`https://opencode.ai/zen/go/v1/messages`), currently free for a limited
+  time. The shipped slug is `opencode-go-messages/union-alpha`. Window (262,144)
+  and output (131,072) come from OpenCode's models.dev record; Codex compact
+  reserves that output budget. OpenCode documents reasoning but publishes an
+  empty effort list, so the stored ladder is the conservative single `high`.
+  The maker is unnamed, so the Control Center uses the stealth mark rather than
+  guessing a vendor. Omen Alpha is still in the live catalog but deprecated in
+  that same record and is not checked in. Rebuild the catalog and fully quit
+  and reopen Codex to see the new picker row.
 - **Command Code's DeepSeek V4.1 Flash route advertises image input.** The
   checked-in entry was text-only until Command Code documented the capability
   at the Provider API: the model page lists Image input, and the Provider FAQ
