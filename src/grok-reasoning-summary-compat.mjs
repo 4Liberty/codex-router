@@ -382,10 +382,26 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       || type === "response.incomplete";
   }
 
+  #claimedOutputText(event) {
+    return typeof event?.text === "string" ? event.text : this.#message?.text ?? "";
+  }
+
+  // LiteLLM can still emit `output_text.done` for the leaked prefix after it
+  // closed the part as `reasoning_text`. That snapshot is not a finished
+  // answer unless later deltas grew the text past the close.
+  #isUnfinishedOutputTextDone(event) {
+    return Boolean(
+      this.#message?.prematureClose
+      && !this.#message.textDone
+      && this.#claimedOutputText(event) === (this.#message.textAtPrematureClose ?? "")
+    );
+  }
+
   #dropOrRewriteReasoningTextClose(parsed) {
     this.#commitMutation(parsed);
     if (!this.#message.textDone) {
       this.#message.prematureClose = true;
+      this.#message.textAtPrematureClose = this.#message.text;
       return [];
     }
     return [this.#rewrittenBlock(parsed, this.#shiftedEvent({
@@ -552,6 +568,7 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         text: "",
         textDone: false,
         prematureClose: false,
+        textAtPrematureClose: "",
         releasedText: false,
       };
       this.#pendingMessage.push({ parsed, separator: this.#currentSeparator });
@@ -589,6 +606,7 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         return [];
       }
       if (type === "response.output_text.done" && event.item_id === this.#message?.id) {
+        if (this.#isUnfinishedOutputTextDone(event)) return [];
         if (typeof event.text === "string") this.#message.text = event.text;
         this.#message.textDone = true;
         return [...this.#flushPendingMessage(), block];
@@ -608,6 +626,18 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         && !this.#message.textDone
       ) {
         return this.#truncatedCompletion(parsed, event);
+      }
+      if (this.#message.prematureClose && !this.#message.textDone) {
+        if (
+          type === "response.output_item.added"
+          && event?.item?.type
+          && event.item.type !== "message"
+          && event.item.type !== "reasoning"
+        ) {
+          this.#pendingMessage = [];
+          return [block];
+        }
+        return [];
       }
       return [...this.#flushPendingMessage(), block];
     }
@@ -646,6 +676,13 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
     if (!this.#reasoning) {
       if (this.#isReasoningTextPartClose(type, event) && this.#message) {
         return this.#dropOrRewriteReasoningTextClose(parsed);
+      }
+      if (
+        type === "response.output_text.done"
+        && event.item_id === this.#message?.id
+        && this.#isUnfinishedOutputTextDone(event)
+      ) {
+        return [];
       }
       if (
         this.#isResponseTerminal(type)
@@ -776,8 +813,11 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       && this.#message
       && !this.#message.textDone
       && this.#message.prematureClose;
+    const unfinishedOutputTextDone = type === "response.output_text.done"
+      && event.item_id === this.#message?.id
+      && this.#isUnfinishedOutputTextDone(event);
     const startsVisibleOutput = type === "response.output_text.delta"
-      || type === "response.output_text.done"
+      || (type === "response.output_text.done" && !unfinishedOutputTextDone)
       || type === "response.refusal.delta"
       || type === "response.refusal.done"
       || (type === "response.output_item.added" && event?.item?.type !== "reasoning")
@@ -798,8 +838,10 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         this.#message.releasedText = true;
       }
     } else if (type === "response.output_text.done" && event.item_id === this.#message?.id) {
-      if (typeof event.text === "string") this.#message.text = event.text;
-      this.#message.textDone = true;
+      if (!unfinishedOutputTextDone) {
+        if (typeof event.text === "string") this.#message.text = event.text;
+        this.#message.textDone = true;
+      }
     }
 
     if (this.#isReasoningTextPartClose(type, event)) {
@@ -811,7 +853,7 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       return prefix;
     }
 
-    if (unfinishedMessageDone) return prefix;
+    if (unfinishedMessageDone || unfinishedOutputTextDone) return prefix;
 
     const failureTerminal = type === "response.failed"
       || type === "response.error"

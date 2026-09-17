@@ -24,6 +24,13 @@
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.
+- **A leaked Union Alpha prefix is still truncated when LiteLLM also sends
+  `output_text.done`.** Holding until that event was not enough: the live
+  ImageGen turnaround closed as `reasoning_text` and then `output_text.done`
+  for the same 29-token sentence ending `(no reference`. The snapshot is
+  withheld so empty-completion can retry instead of storing it as
+  `final_answer`.
+
 - **Union Alpha no longer compact-loops on a Codex Desktop tool list.** Compact
   at 80,000 sat below ~88–108k of cached tool-schema tokens, so every ImageGen
   skill read compacted, the checkpoint kept a 1k excerpt, and the model
