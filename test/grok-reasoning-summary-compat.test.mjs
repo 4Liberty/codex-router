@@ -497,6 +497,74 @@ test("does not complete an unfinished ImageGen prefix LiteLLM closed as output_t
   assert.equal(guard.hasContent(), false);
 });
 
+test("keeps an unpunctuated stream marker LiteLLM closed as output_text", async () => {
+  const marker = "CODEX_ROUTER_STREAM_OK";
+  const message = {
+    id: "msg_stream_ok",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: marker, annotations: [] }],
+  };
+  const input = [
+    namedBlock({ type: "response.created", response: { id: "resp_stream_ok", status: "in_progress" } }),
+    namedBlock({ type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } }),
+    namedBlock({ type: "response.content_part.added", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } }),
+    namedBlock({ type: "response.output_text.delta", item_id: message.id, output_index: 0, content_index: 0, delta: marker }),
+    namedBlock({ type: "response.output_text.done", item_id: message.id, output_index: 0, content_index: 0, text: marker }),
+    namedBlock({ type: "response.content_part.done", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: marker, annotations: [] } }),
+    namedBlock({ type: "response.output_item.done", output_index: 0, item: message }),
+    namedBlock({
+      type: "response.completed",
+      response: { id: "resp_stream_ok", status: "completed", output: [message] },
+    }),
+  ].join("");
+  const repaired = await transformed(input);
+  const output = events(repaired);
+  assert.deepEqual(
+    output.filter((event) => event.type === "response.output_text.delta").map((event) => event.delta),
+    [marker],
+  );
+  const completed = output.find((event) => event.type === "response.completed");
+  assert.equal(completed?.response?.status, "completed");
+  assert.equal(completed?.response?.output?.[0]?.id, message.id);
+  assert.equal(repaired.includes(marker), true);
+});
+
+test("keeps an unpunctuated Union Alpha identity answer LiteLLM closed as output_text", async () => {
+  const answer = "I am Union Alpha through OpenCode Go";
+  const message = {
+    id: "msg_identity",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: answer, annotations: [] }],
+  };
+  const input = [
+    namedBlock({ type: "response.created", response: { id: "resp_identity", status: "in_progress" } }),
+    namedBlock({ type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } }),
+    namedBlock({ type: "response.content_part.added", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } }),
+    namedBlock({ type: "response.output_text.delta", item_id: message.id, output_index: 0, content_index: 0, delta: answer }),
+    namedBlock({ type: "response.output_text.done", item_id: message.id, output_index: 0, content_index: 0, text: answer }),
+    namedBlock({ type: "response.content_part.done", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: answer, annotations: [] } }),
+    namedBlock({ type: "response.output_item.done", output_index: 0, item: message }),
+    namedBlock({
+      type: "response.completed",
+      response: { id: "resp_identity", status: "completed", output: [message] },
+    }),
+  ].join("");
+  const repaired = await transformed(input);
+  const output = events(repaired);
+  assert.deepEqual(
+    output.filter((event) => event.type === "response.output_text.delta").map((event) => event.delta),
+    [answer],
+  );
+  const completed = output.find((event) => event.type === "response.completed");
+  assert.equal(completed?.response?.status, "completed");
+  assert.equal(completed?.response?.output?.[0]?.id, message.id);
+  assert.equal(repaired.includes(answer), true);
+});
+
 test("repairs one-byte CRLF chunks without changing their framing", async () => {
   const output = await transformed(malformedReasoningStream("\r\n"), 1);
   assert.ok(output.includes("\r\n\r\n"));
