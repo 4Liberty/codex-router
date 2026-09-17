@@ -20,6 +20,12 @@
   shipped; these two now do too, and name `service.mjs install` and
   `doctor --fix`. Nothing is mutated on the way out, and a `start` that cannot
   start no longer prints `{"state":"running"}`.
+- **An unfinished Union Alpha prefix closed as `output_text` is still truncated.**
+  The 14:12 ImageGen retry stored `I'll use the image generation` as
+  `final_answer` after empty-completion already withheld the first attempt.
+  LiteLLM had closed that fragment as a real `output_text` part, so the
+  thinking-match withhold never fired. A held done snapshot that is still a
+  mid-clause cut is withheld; punctuated answers stay answers.
 
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in

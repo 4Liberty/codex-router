@@ -444,6 +444,59 @@ test("keeps a finished answer that LiteLLM closes as reasoning_text after a dist
   assert.equal(completed?.response?.output?.[0]?.id, message.id);
 });
 
+test("does not complete an unfinished ImageGen prefix LiteLLM closed as output_text", async () => {
+  const { EmptyCompletionGuard } = await import("../src/empty-completion-guard.mjs");
+  const { Readable, Writable } = await import("node:stream");
+  const { pipeline } = await import("node:stream/promises");
+  const prefix = "I'll use the image generation";
+  const message = {
+    id: "msg_image_gen",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: prefix, annotations: [] }],
+  };
+  const input = [
+    namedBlock({ type: "response.created", response: { id: "resp_image_gen", status: "in_progress" } }),
+    namedBlock({ type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } }),
+    namedBlock({ type: "response.content_part.added", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } }),
+    namedBlock({ type: "response.output_text.delta", item_id: message.id, output_index: 0, content_index: 0, delta: prefix }),
+    namedBlock({ type: "response.output_text.done", item_id: message.id, output_index: 0, content_index: 0, text: prefix }),
+    namedBlock({ type: "response.content_part.done", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: prefix, annotations: [] } }),
+    namedBlock({ type: "response.output_item.done", output_index: 0, item: message }),
+    namedBlock({
+      type: "response.completed",
+      response: { id: "resp_image_gen", status: "completed", output: [message] },
+    }),
+  ].join("");
+  const repaired = await transformed(input);
+  const output = events(repaired);
+  assert.equal(output.some((event) => event.type === "response.output_text.delta"), false);
+  assert.equal(
+    output.some((event) => event.type === "response.output_item.done" && event.item?.type === "message"),
+    false,
+  );
+  const completed = output.find((event) => event.type === "response.completed");
+  assert.ok(completed);
+  assert.deepEqual(completed.response.output, []);
+  assert.equal(repaired.includes(prefix), false);
+
+  const guard = new EmptyCompletionGuard("text/event-stream");
+  const chunks = [];
+  await pipeline(
+    Readable.from([Buffer.from(repaired)]),
+    guard,
+    new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    }),
+  );
+  assert.equal(guard.isEmpty(), true);
+  assert.equal(guard.hasContent(), false);
+});
+
 test("repairs one-byte CRLF chunks without changing their framing", async () => {
   const output = await transformed(malformedReasoningStream("\r\n"), 1);
   assert.ok(output.includes("\r\n\r\n"));
