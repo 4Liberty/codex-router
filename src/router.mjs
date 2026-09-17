@@ -158,6 +158,7 @@ import {
   repairToolSchemaRoots,
   strictOpenCodeCompactionInput,
   stripSearchContentTypes,
+  anthropicFunctionTools,
   ToolSearchHistoryCapacityError,
 } from "./namespace-relay.mjs";
 import {
@@ -197,7 +198,11 @@ import {
   activityMetadataFromHeaders,
   threadIdFromHeaders,
 } from "./codex-session-names.mjs";
-import { gatewayErrorStatus, translateGatewayError } from "./error-translation.mjs";
+import {
+  contextLengthFailure,
+  gatewayErrorStatus,
+  translateGatewayError,
+} from "./error-translation.mjs";
 import {
   INVALID_FUNCTION_CALL_ARGUMENTS_CODE,
   findUnusableFunctionCallArguments,
@@ -958,7 +963,22 @@ function routedResponsesTarget(route) {
 // this router hands the turn to the gateway. A profile that rejects forced
 // tool choices therefore has to be normalized here, before that translation
 // can cause the upstream model to emit an invalid forced call.
+function isNoneToolChoice(toolChoice) {
+  return toolChoice === "none"
+    || (toolChoice && typeof toolChoice === "object" && !Array.isArray(toolChoice)
+      && toolChoice.type === "none");
+}
+
 function normalizeAutoToolChoice(payload, route) {
+  if (route.requestProfile === "omit-tool-choice") {
+    // Qwen behind OpenCode Go Messages 400s the field in any form, including
+    // "auto" and "none", and calls listed tools when it is absent. Dropping
+    // "none" while leaving the tools would turn an explicit prohibition into
+    // the upstream default, so that case removes the tools as well.
+    if (isNoneToolChoice(payload.tool_choice)) delete payload.tools;
+    delete payload.tool_choice;
+    return;
+  }
   if (
     ["auto-tool-choice", "ollama-cloud-auto-tool-choice"].includes(route.requestProfile) &&
     payload.tool_choice !== undefined &&
@@ -2729,6 +2749,39 @@ function compactionAttempts(route, aged, searchContract, { allowFailover = true 
   return providerCooldown(route.provider) ? candidates : [route, ...candidates];
 }
 
+function rankCompactionOverflowCandidates({
+  from,
+  aged,
+  searchContract,
+  need,
+  chain,
+}) {
+  return rankFailoverCandidates(
+    selectedConfiguredListedModels().filter(
+      (model) => !readHiddenModels().has(model.slug),
+    ),
+    {
+      from,
+      estimatedTokens: need,
+      needsImage: inputHasImage(aged.input),
+      needsSearch: searchContract.needsSearch,
+      hasSearchHistory: searchContract.hasSearchHistory,
+      requiredSearchMode: searchContract.requiredMode,
+      chain,
+      allowSameFamily: true,
+    },
+  );
+}
+
+function compactionOverflowHops(ranked, { need, tried }) {
+  return ranked
+    .map((entry) => entry.model)
+    .filter(
+      (model) => Number(model.contextWindow) >= need && !tried.has(model.slug),
+    )
+    .slice(0, MAX_FAILOVER_HOPS);
+}
+
 // One compaction attempt against one model. Everything route-dependent lives
 // here so a compaction can be moved to another model exactly like an ordinary
 // turn -- a compaction that fails ends the session just as hard, because the
@@ -2936,13 +2989,14 @@ async function summarize(request, payload, route, signal, { allowFailover = true
     // metered on its own row exactly as on the turn path -- otherwise a
     // compaction the router rescued would leave no trace of the provider that
     // could not serve it.
+    const bodyText = bytes.toString("utf8");
     failed.push({ route: attemptRoute, status: sent.upstream.status, usage });
     // The first failure is the one reported if every attempt fails: it came
     // from the model the conversation is actually on, which is the one the
     // operator can do something about.
     last ??= {
       ok: false,
-      status: sent.upstream.status,
+      status: gatewayErrorStatus({ status: sent.upstream.status, bodyText }),
       payload: parsed,
       usage,
       toolResultAging: aged.stats,
@@ -2950,9 +3004,45 @@ async function summarize(request, payload, route, signal, { allowFailover = true
     };
     const verdict = classifyRoutedFailure({
       status: sent.upstream.status,
-      bodyText: bytes.toString("utf8"),
+      bodyText,
       retryAfterSeconds: retryAfterSeconds(sent.upstream.headers),
     });
+    const overflow = contextLengthFailure(bodyText);
+    if (overflow && allowFailover && readFailoverSettings().enabled) {
+      const settings = readFailoverSettings();
+      const need = overflow.inputTokens || (Number(attemptRoute.contextWindow) + 1);
+      const tried = new Set([
+        ...attempts.slice(0, index + 1).map((model) => model.slug),
+        ...failed.map((entry) => entry.route.slug),
+      ]);
+      const rankOptions = { from: attemptRoute, aged, searchContract, need };
+      // A named chain is the operator's quota-failover order and is used
+      // verbatim on ordinary turns. Compact overflow still has to find a
+      // window that can hold the prompt: if every chained model is too
+      // small, rank again without the chain so a same-family 1M sibling can
+      // take the compaction. Do not copy this onto turn failover.
+      let hops = compactionOverflowHops(
+        rankCompactionOverflowCandidates({ ...rankOptions, chain: settings.chain }),
+        { need, tried },
+      );
+      if (!hops.length && settings.chain.length) {
+        hops = compactionOverflowHops(
+          rankCompactionOverflowCandidates({ ...rankOptions, chain: [] }),
+          { need, tried },
+        );
+      }
+      if (hops.length) {
+        attempts.splice(index + 1, attempts.length - (index + 1), ...hops);
+        logFailover(
+          attemptRoute,
+          hops[0],
+          "compaction/context_length",
+          sent.upstream.status,
+          "retrying",
+        );
+        continue;
+      }
+    }
     if (!allowFailover) return { ...last, failed };
     if (!verdict.swap) return { ...last, failed };
     recordProviderCooldown(attemptRoute.provider, verdict);
@@ -3053,9 +3143,33 @@ async function handleRoutedCompaction(
     ...(result.failoverFrom ? { failoverFrom: result.failoverFrom } : {}),
   };
   if (!result.ok) {
-    writeJson(response, result.status, result.payload);
-    return {
+    const servedRoute = result.route || route;
+    const provider = providerForModel(servedRoute);
+    const bodyText =
+      typeof result.payload === "string"
+        ? result.payload
+        : JSON.stringify(result.payload ?? {});
+    const translatedStatus = gatewayErrorStatus({
       status: result.status,
+      bodyText,
+    });
+    const translatedError = translateGatewayError({
+      status: result.status,
+      bodyText,
+      modelName: servedRoute.displayName || servedRoute.slug,
+      providerName:
+        provider?.transport === "ollama"
+          ? "Ollama"
+          : provider?.ownedBy || provider?.displayName || servedRoute.provider,
+      providerKind: provider?.kind,
+      providerAuthMode: provider?.authMode,
+    });
+    writeTranslatedGatewayError(response, translatedStatus, translatedError, {
+      provider: servedRoute.provider,
+      stream: payload.stream === true,
+    });
+    return {
+      status: translatedStatus,
       usage: result.usage,
       toolResultAging: result.toolResultAging,
       ...served,
@@ -3497,6 +3611,18 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   }
   if (consoleGoResponsesCompatibility || deepSeekResponses) {
     routedToolChoice = flattenToolChoice(routedToolChoice, flattenedNamespaces);
+  }
+  if (provider?.protocol === "anthropic") {
+    tools = anthropicFunctionTools(tools);
+    if (
+      routedToolChoice &&
+      typeof routedToolChoice === "object" &&
+      !Array.isArray(routedToolChoice) &&
+      routedToolChoice.type &&
+      !["function", "auto", "none", "required", "allowed_tools"].includes(routedToolChoice.type)
+    ) {
+      routedToolChoice = "auto";
+    }
   }
   // Last, so the marker text is built from the history every other rewrite has
   // already settled. A chat-wire route would otherwise hand LiteLLM a

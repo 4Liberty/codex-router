@@ -57,8 +57,11 @@ the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:
 OpenCode does not name the maker, documents a 262,144-token window with
 131,072 tokens of output, text and image input, and currently lists it as
 free for a limited time. The shipped slug is
-`opencode-go-messages/union-alpha`. Omen Alpha remains in the live Go catalog
-but is deprecated in OpenCode's models.dev record and is not checked in.
+`opencode-go-messages/union-alpha`. OpenRouter publishes the same preview as
+`stealth/union-alpha`; the shipped slug is `openrouter/union-alpha`.
+ClinePass and Command Code do not list this id. Omen Alpha remains in the
+live Go catalog but is deprecated in OpenCode's models.dev record and is not
+checked in.
 
 Command Code and Venice still expose their live catalogs to explicit curation.
 An operator with an entitled account can inspect and select whatever those

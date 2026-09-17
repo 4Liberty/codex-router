@@ -244,7 +244,11 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       this.#frames.flush((block, separator, original) => {
         this.#emitFrame(block, separator, original);
       });
-      for (const piece of this.#flushPendingMessage(true)) this.push(Buffer.from(piece));
+      if (this.#message?.prematureClose && !this.#message.textDone) {
+        this.#pendingMessage = [];
+      } else {
+        for (const piece of this.#flushPendingMessage(true)) this.push(Buffer.from(piece));
+      }
       callback();
     } catch (error) {
       callback(error);
@@ -350,10 +354,79 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
   #flushPendingMessage(preserveSeparators = false) {
     const pending = this.#pendingMessage;
     this.#pendingMessage = [];
+    if (
+      this.#message
+      && pending.some(({ parsed }) => (
+        parsed.event?.type === "response.output_text.delta"
+        && typeof parsed.event.delta === "string"
+        && parsed.event.delta.length > 0
+      ))
+    ) {
+      this.#message.releasedText = true;
+    }
     return pending.map(({ parsed, separator }) => (
       this.#rewrittenBlock(parsed, this.#shiftedEvent(parsed.event))
       + (preserveSeparators ? separator : "")
     ));
+  }
+
+  #isReasoningTextPartClose(type, event) {
+    return type === "response.content_part.done"
+      && event.item_id === this.#message?.id
+      && event.part?.type === "reasoning_text";
+  }
+
+  #isResponseTerminal(type) {
+    return type === "response.completed"
+      || type === "response.done"
+      || type === "response.incomplete";
+  }
+
+  #dropOrRewriteReasoningTextClose(parsed) {
+    this.#commitMutation(parsed);
+    if (!this.#message.textDone) {
+      this.#message.prematureClose = true;
+      return [];
+    }
+    return [this.#rewrittenBlock(parsed, this.#shiftedEvent({
+      ...parsed.event,
+      part: {
+        type: "output_text",
+        text: this.#message.text,
+        annotations: [],
+      },
+    }))];
+  }
+
+  #stripUnfinishedMessages(output) {
+    if (!Array.isArray(output)) return output;
+    return output.filter((item) => item?.type !== "message");
+  }
+
+  // A `reasoning_text` close before `output_text.done` is thinking, not the
+  // end of the answer. If the stream then completes with only the prefix
+  // that had already leaked onto `output_text`, withhold that message so
+  // empty-completion can retry (or fail after a retry) instead of storing a
+  // mid-sentence `final_answer`. Visible bytes that already left this stage
+  // cannot be un-said, so that path becomes `response.incomplete`.
+  #truncatedCompletion(parsed, event) {
+    this.#pendingMessage = [];
+    this.#commitMutation(parsed);
+    const output = this.#stripUnfinishedMessages(event.response?.output);
+    const response = event.response
+      ? { ...event.response, output }
+      : event.response;
+    if (this.#message?.releasedText) {
+      return [this.#rewrittenBlock(parsed, this.#shiftedEvent({
+        ...event,
+        type: "response.incomplete",
+        response: response ? { ...response, status: "incomplete" } : response,
+      }))];
+    }
+    return [this.#rewrittenBlock(parsed, this.#shiftedEvent({
+      ...event,
+      response,
+    }))];
   }
 
   #startOrphanReasoning(parsed) {
@@ -477,6 +550,9 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         id: event.item.id,
         outputIndex: Number.isInteger(event.output_index) ? event.output_index : 0,
         text: "",
+        textDone: false,
+        prematureClose: false,
+        releasedText: false,
       };
       this.#pendingMessage.push({ parsed, separator: this.#currentSeparator });
       return [];
@@ -500,6 +576,39 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
     ) {
       prefix = this.#startOrphanReasoning(parsed);
     } else if (!this.#reasoning && this.#pendingMessage.length > 0) {
+      // LiteLLM can close the held message part as `reasoning_text` before
+      // `output_text.done`, including after visible deltas have already
+      // started. Hold those deltas here: flushing them would let Codex store
+      // a 21-token prefix as `final_answer` when the stream then completes.
+      if (this.#isReasoningTextPartClose(type, event)) {
+        return this.#dropOrRewriteReasoningTextClose(parsed);
+      }
+      if (type === "response.output_text.delta" && event.item_id === this.#message?.id) {
+        this.#message.text += typeof event.delta === "string" ? event.delta : "";
+        this.#pendingMessage.push({ parsed, separator: this.#currentSeparator });
+        return [];
+      }
+      if (type === "response.output_text.done" && event.item_id === this.#message?.id) {
+        if (typeof event.text === "string") this.#message.text = event.text;
+        this.#message.textDone = true;
+        return [...this.#flushPendingMessage(), block];
+      }
+      if (
+        type === "response.output_item.done"
+        && event.item?.type === "message"
+        && event.item.id === this.#message?.id
+        && !this.#message.textDone
+        && this.#message.prematureClose
+      ) {
+        return [];
+      }
+      if (
+        this.#isResponseTerminal(type)
+        && this.#message.prematureClose
+        && !this.#message.textDone
+      ) {
+        return this.#truncatedCompletion(parsed, event);
+      }
       return [...this.#flushPendingMessage(), block];
     }
 
@@ -534,7 +643,19 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       return [this.#rewrittenBlock(parsed, { ...event, item })];
     }
 
-    if (!this.#reasoning) return [block];
+    if (!this.#reasoning) {
+      if (this.#isReasoningTextPartClose(type, event) && this.#message) {
+        return this.#dropOrRewriteReasoningTextClose(parsed);
+      }
+      if (
+        this.#isResponseTerminal(type)
+        && this.#message?.prematureClose
+        && !this.#message.textDone
+      ) {
+        return this.#truncatedCompletion(parsed, event);
+      }
+      return [block];
+    }
 
     if (this.#canonicalReasoningId) {
       const canonicalLifecycle = (
@@ -649,38 +770,48 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       })];
     }
 
+    const unfinishedMessageDone = type === "response.output_item.done"
+      && event?.item?.type === "message"
+      && event.item.id === this.#message?.id
+      && this.#message
+      && !this.#message.textDone
+      && this.#message.prematureClose;
     const startsVisibleOutput = type === "response.output_text.delta"
       || type === "response.output_text.done"
       || type === "response.refusal.delta"
       || type === "response.refusal.done"
       || (type === "response.output_item.added" && event?.item?.type !== "reasoning")
-      || (type === "response.output_item.done" && event?.item?.type !== "reasoning")
+      || (
+        type === "response.output_item.done"
+        && event?.item?.type !== "reasoning"
+        && !unfinishedMessageDone
+      )
       || type === "response.function_call_arguments.delta";
     if (startsVisibleOutput) {
       if (!this.#reasoning.itemDone) prefix.push(...this.#finishReasoning(parsed));
       prefix.push(...this.#flushPendingMessage());
     }
 
-    if (
-      type === "response.content_part.done"
-      && event.item_id === this.#message?.id
-      && event.part?.type === "reasoning_text"
-    ) {
-      return [...prefix, this.#rewrittenBlock(parsed, this.#shiftedEvent({
-        ...event,
-        part: {
-          type: "output_text",
-          text: this.#message.text,
-          annotations: [],
-        },
-      }))];
-    }
-
     if (type === "response.output_text.delta" && event.item_id === this.#message?.id) {
       this.#message.text += typeof event.delta === "string" ? event.delta : "";
+      if (typeof event.delta === "string" && event.delta.length > 0) {
+        this.#message.releasedText = true;
+      }
     } else if (type === "response.output_text.done" && event.item_id === this.#message?.id) {
       if (typeof event.text === "string") this.#message.text = event.text;
+      this.#message.textDone = true;
     }
+
+    if (this.#isReasoningTextPartClose(type, event)) {
+      // After the answer has finished, LiteLLM still labels this close as
+      // thinking. Rewrite it so Codex stores `output_text`. Before that, the
+      // same event is a premature close: keeping it would truncate a live
+      // identity reply at `Union Alpha (` while later deltas are dropped.
+      prefix.push(...this.#dropOrRewriteReasoningTextClose(parsed));
+      return prefix;
+    }
+
+    if (unfinishedMessageDone) return prefix;
 
     const failureTerminal = type === "response.failed"
       || type === "response.error"
@@ -698,7 +829,21 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
 
     const terminalResponse = type === "response.completed"
       || type === "response.incomplete"
+      || type === "response.done"
       || failureTerminal;
+    if (
+      this.#isResponseTerminal(type)
+      && this.#message?.prematureClose
+      && !this.#message.textDone
+    ) {
+      if (!this.#reasoning.itemDone) prefix.push(...this.#finishReasoning(parsed, "incomplete"));
+      prefix.push(...this.#truncatedCompletion(parsed, event));
+      this.#reasoning = undefined;
+      this.#repairedReasoningItems = [];
+      this.#canonicalReasoningId = undefined;
+      this.#shiftOutputIndexes = false;
+      return prefix;
+    }
     if (terminalResponse && Array.isArray(event.response?.output)) {
       const itemStatus = type === "response.completed" ? "completed" : "incomplete";
       prefix.push(
@@ -737,13 +882,18 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
 // Grok OAuth keeps its gateway-error normalization. Every other provider whose
 // turns LiteLLM translates from Chat Completions gets the summary repair only.
 // Direct DeepSeek has its own reasoning bridge repair in
-// deepseek-tool-message-compat.mjs, and Responses and Messages providers do not
-// come through this bridge, so none of those gain a stage.
+// deepseek-tool-message-compat.mjs. Native Responses providers skip this
+// bridge. Anthropic Messages providers do not: litellm-config.mjs still sets
+// `use_chat_completions_api: true` for them, so Union Alpha (and every other
+// `protocol: "anthropic"` route) arrives as the same message-first, hashed
+// `reasoning_summary_text.delta` / `content_part.done` `reasoning_text` stream
+// this transform repairs. Leaving them out classified those turns empty.
 export function reasoningSummaryCompatTransform(provider, contentType = "") {
   if (!String(contentType).toLowerCase().includes("text/event-stream")) return undefined;
   const providerId = typeof provider === "string" ? provider : provider?.id;
   if (providerId === "grok-oauth") return new GrokReasoningSummaryCompatTransform();
   if (!provider || typeof provider !== "object" || providerId === "deepseek") return undefined;
-  if ((provider.protocol ?? "openai") !== "openai") return undefined;
+  const protocol = provider.protocol ?? "openai";
+  if (protocol !== "openai" && protocol !== "anthropic") return undefined;
   return new GrokReasoningSummaryCompatTransform({ normalizeGatewayErrors: false });
 }

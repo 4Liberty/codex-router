@@ -302,6 +302,7 @@ Linux installations support the Codex CLI.
 | Hy4 Preview (Nous Research) | `nousresearch/tencent/hy4-preview` | Nous Portal API key |
 | Hy4 Preview (opencode Go) | `opencode-go/hy4-preview` | opencode Go/Zen API key |
 | Union Alpha (opencode Go) | `opencode-go-messages/union-alpha` | opencode Go/Zen API key |
+| Union Alpha (OpenRouter) | `openrouter/union-alpha` | OpenRouter API key |
 | Hy4 Preview (OpenRouter) | `openrouter/tencent/hy4-preview` | OpenRouter API key |
 | GLM-5.2 (ClinePass) | `clinepass/glm-5.2` | ClinePass API key |
 | Kimi K3 (ClinePass) | `clinepass/kimi-k3` | ClinePass API key |
@@ -973,8 +974,14 @@ the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:
 OpenCode does not name the maker, documents a 262,144-token window with
 131,072 tokens of output, text and image input, and currently lists it as
 free for a limited time. The shipped slug is
-`opencode-go-messages/union-alpha`. Omen Alpha remains in the live Go catalog
-but is deprecated in OpenCode's models.dev record and is not checked in.
+`opencode-go-messages/union-alpha`. OpenRouter publishes the same preview as
+`stealth/union-alpha` (text and image input, 262,144 context, 131,072 output,
+currently free); the shipped slug is `openrouter/union-alpha`. OpenRouter's
+endpoint record accepts `tool_choice` auto only, so that route downgrades
+Codex's forced choice. It does not advertise a reasoning-effort ladder.
+ClinePass and Command Code do not list this id. Omen Alpha remains in the
+live Go catalog but is deprecated in OpenCode's models.dev record and is not
+checked in.
 
 Command Code and Venice still expose their live catalogs to explicit curation.
 An operator with an entitled account can inspect and select whatever those

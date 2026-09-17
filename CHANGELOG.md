@@ -24,6 +24,42 @@
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.
+- **Union Alpha no longer stores a 21-token mid-sentence `final_answer` after a
+  premature `reasoning_text` close.** The earlier drop only fired when a
+  reasoning-summary delta had already opened the repair. Live ImageGen turns
+  streamed `I'll use the ImageGen skill… so` with no summary first, so the
+  close still ended the message and Codex marked the turn complete. The repair
+  now holds that prefix until `output_text.done`; if the stream completes
+  without it, empty-completion retries or fails instead of succeeding with 21
+  tokens.
+
+- **Compact overflow on Union Alpha can retry a larger-window model.** OpenCode
+  estimated about 434,983 tokens against Union Alpha's 262,144 card, so
+  compact-at-80k cannot save that thread. Compact failures are translated to
+  `context_length_exceeded` instead of LiteLLM's model-group wrapper. Compact
+  may retry a larger-window model, including a same-family OpenCode Go 1M
+  route, without recording a cooldown. Ordinary turns still never swap on HTTP
+  400. If every configured window is still too small, start a new Codex task.
+
+- **Union Alpha on OpenCode Go Messages now compacts before Console Go refuses
+  the prompt-plus-completion budget.** Live turns reported ~90–100k input
+  tokens — under the old 131,072 window-minus-output compact — then 400'd with
+  "Prompt too long for every available model, including the completion". The
+  Go Messages route keeps the advertised 262,144 window, compacts at 80,000,
+  caps Messages `max_tokens` at 32,768, and translates that 400 as a
+  context-window error rather than a generic rejection. Rebuild the catalog
+  and fully quit and reopen Codex; a thread already over the limit needs a
+  new task. The shipped slug is `opencode-go-messages/union-alpha`.
+
+- **Union Alpha is now a checked-in OpenRouter route.** OpenRouter publishes
+  this stealth preview as `stealth/union-alpha` (262,144 context, 131,072
+  output, text and image input, currently free). The shipped slug is
+  `openrouter/union-alpha`. OpenRouter does not advertise a reasoning-effort
+  ladder, so the stored rung is the conservative single `high`. Its endpoint
+  record accepts `tool_choice` auto only (`required` and `none` are false), so
+  the route uses `auto-tool-choice`. Cline the IDE can already pick this id
+  through OpenRouter; ClinePass and Command Code do not list it. Rebuild the
+  catalog and fully quit and reopen Codex.
 
 - **A completed function_call with invalid JSON arguments is no longer stored.**
   Relaying that item left Codex unable to execute it and poisoned every later
@@ -36,6 +72,26 @@
   stored history, before any provider request. The error now names the stored
   call and does not fail over, even when the argument body matches a quota
   phrase (#796).
+
+- **OpenCode Go Messages no longer 400s Codex hosted/custom leftovers or 502s
+  thinking-only streams.** Anthropic Messages (Union Alpha and every other
+  `protocol: "anthropic"` route) now keeps only named functions with object
+  schemas, and LiteLLM's Chat Completions reasoning-summary repair attaches to
+  those routes because they still set `use_chat_completions_api: true`. A
+  `reasoning_text` close is thinking, not an answer, so the empty-completion
+  guard can still retry; a `reasoning_text` close that arrives before
+  `output_text.done` also no longer ends the visible message, which had
+  truncated Union Alpha replies mid-sentence (`Union Alpha (`). Qwen on this
+  route additionally omits `tool_choice` entirely (`omit-tool-choice`); MiniMax
+  still accepts the field. Rebuild the catalog and fully quit and reopen Codex.
+  Union Alpha is `opencode-go-messages/union-alpha`.
+
+- **OpenCode Zen now has Messages and Responses protocol variants.** Claude
+  curated under `opencode-zen` lands on `opencode-zen-messages`; GPT, Grok, and
+  Muse land on `opencode-zen-responses`; Gemini is refused. The variants share
+  Go's key and selection toggle but keep Zen's separately billed cooldown
+  scope. Re-curate with `bin/curate-models opencode-zen` to move existing Chat
+  entries onto the matching wire.
 
 - **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
   Application Default Credentials from `gcloud auth application-default login`
