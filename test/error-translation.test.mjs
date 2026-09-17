@@ -6,6 +6,7 @@ import {
   extractUpstreamDetail,
   gatewayErrorStatus,
   translateGatewayError,
+  upstreamFailureKind,
 } from "../src/error-translation.mjs";
 
 const LITELLM_503_BODY = JSON.stringify({
@@ -463,6 +464,124 @@ test("a plain rate-limit 429 still gets the retry hint, not the quota message", 
   });
   assert.equal(payload.error.type, "rate_limit_error");
   assert.ok(payload.error.message.includes("rate-limiting"));
+});
+
+function consoleGoNumericOverflowBody() {
+  const inner = JSON.stringify({
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message:
+        "Error from provider (Console Go): Upstream request failed: [invalid_request_error] "
+        + "Prompt too long: about 434983 tokens estimated, but the maximum context length is 262144 tokens including the completion. "
+        + "Reduce the length of the messages.",
+    },
+  });
+  return JSON.stringify({
+    error: {
+      message:
+        `litellm.BadRequestError: AnthropicException - ${inner}. Received Model Group=opencode-go-messages-union-alpha\nAvailable Model Group Fallbacks=None`,
+      type: null,
+      param: null,
+      code: "400",
+    },
+  });
+}
+
+test("a numeric Console Go prompt-too-long keeps both token counts", () => {
+  const bodyText = consoleGoNumericOverflowBody();
+  const detail = extractUpstreamDetail(bodyText);
+  assert.match(detail, /434983/);
+  assert.match(detail, /262144/);
+  assert.doesNotMatch(detail, /Received Model Group|Fallbacks=None/);
+
+  assert.deepEqual(contextLengthFailure(bodyText), {
+    detail,
+    inputTokens: 434983,
+    maximumTokens: 262144,
+  });
+  assert.equal(gatewayErrorStatus({ status: 502, bodyText }), 400);
+
+  const payload = translateGatewayError({
+    status: 400,
+    bodyText,
+    modelName: "Union Alpha (opencode Go)",
+    providerName: "opencode",
+  });
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.equal(payload.error.param, "input");
+  assert.equal(payload.error.code, "context_length_exceeded");
+  assert.match(payload.error.message, /434,983 tokens/);
+  assert.match(payload.error.message, /262,144-token context window/);
+  assert.doesNotMatch(payload.error.message, /run out of usage/);
+  assert.doesNotMatch(payload.error.message, /Received Model Group|Fallbacks=None/);
+  assert.equal(upstreamFailureKind({ status: 400, bodyText }), undefined);
+});
+
+test("Console Go prompt-too-long-including-completion is a context error, not quota", () => {
+  const bodyText = JSON.stringify({
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message:
+        "Error from provider (Console Go): Upstream request failed: [invalid_request_error] "
+        + "Prompt too long for every available model, including the completion. "
+        + "Reduce the length of the messages.",
+    },
+  });
+
+  assert.deepEqual(contextLengthFailure(bodyText), {
+    detail:
+      "Error from provider (Console Go): Upstream request failed: [invalid_request_error] "
+      + "Prompt too long for every available model, including the completion. "
+      + "Reduce the length of the messages.",
+  });
+  assert.equal(gatewayErrorStatus({ status: 400, bodyText }), 400);
+
+  const payload = translateGatewayError({
+    status: 400,
+    bodyText,
+    modelName: "Union Alpha (opencode Go)",
+    providerName: "opencode",
+  });
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.equal(payload.error.param, "input");
+  assert.equal(payload.error.code, "context_length_exceeded");
+  assert.match(payload.error.message, /context window/);
+  assert.doesNotMatch(payload.error.message, /run out of usage|Top up/);
+  assert.doesNotMatch(payload.error.message, /opencode rejected the request/);
+  assert.equal(upstreamFailureKind({ status: 400, bodyText }), undefined);
+});
+
+test("a LiteLLM-wrapped Console Go prompt-too-long still classifies as context", () => {
+  const inner = JSON.stringify({
+    type: "error",
+    error: {
+      type: "invalid_request_error",
+      message:
+        "Error from provider (Console Go): Upstream request failed: [invalid_request_error] "
+        + "Prompt too long for every available model, including the completion. "
+        + "Reduce the length of the messages.",
+    },
+  });
+  const bodyText = JSON.stringify({
+    error: {
+      message:
+        "litellm.BadRequestError: AnthropicException - "
+        + `b${JSON.stringify(inner)}`,
+      type: null,
+      code: "400",
+    },
+  });
+  assert.ok(contextLengthFailure(bodyText));
+  const payload = translateGatewayError({
+    status: 400,
+    bodyText,
+    modelName: "Union Alpha (opencode Go)",
+    providerName: "opencode",
+  });
+  assert.equal(payload.error.code, "context_length_exceeded");
+  assert.doesNotMatch(payload.error.message, /run out of usage/);
 });
 
 test("an unclassified 4xx still names the provider", () => {
