@@ -1,6 +1,10 @@
 # Changelog
 
 ## Unreleased
+- **Playwright is 1.63.0 in both the router tests and the Control Center.**
+  Dependabot #758 only bumped the root pin. The Control Center lock stays in
+  step so renderer tests and docs screenshots use the same browser.
+
 - **A completed function_call with invalid JSON arguments is no longer stored.**
   Relaying that item left Codex unable to execute it and poisoned every later
   turn on the thread (#797). The router now withholds the completing snapshot
