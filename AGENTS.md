@@ -2452,9 +2452,11 @@ every Chat Completions route (measured on `commandcode/hy4-preview` and
    still apply when no `reasoning_summary_text.delta` has opened the repair —
    a live ImageGen turn streamed the prefix, closed as `reasoning_text`, then
    `response.completed` with 21 tokens, and Codex stored that cut as
-   `final_answer`. Hold the prefix until `output_text.done`; if the stream
-   completes without it, withhold the message so empty-completion retries or
-   fails rather than succeeding.
+   `final_answer`. Hold the prefix until `output_text.done` whose text grew
+   after the close; a done snapshot that is still the leaked prefix (the
+   ImageGen turnaround that stopped at `(no reference`) is truncated thinking
+   too. If the stream completes without a grown done, withhold the message so
+   empty-completion retries or fails rather than succeeding.
 2. **Grok's gateway-error wording stays on Grok OAuth.** Only `grok-oauth`
    replaces an untyped LiteLLM error envelope with the fixed local error. Other
    routes relay that envelope byte-identical, after closing the reasoning item
