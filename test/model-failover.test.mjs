@@ -83,6 +83,19 @@ test("classifyRoutedFailure swaps only a marked provider transport 5xx", () => {
   );
 });
 
+test("classifyRoutedFailure never swaps a local tool-argument conversion", () => {
+  const bodyText = JSON.stringify({
+    error: {
+      message:
+        "Failed to parse tool call arguments for tool 'exec_command' (Anthropic tool invoke). " +
+        "Error: Unterminated string starting at: line 1 column 8 (char 7).\n" +
+        "usage limit reached for your GLM Coding Plan. Upgrade your plan.",
+    },
+  });
+  assert.deepEqual(classifyRoutedFailure({ status: 400, bodyText, now: NOW }), { swap: false });
+  assert.deepEqual(classifyRoutedFailure({ status: 429, bodyText, now: NOW }), { swap: false });
+});
+
 test("classifyRoutedFailure recognizes the observed Z.ai five-hour window message", () => {
   const verdict = classifyRoutedFailure({
     status: 429,

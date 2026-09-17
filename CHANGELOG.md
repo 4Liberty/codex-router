@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **A completed function_call with invalid JSON arguments is no longer stored.**
+  Relaying that item left Codex unable to execute it and poisoned every later
+  turn on the thread (#797). The router now withholds the completing snapshot
+  and fails the turn instead of inventing a closing quote. Empty arguments,
+  custom tools, and native-hook raw patches are unchanged.
+
+- **A local tool-argument conversion failure is no longer a provider rejection.**
+  LiteLLM raises that parse while building Anthropic `tool_use.input` from
+  stored history, before any provider request. The error now names the stored
+  call and does not fail over, even when the argument body matches a quota
+  phrase (#796).
+
 - **Google Cloud Vertex AI is a catalog-only provider.** It authenticates with
   Application Default Credentials from `gcloud auth application-default login`
   (never a stored API key or a silent `gcloud auth login` user token), honors

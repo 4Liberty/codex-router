@@ -1902,6 +1902,12 @@ purpose; several of them exist because the obvious wider version is wrong.
    Entitlement failures are classified **before** quota ones and never swap,
    because "upgrade your plan" appears in both vocabularies and no other
    provider's quota makes a missing entitlement true.
+   A local LiteLLM conversion of stored tool-call arguments
+   (`Failed to parse tool call arguments for tool … (Anthropic tool invoke)`)
+   is the same class of failure: it happens before any provider request, the
+   argument body is echoed in the error and can match a quota phrase, and no
+   other provider can make that history executable. Classify it before quota
+   and never swap (#796).
    Claude Code excludes billing errors from its own fallback on the reasoning
    that they usually mean misconfiguration. That reasoning does not hold here:
    with thirty providers configured, an exhausted plan is a daily event and
@@ -1966,6 +1972,35 @@ elsewhere — `encrypted_content` rewriting, the compatibility relay, the
 collaboration envelope. Those rules require live marker-return probes through
 every installed routed agent before a change ships, so the tier cannot be added
 from the test suite alone. Add it with those proofs or not at all.
+
+## A completed function_call must carry parseable JSON arguments
+
+A provider that finishes a tool call with unterminated or otherwise invalid
+JSON arguments produces an item the client cannot execute. Codex stores it
+anyway, replays it on the next turn, and every later request on that thread
+then fails — locally on Anthropic/Messages routes, as a generic provider 400
+on OpenAI-compatible ones (#797). LiteLLM's `_attempt_json_repair` only closes
+unmatched brackets and correctly refuses a string that was never terminated;
+closing it here would invent command bytes.
+
+1. **Fail the completed call, never repair it.** When a routed
+   `function_call_arguments.done`, `output_item.done`, or non-streaming
+   `output[]` carries non-empty arguments that `JSON.parse` rejects, withhold
+   that completing snapshot and fail the turn. Empty arguments stay allowed
+   (the call may still be streaming). Custom tool calls and
+   `preserveRawArguments` codec items keep their freeform text for the native
+   hook. Duplicate keys still parse and are not this failure.
+2. **`jsonArgumentsAreUnambiguous` still only gates rewriting.** The namespace
+   relay's `#unsafeSseFrame` pass-through is not permission to store an
+   unusable call. The refusal lives in `src/invalid-function-call.mjs`, after
+   the namespace transform (so restored names appear in the error) and before
+   the empty-completion guard.
+3. **A stored invalid call is refused locally before any provider request.**
+   Name the tool, call id, and input index. Do not echo the argument body.
+   Do not attribute the failure to the provider. Coverage lives in
+   `test/invalid-function-call.test.mjs`, the conversion cases in
+   `test/error-translation.test.mjs` and `test/model-failover.test.mjs`, and
+   the router cases in `test/model-failover-router.test.mjs`.
 
 ## Command Code is reached by two routes, and the plan picks which
 

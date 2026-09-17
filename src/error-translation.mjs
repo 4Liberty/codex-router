@@ -4,6 +4,11 @@
 // reads like a router bug. These helpers name the provider that actually
 // failed and keep only the innermost upstream message as detail.
 
+import {
+  isLocalToolArgumentConversionFailure,
+  localToolArgumentConversionError,
+} from "./invalid-function-call.mjs";
+
 const DETAIL_LIMIT = 300;
 
 // LiteLLM appends its routing state after the upstream message; neither line
@@ -282,6 +287,13 @@ export function translateGatewayError({
   providerAuthMode,
   retryAfterSeconds,
 }) {
+  // LiteLLM raises this locally while converting stored Responses tool calls
+  // into Anthropic `tool_use.input`, before any provider request is sent.
+  // Naming the provider here sent operators looking at the wrong hop and let
+  // quota phrasing inside the argument body trip failover (#796).
+  if (isLocalToolArgumentConversionFailure(bodyText)) {
+    return localToolArgumentConversionError(bodyText);
+  }
   const detail = extractUpstreamDetail(bodyText);
   const context = contextLengthFailure(bodyText);
   if (context) {
