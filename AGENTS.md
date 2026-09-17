@@ -2452,14 +2452,20 @@ every Chat Completions route (measured on `commandcode/hy4-preview` and
    is thinking leaking onto the message part, not the end of the answer:
    rewriting it to `output_text` while text is still arriving truncates the
    visible reply (Union Alpha stopped at `Union Alpha (`). Drop the premature
-   close and only rewrite one that follows `output_text.done`. The drop must
-   still apply when no `reasoning_summary_text.delta` has opened the repair —
-   a live ImageGen turn streamed the prefix, closed as `reasoning_text`, then
-   `response.completed` with 21 tokens, and Codex stored that cut as
-   `final_answer`. Hold the prefix until `output_text.done` whose text grew
-   after the close; a done snapshot that is still the leaked prefix (the
-   ImageGen turnaround that stopped at `(no reference`) is truncated thinking
-   too. If the stream completes without a grown done, withhold the message so
+   close and only rewrite one that follows a grown `output_text.done`. The
+   drop must still apply when no `reasoning_summary_text.delta` has opened
+   the repair — a live ImageGen turn streamed the prefix, closed as
+   `reasoning_text`, then `response.completed` with 21 tokens, and Codex
+   stored that cut as `final_answer`. Hold the prefix until `output_text.done`
+   whose text grew after the close; a done snapshot that is still the leaked
+   prefix (the ImageGen turnaround that stopped at `(no reference`) is
+   truncated thinking too. LiteLLM 1.96's finish sequence also emits that
+   done snapshot *before* the `reasoning_text` close, which stored
+   `The skill is loaded. This is a single concept-sheet generation: a
+   GTA-style AAA` as `final_answer`. Hold the done event until the part
+   close; if its text is the thinking or a prefix of it, withhold so
+   empty-completion retries. A distinct answer still completes. If the
+   stream completes without a grown done, withhold the message so
    empty-completion retries or fails rather than succeeding.
 2. **Grok's gateway-error wording stays on Grok OAuth.** Only `grok-oauth`
    replaces an untyped LiteLLM error envelope with the fixed local error. Other

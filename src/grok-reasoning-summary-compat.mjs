@@ -397,21 +397,51 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
     );
   }
 
-  #dropOrRewriteReasoningTextClose(parsed) {
-    this.#commitMutation(parsed);
-    if (!this.#message.textDone) {
-      this.#message.prematureClose = true;
-      this.#message.textAtPrematureClose = this.#message.text;
-      return [];
-    }
-    return [this.#rewrittenBlock(parsed, this.#shiftedEvent({
+  // Thinking copied onto `output_text` is the same string, or a prefix of the
+  // thinking the finish sequence then closes as `reasoning_text`. A real
+  // answer is a different string from that thinking.
+  #isLeakedThinkingText(output, reasoning) {
+    if (typeof output !== "string" || output.length === 0) return false;
+    if (typeof reasoning !== "string" || reasoning.length === 0) return false;
+    return reasoning === output || reasoning.startsWith(output);
+  }
+
+  #rewriteReasoningTextCloseToOutputText(parsed) {
+    return this.#rewrittenBlock(parsed, this.#shiftedEvent({
       ...parsed.event,
       part: {
         type: "output_text",
         text: this.#message.text,
         annotations: [],
       },
-    }))];
+    }));
+  }
+
+  #dropOrRewriteReasoningTextClose(parsed) {
+    this.#commitMutation(parsed);
+    const reasoning = typeof parsed.event?.part?.reasoning === "string"
+      ? parsed.event.part.reasoning
+      : "";
+    if (!this.#message.textDone) {
+      // LiteLLM's finish sequence emits `output_text.done` *before*
+      // `content_part.done` `reasoning_text`. A done snapshot that is still
+      // the thinking is truncated, same as close-then-same-done. A done
+      // snapshot that is a different string is a real answer.
+      if (
+        this.#message.heldOutputTextDone
+        && !this.#isLeakedThinkingText(this.#message.text, reasoning)
+      ) {
+        this.#message.textDone = true;
+        return [
+          ...this.#flushPendingMessage(),
+          this.#rewriteReasoningTextCloseToOutputText(parsed),
+        ];
+      }
+      this.#message.prematureClose = true;
+      this.#message.textAtPrematureClose = this.#message.text;
+      return [];
+    }
+    return [this.#rewriteReasoningTextCloseToOutputText(parsed)];
   }
 
   #stripUnfinishedMessages(output) {
@@ -570,6 +600,7 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
         prematureClose: false,
         textAtPrematureClose: "",
         releasedText: false,
+        heldOutputTextDone: false,
       };
       this.#pendingMessage.push({ parsed, separator: this.#currentSeparator });
       return [];
@@ -594,9 +625,10 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       prefix = this.#startOrphanReasoning(parsed);
     } else if (!this.#reasoning && this.#pendingMessage.length > 0) {
       // LiteLLM can close the held message part as `reasoning_text` before
-      // `output_text.done`, including after visible deltas have already
-      // started. Hold those deltas here: flushing them would let Codex store
-      // a 21-token prefix as `final_answer` when the stream then completes.
+      // or after `output_text.done`, including after visible deltas have
+      // already started. Hold those deltas (and the done snapshot) here:
+      // flushing them would let Codex store a leaked prefix as
+      // `final_answer` when the stream then completes.
       if (this.#isReasoningTextPartClose(type, event)) {
         return this.#dropOrRewriteReasoningTextClose(parsed);
       }
@@ -607,9 +639,18 @@ export class GrokReasoningSummaryCompatTransform extends Transform {
       }
       if (type === "response.output_text.done" && event.item_id === this.#message?.id) {
         if (this.#isUnfinishedOutputTextDone(event)) return [];
-        if (typeof event.text === "string") this.#message.text = event.text;
-        this.#message.textDone = true;
-        return [...this.#flushPendingMessage(), block];
+        if (typeof event.text === "string" && event.text.length > 0) {
+          this.#message.text = event.text;
+        }
+        // LiteLLM 1.96's Chat Completions → Responses finish sequence emits
+        // `output_text.done` before `content_part.done`. Committing here
+        // stores a leaked prefix as `final_answer` when that close is then
+        // `reasoning_text` (the GTA-style AAA ImageGen turn). Hold the
+        // snapshot until the part close says whether the text grew into an
+        // answer.
+        this.#message.heldOutputTextDone = true;
+        this.#pendingMessage.push({ parsed, separator: this.#currentSeparator });
+        return [];
       }
       if (
         type === "response.output_item.done"

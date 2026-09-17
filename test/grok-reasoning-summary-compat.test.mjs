@@ -355,6 +355,95 @@ test("does not complete a leaked prefix that LiteLLM still closes as output_text
   assert.equal(Buffer.concat(chunks).toString("utf8").includes(prefix), false);
 });
 
+test("does not complete a leaked prefix when LiteLLM sends output_text.done before reasoning_text", async () => {
+  const { EmptyCompletionGuard } = await import("../src/empty-completion-guard.mjs");
+  const { Readable, Writable } = await import("node:stream");
+  const { pipeline } = await import("node:stream/promises");
+  const prefix = "The skill is loaded. This is a single concept-sheet generation: a GTA-style AAA";
+  const message = {
+    id: "msg_gta",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: prefix, annotations: [] }],
+  };
+  const input = [
+    namedBlock({ type: "response.created", response: { id: "resp_gta", status: "in_progress" } }),
+    namedBlock({ type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } }),
+    namedBlock({ type: "response.content_part.added", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } }),
+    namedBlock({ type: "response.output_text.delta", item_id: message.id, output_index: 0, content_index: 0, delta: prefix }),
+    namedBlock({ type: "response.output_text.done", item_id: message.id, output_index: 0, content_index: 0, text: prefix }),
+    namedBlock({ type: "response.content_part.done", item_id: message.id, output_index: 0, content_index: 0, part: { type: "reasoning_text", reasoning: prefix } }),
+    namedBlock({ type: "response.output_item.done", output_index: 0, item: message }),
+    namedBlock({
+      type: "response.completed",
+      response: { id: "resp_gta", status: "completed", output: [message] },
+    }),
+  ].join("");
+  const repaired = await transformed(input);
+  const output = events(repaired);
+  assert.equal(output.some((event) => event.type === "response.output_text.delta"), false);
+  assert.equal(
+    output.some((event) => event.type === "response.output_item.done" && event.item?.type === "message"),
+    false,
+  );
+  const completed = output.find((event) => event.type === "response.completed");
+  assert.ok(completed);
+  assert.deepEqual(completed.response.output, []);
+  assert.equal(repaired.includes(prefix), false);
+
+  const guard = new EmptyCompletionGuard("text/event-stream");
+  const chunks = [];
+  await pipeline(
+    Readable.from([Buffer.from(repaired)]),
+    guard,
+    new Writable({
+      write(chunk, _encoding, callback) {
+        chunks.push(Buffer.from(chunk));
+        callback();
+      },
+    }),
+  );
+  assert.equal(guard.isEmpty(), true);
+  assert.equal(guard.hasContent(), false);
+  assert.equal(Buffer.concat(chunks).toString("utf8").includes(prefix), false);
+});
+
+test("keeps a finished answer that LiteLLM closes as reasoning_text after a distinct output_text.done", async () => {
+  const full = "I'll generate a four-view vehicle concept sheet from ImageGen.";
+  const thinking = "Need the ImageGen skill and four camera views.";
+  const message = {
+    id: "msg_gta_ok",
+    type: "message",
+    role: "assistant",
+    status: "completed",
+    content: [{ type: "output_text", text: full, annotations: [] }],
+  };
+  const input = [
+    namedBlock({ type: "response.created", response: { id: "resp_gta_ok", status: "in_progress" } }),
+    namedBlock({ type: "response.output_item.added", output_index: 0, item: { ...message, status: "in_progress", content: [] } }),
+    namedBlock({ type: "response.content_part.added", item_id: message.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } }),
+    namedBlock({ type: "response.output_text.delta", item_id: message.id, output_index: 0, content_index: 0, delta: full }),
+    namedBlock({ type: "response.output_text.done", item_id: message.id, output_index: 0, content_index: 0, text: full }),
+    namedBlock({ type: "response.content_part.done", item_id: message.id, output_index: 0, content_index: 0, part: { type: "reasoning_text", reasoning: thinking } }),
+    namedBlock({ type: "response.output_item.done", output_index: 0, item: message }),
+    namedBlock({
+      type: "response.completed",
+      response: { id: "resp_gta_ok", status: "completed", output: [message] },
+    }),
+  ].join("");
+  const output = events(await transformed(input));
+  assert.deepEqual(
+    output.filter((event) => event.type === "response.output_text.delta").map((event) => event.delta),
+    [full],
+  );
+  const partDone = output.find((event) => event.type === "response.content_part.done");
+  assert.deepEqual(partDone?.part, { type: "output_text", text: full, annotations: [] });
+  const completed = output.find((event) => event.type === "response.completed");
+  assert.equal(completed?.response?.status, "completed");
+  assert.equal(completed?.response?.output?.[0]?.id, message.id);
+});
+
 test("repairs one-byte CRLF chunks without changing their framing", async () => {
   const output = await transformed(malformedReasoningStream("\r\n"), 1);
   assert.ok(output.includes("\r\n\r\n"));

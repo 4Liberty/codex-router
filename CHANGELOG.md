@@ -24,6 +24,15 @@
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.
+- **LiteLLM's finish sequence no longer stores a leaked Union Alpha prefix.**
+  Holding until `output_text.done` assumed that event arrived after the
+  `reasoning_text` close. LiteLLM 1.96 emits the done snapshot first, then
+  closes the part as thinking, which stored
+  `The skill is loaded. This is a single concept-sheet generation: a
+  GTA-style AAA` as `final_answer`. The done snapshot is held until that
+  close; the same text (or a prefix of the thinking) is withheld so
+  empty-completion can retry. A distinct answer still completes.
+
 - **A truncated `exec_command` JSON call is retried instead of a 502.** Union
   Alpha can finish a tool call with an unterminated string. The router still
   refuses to store that item, but if Codex has not seen a byte yet it retries
