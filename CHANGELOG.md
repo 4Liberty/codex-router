@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **A resold image cannot be charged as prose in the prompt-token estimate.**
+  `maxImageTokensForRoute` bounded only the three documented direct DeepSeek
+  Flash models, so a route such as `openrouter/deepseek-v4.1-flash` had no bound
+  at all and the estimator added the image's base64 to the prompt tokens — 819k
+  tokens for one 2.7 MB screenshot, which is most of a 1M window and enough to
+  trigger client auto-compaction on its own. Routes without a documented bound
+  now take a conservative 4096-token default; the three DeepSeek Flash models
+  keep their documented 1024.
 - **Routed coding clients can be kept current from the Harness page.**
   `control client-update <id>` and `control client-update --all`, plus an
   **Update** button on each row and **Update all** in the header, move
