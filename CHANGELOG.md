@@ -20,6 +20,25 @@
   shipped; these two now do too, and name `service.mjs install` and
   `doctor --fix`. Nothing is mutated on the way out, and a `start` that cannot
   start no longer prints `{"state":"running"}`.
+- **OpenCode Go Messages no longer 400s a generated ImageGen PNG.** Console
+  Go rejects a single `messages[N].content` over 2,500,000 characters. A
+  live Union Alpha follow-up after `image_gen` carried a 2.03 MiB
+  1536×1024 PNG as a 2,707,238-character data URL and died before
+  `final_answer`. The hop now replaces that oversized image with a labeled
+  stub; Codex still has the file. Compact stays 180,000 and the completion
+  cap stays 32,768.
+
+- **Union Alpha publishes the measured 32,768 completion reserve.** OpenCode
+  and Console Go treat an omitted `max_tokens` as the advertised 131,072
+  output. A Desktop-sized first turn (~140k rendered) plus that reserve
+  exceeds the 262,144 window and comes back as
+  `context_length_exceeded` / "tokenizer/template mismatch, not high demand"
+  even though the hop would have fitted the same prompt at 32,768. The
+  Messages route now always sends 32,768 and the catalog / OpenCode
+  `limit.output` advertise that cap. Compact stays 180,000. Rebuild the
+  catalog; a thread already past OpenCode's tokenizer still needs a new
+  task.
+
 - **An unfinished Union Alpha prefix closed as `output_text` is still truncated.**
   The 14:12 ImageGen retry stored `I'll use the image generation` as
   `final_answer` after empty-completion already withheld the first attempt.

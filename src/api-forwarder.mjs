@@ -67,7 +67,10 @@ import {
 } from "./openai-adapters.mjs";
 import { threadIdFromHeaders } from "./codex-session-names.mjs";
 import { applyOpenCodeSessionHeaders, isOpenCodeProvider } from "./opencode-session.mjs";
-import { clampUnionAlphaCompletion } from "./union-alpha-compat.mjs";
+import {
+  clampOpenCodeMessageContent,
+  clampUnionAlphaCompletion,
+} from "./union-alpha-compat.mjs";
 import {
   effectiveProviderCredentialStatus,
   providerApiKeyAuthoritySnapshot,
@@ -761,6 +764,9 @@ function sanitizeChatToolHistory(messages, provider, model) {
   // replaced there.
   if (isOpenCodeProvider(provider) && supportsImageInput(model)) {
     cleaned = hoistToolImagesToUserTurn(cleaned);
+  }
+  if (isOpenCodeProvider(provider)) {
+    cleaned = clampOpenCodeMessageContent(cleaned);
   }
   return requiresTrailingUserTurn(provider, model) ? trimTrailingModelTurns(cleaned) : cleaned;
 }

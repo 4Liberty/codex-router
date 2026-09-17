@@ -6584,6 +6584,26 @@ test("API forwarder routes opencode Go chat, Messages, and Responses surfaces", 
     assert.equal(upstreamRequests[2].body.model, "union-alpha");
     assert.equal(upstreamRequests[2].body.max_tokens, 32_768);
 
+    const unionAlphaOmitted = await fetch(
+      `http://127.0.0.1:${forwarderPort}/v1/messages`,
+      {
+        method: "POST",
+        headers: {
+          "x-api-key": INTERNAL_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "opencode-go-messages-union-alpha",
+          messages: [{ role: "user", content: "test" }],
+        }),
+      },
+    );
+    assert.equal(unionAlphaOmitted.status, 200);
+    assert.equal(upstreamRequests[3].url, "/v1/messages");
+    assert.equal(upstreamRequests[3].body.model, "union-alpha");
+    assert.equal(upstreamRequests[3].body.max_tokens, 32_768);
+
     const responses = await fetch(
       `http://127.0.0.1:${forwarderPort}/v1/responses`,
       {
@@ -6600,10 +6620,10 @@ test("API forwarder routes opencode Go chat, Messages, and Responses surfaces", 
       },
     );
     assert.equal(responses.status, 200);
-    assert.equal(upstreamRequests[3].url, "/v1/responses");
-    assert.equal(upstreamRequests[3].body.model, "gpt-5.6-luna");
+    assert.equal(upstreamRequests[4].url, "/v1/responses");
+    assert.equal(upstreamRequests[4].body.model, "gpt-5.6-luna");
     assert.equal(
-      upstreamRequests[3].headers.authorization,
+      upstreamRequests[4].headers.authorization,
       "Bearer TEST_OPENCODE_GO_API_KEY",
     );
   } finally {

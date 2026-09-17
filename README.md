@@ -972,8 +972,12 @@ sensitive transcript may be rejected even when the ordinary task turn worked.
 OpenCode Go's current stealth preview is **Union Alpha** (`union-alpha` on
 the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:
 OpenCode does not name the maker, documents a 262,144-token window with
-131,072 tokens of output, text and image input, and currently lists it as
-free for a limited time. The shipped slug is
+131,072 tokens of advertised output, text and image input, and currently
+lists it as free for a limited time. The Messages hop and the published
+catalog reserve the measured 32,768 completion cap. A single message whose
+content exceeds Console Go's 2,500,000-character limit (a generated ImageGen
+PNG data URL) is replaced with a labeled stub so the follow-up turn can
+finish. The shipped slug is
 `opencode-go-messages/union-alpha`. OpenRouter publishes the same preview as
 `stealth/union-alpha` (text and image input, 262,144 context, 131,072 output,
 currently free); the shipped slug is `openrouter/union-alpha`. OpenRouter's

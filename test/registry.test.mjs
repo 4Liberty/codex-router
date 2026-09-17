@@ -833,6 +833,7 @@ test("Union Alpha ships on OpenCode Go Messages with sourced stealth metadata", 
   assert.equal(PROVIDERS.get(model.provider).protocol, "anthropic");
   assert.equal(model?.contextWindow, 262_144);
   assert.equal(model?.autoCompact, 180_000);
+  assert.equal(model?.maxOutputTokens, 32_768);
   assert.ok(model.autoCompact > 110_000);
   assert.ok(model.autoCompact < model.contextWindow);
   assert.deepEqual(model?.inputModalities, ["text", "image"]);

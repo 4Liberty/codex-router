@@ -1509,10 +1509,13 @@ report ~88–108k cached input tokens from the tool list alone. Compact-at-80,00
 therefore fired after every skill read, kcr2 kept a 1,024-byte source excerpt,
 and the model re-read ImageGen in a loop. The checked-in route keeps the
 advertised 262,144 window and compacts at 180,000, above that floor. The
-Messages hop still caps `max_tokens` / `max_output_tokens` at 32,768 — OpenCode's
-own completion reserve — so a compact request cannot re-reserve the model's
-full advertised output. Do not copy that cap onto OpenRouter or Cline Union
-Alpha routes without their own evidence.
+Messages hop always sends `max_tokens` / `max_output_tokens` at 32,768 —
+OpenCode's own completion reserve — including when Codex omitted the field,
+so a compact request cannot re-reserve the model's advertised 131,072 output.
+The catalog publishes that same 32,768 as `maxOutputTokens` (OpenCode client
+`limit.output`) so a local `rendered + output > window` check cannot refuse a
+prompt the hop would have accepted. Do not copy that cap onto OpenRouter or
+Cline Union Alpha routes without their own evidence.
 
 OpenCode's tokenizer can still count a thread above 262,144 when Codex reports
 ~90–120k. Compact overflow may retry a larger-window model, including a
@@ -1521,6 +1524,16 @@ recording a provider cooldown. Compact failures are translated to
 `context_length_exceeded` rather than echoing LiteLLM's model-group wrapper.
 Ordinary turns still never swap on HTTP 400. If nothing configured can hold
 the prompt, start a new Codex task. Do not copy this hop onto turn failover.
+
+Console Go also 400s when a single `messages[N].content` exceeds 2,500,000
+characters. A live ImageGen function_call_output (1536×1024 PNG, 2.03 MiB,
+2,707,238-character data URL) was stored by Codex, then the next Union Alpha
+turn failed with `messages[9].content exceeds maximum length of 2500000`.
+The Chat Completions image hoist keeps those bytes and still overflows. The
+OpenCode hop replaces an oversized image payload with a labeled stub so the
+turn can finish; it does not invent image bytes and does not copy this cap
+onto OpenRouter or Cline. This is not `context_length_exceeded` and is not
+quota.
 
 ## A provider whose models each name their own endpoint
 
