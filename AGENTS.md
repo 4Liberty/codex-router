@@ -2048,10 +2048,14 @@ closing it here would invent command bytes.
 1. **Fail the completed call, never repair it.** When a routed
    `function_call_arguments.done`, `output_item.done`, or non-streaming
    `output[]` carries non-empty arguments that `JSON.parse` rejects, withhold
-   that completing snapshot and fail the turn. Empty arguments stay allowed
-   (the call may still be streaming). Custom tool calls and
+   the whole call (opening item and deltas included) and fail that attempt.
+   Closing an unterminated string would invent command bytes. Empty arguments
+   stay allowed (the call may still be streaming). Custom tool calls and
    `preserveRawArguments` codec items keep their freeform text for the native
-   hook. Duplicate keys still parse and are not this failure.
+   hook. Duplicate keys still parse and are not this failure. If nothing has
+   been relayed, retry once on the same path as an empty completion. After that
+   retry, or if a byte already left, fail the turn locally so Codex cannot
+   store the item.
 2. **`jsonArgumentsAreUnambiguous` still only gates rewriting.** The namespace
    relay's `#unsafeSseFrame` pass-through is not permission to store an
    unusable call. The refusal lives in `src/invalid-function-call.mjs`, after

@@ -208,6 +208,7 @@ import {
   findUnusableFunctionCallArguments,
   historyFunctionCallArgumentsError,
   invalidCompletedFunctionCallTransform,
+  isInvalidFunctionCallArgumentsError,
 } from "./invalid-function-call.mjs";
 import { describeTransportFailure } from "./transport-failure.mjs";
 import {
@@ -4029,6 +4030,7 @@ async function handleResponses(request, response, requestUrl) {
   let emptyCompletionUnrepairable = false;
   let emptyCompletionPreludeLimit;
   let preludeLimitRetryable = false;
+  let invalidFunctionCallRetryable = false;
   let finalStatus;
   let activityStatus;
   let usageRecorded = false;
@@ -4751,6 +4753,12 @@ async function handleResponses(request, response, requestUrl) {
                 : "The model exceeded the router's bounded stream parser before producing output.",
           });
         }
+      } else if (
+        isInvalidFunctionCallArgumentsError(error)
+        && !clientGone
+        && nothingRelayed(response)
+      ) {
+        invalidFunctionCallRetryable = true;
       } else {
         throw error;
       }
@@ -4823,7 +4831,7 @@ async function handleResponses(request, response, requestUrl) {
           : "The model streamed reasoning but produced no output. The router could not retry because the response had already started.",
       });
       finalStatus = 502;
-    } else if (emptyCompletion || preludeLimitRetryable) {
+    } else if (emptyCompletion || preludeLimitRetryable || invalidFunctionCallRetryable) {
       // The upstream answered 200 with nothing and never proved otherwise, so
       // the guard still holds every byte. Retry the identical request once:
       // same bytes, same headers, same signal. The discarded first stream means
@@ -4841,6 +4849,11 @@ async function handleResponses(request, response, requestUrl) {
         assertRoutedSearchContract(route, builtSearchMode, searchContract);
       }
       emptyCompletionRetried = true;
+      if (invalidFunctionCallRetryable) {
+        console.error(
+          `[codex-router] invalid function_call arguments; retrying before relay model=${requestedModel || "unknown"} provider=${route?.provider || "unknown"}`,
+        );
+      }
       try {
         const retried = await fetchWithRetry(
           target,

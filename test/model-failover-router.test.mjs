@@ -2031,15 +2031,46 @@ test("a streamed function_call with unterminated JSON is failed and the completi
   try {
     await waitFor(`http://127.0.0.1:${routerPort}/health`, child);
     const result = await readRouted(routerPort, TURN_BODY);
-    assert.equal(seen.length, 1, "invalid arguments must not failover onto another provider");
+    assert.equal(seen.length, 2, "invalid arguments retry once, then fail locally, never failover");
     assert.equal(seen[0].model, PRIMARY.gatewayModel);
+    assert.equal(seen[1].model, PRIMARY.gatewayModel);
+    assert.equal(result.status, 502);
     assert.doesNotMatch(result.body, /event: response\.function_call_arguments\.done/);
     assert.doesNotMatch(result.body, /event: response\.output_item\.done/);
     assert.doesNotMatch(result.body, /"type":"response.completed"/);
-    assert.match(result.body, /invalid_function_call_arguments/);
-    assert.match(result.body, /exec_command/);
-    assert.match(result.body, /event: error/);
+    const payload = JSON.parse(result.body);
+    assert.equal(payload.error.code, "invalid_function_call_arguments");
+    assert.match(payload.error.message, /exec_command/);
     assert.doesNotMatch(child.testErrors(), /failover/);
+  } finally {
+    await stopChild(child);
+    await closeServer(gw.server);
+  }
+});
+
+test("a streamed function_call with unterminated JSON retries onto a valid call", async () => {
+  let attempts = 0;
+  const gw = await gateway(async (request, response) => {
+    await bodyJson(request);
+    attempts += 1;
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(
+      attempts === 1
+        ? toolCallSse("exec_command", '{"cmd":"echo hello')
+        : toolCallSse("exec_command", '{"cmd":"echo hello"}'),
+    );
+  });
+  const routerPort = await openPort();
+  const child = run(routerEnv(gw.port, routerPort));
+  try {
+    await waitFor(`http://127.0.0.1:${routerPort}/health`, child);
+    const result = await readRouted(routerPort, TURN_BODY);
+    assert.equal(attempts, 2);
+    assert.doesNotMatch(result.body, /invalid_function_call_arguments/);
+    assert.match(result.body, /function_call_arguments\.done/);
+    assert.match(result.body, /echo hello/);
+    assert.doesNotMatch(child.testErrors(), /failover/);
+    assert.match(child.testErrors(), /invalid function_call arguments; retrying/);
   } finally {
     await stopChild(child);
     await closeServer(gw.server);

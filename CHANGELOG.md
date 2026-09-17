@@ -24,6 +24,11 @@
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.
+- **A truncated `exec_command` JSON call is retried instead of a 502.** Union
+  Alpha can finish a tool call with an unterminated string. The router still
+  refuses to store that item, but if Codex has not seen a byte yet it retries
+  once like an empty completion instead of answering `unexpected status 502`.
+
 - **A leaked Union Alpha prefix is still truncated when LiteLLM also sends
   `output_text.done`.** Holding until that event was not enough: the live
   ImageGen turnaround closed as `reasoning_text` and then `output_text.done`
