@@ -12,6 +12,14 @@
   `invalid_argument` lands behind a clean request-shape check, and the unused
   `MODEL_INFO` table -- whose field numbers had also gone stale -- is gone. The
   provider remains unverified: no maintainer has run a live turn.
+- **`start` and `restart` say the scheduled task is missing instead of relaying
+  schtasks.** On Windows both verbs went straight to
+  `schtasks /Change /TN "Codex Router" /ENABLE`, so with no task registered the
+  operator got schtasks.exe's own error, naming neither the task nor anything
+  to do about it (#760). `stop` had guarded on the task's existence since it
+  shipped; these two now do too, and name `service.mjs install` and
+  `doctor --fix`. Nothing is mutated on the way out, and a `start` that cannot
+  start no longer prints `{"state":"running"}`.
 
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
