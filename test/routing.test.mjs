@@ -8196,6 +8196,14 @@ test("an exhausted native reviewer moves later approvals to the configured revie
     // mid-flight: the refusal is relayed exactly as ChatGPT wrote it.
     const first = await review();
     assert.equal(first.status, 429);
+    // The classifier reads this body through `upstream.clone()` precisely so
+    // the relay keeps ChatGPT's own words. Assert the bytes survived the tee,
+    // because a consumed body would relay an empty error and the status alone
+    // would not notice.
+    assert.deepEqual(await first.json(), {
+      error: { message: "You have hit your usage limit." },
+    });
+    assert.equal(first.headers.get("retry-after"), "1800");
     assert.equal(nativeRequests.length, 1);
     assert.equal(nativeRequests[0].model, "codex-auto-review");
     assert.equal(gatewayRequests.length, 0);
