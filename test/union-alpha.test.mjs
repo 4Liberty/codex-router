@@ -15,13 +15,13 @@ const {
   isUnionAlphaMessagesRoute,
 } = await import("../src/union-alpha-compat.mjs");
 
-test("OpenCode Go Messages Union Alpha compacts below the live overflow band", () => {
+test("OpenCode Go Messages Union Alpha compacts above the Desktop tool floor", () => {
   const model = MODEL_BY_SLUG.get("opencode-go-messages/union-alpha");
   assert.equal(PROVIDERS.get(model.provider).protocol, "anthropic");
   assert.equal(model.contextWindow, 262_144);
-  assert.equal(model.autoCompact, 80_000);
-  assert.ok(model.autoCompact < 90_000);
-  assert.ok(model.contextWindow - model.autoCompact >= 131_072);
+  assert.equal(model.autoCompact, 180_000);
+  assert.ok(model.autoCompact > 110_000);
+  assert.ok(model.autoCompact < model.contextWindow);
   assert.deepEqual(model.reasoningLevels.map((level) => level.effort), ["high"]);
   assert.equal(isUnionAlphaMessagesRoute(model), true);
 });

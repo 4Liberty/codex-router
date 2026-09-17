@@ -8,7 +8,7 @@
       "provider": "opencode-go-messages",
       "listed": true,
       "displayName": "Union Alpha (opencode Go)",
-      "description": "Union Alpha through the opencode Go subscription using the Messages API. OpenCode publishes this as a stealth model and does not name its maker. The 262,144-token window and 131,072-token output limit are OpenCode's models.dev figures for this id. Compact-at-window-minus-output (131,072) still 400s on Console Go because that edge refuses a prompt plus completion that does not fit every available backend; live Codex turns reported ~90–100k input tokens, then hit that 400. Codex therefore compacts at 80,000, and the Messages hop caps max_tokens at 32,768. OpenCode documents reasoning but publishes an empty effort list, so the stored single high level is this repository's conservative default. Access is currently free for a limited time.",
+      "description": "Union Alpha through the opencode Go subscription using the Messages API. OpenCode publishes this as a stealth model and does not name its maker. The 262,144-token window and 131,072-token output limit are OpenCode's models.dev figures for this id. Compact-at-80k sat below a Codex Desktop tool list (~88–108k cached input), so every skill read compacted, the checkpoint kept a 1k excerpt, and the model re-read the file in a loop. Compact at 180,000, above that floor. The Messages hop still caps max_tokens at 32,768. Compact overflow may hop to a larger-window Go model. OpenCode documents reasoning but publishes an empty effort list, so the stored single high level is this repository's conservative default. Access is currently free for a limited time.",
       "priority": 28,
       "defaultEffort": "high",
       "reasoningLevels": [
@@ -18,14 +18,14 @@
         }
       ],
       "contextWindow": 262144,
-      "autoCompact": 80000,
+      "autoCompact": 180000,
       "inputModalities": [
         "text",
         "image"
       ],
       "isFree": true,
       "availabilityNux": "Union Alpha is OpenCode Go's new stealth coding model. Access is currently free for a limited time.",
-      "compHash": "opencode-go-messages-union-alpha-v2"
+      "compHash": "opencode-go-messages-union-alpha-v3"
     }
   ]
 }

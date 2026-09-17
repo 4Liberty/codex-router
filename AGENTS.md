@@ -1492,34 +1492,30 @@ a bridge **engine** for other text-only models as well, so a future Flash route
 on a new reseller is sourced from that reseller's own catalog rather than
 inherited from this paragraph.
 
-## Union Alpha on OpenCode Go Messages compacts below window-minus-output
+## Union Alpha on OpenCode Go Messages must compact above the tool floor
 
 OpenCode publishes Union Alpha (`union-alpha` on `/zen/go/v1/messages`) with a
 262,144-token window and a 131,072-token output. Compact-at-window-minus-output
-is 131,072, which still leaves no margin once Console Go adds a completion
-budget and tokenizes the turn independently of Codex.
-
-Live Codex usage on `opencode-go-messages/union-alpha` reported successful
-prompts around 90–100k input tokens — below that compact threshold, and
-sometimes as an explicit zero that the prompt-token substituter replaced with
-a ~120k estimate still under 131,072 — then Console Go answered HTTP 400
-`Prompt too long for every available model, including the completion`. That is
-not quota and not a truncated tool-call repair. Do not classify it as
+is 131,072. Console Go also tokenizes independently of Codex and 400s when the
+prompt plus completion does not fit any backend (`Prompt too long … including
+the completion`, later `about 434983 tokens estimated` against 262,144). That
+is not quota and not a truncated tool-call repair. Do not classify it as
 `out_of_usage`. Do not invent effort rungs: OpenCode documents reasoning but
 publishes `reasoning_options=[]`, so the stored ladder stays the conservative
 single `high`.
 
-The checked-in route therefore keeps the advertised 262,144 window and
-compacts conservatively at 80,000, below the live overflow band. The Messages
-hop also caps `max_tokens` / `max_output_tokens` at 32,768 — OpenCode's own
-completion reserve when estimating whether a prompt will fit — so a compact
-request cannot re-reserve the model's full advertised output against a smaller
-available backend. Do not copy that cap onto OpenRouter or Cline Union Alpha
-routes without their own evidence.
+Do not compact below the unavoidable Desktop prefix. Live Union Alpha turns
+report ~88–108k cached input tokens from the tool list alone. Compact-at-80,000
+therefore fired after every skill read, kcr2 kept a 1,024-byte source excerpt,
+and the model re-read ImageGen in a loop. The checked-in route keeps the
+advertised 262,144 window and compacts at 180,000, above that floor. The
+Messages hop still caps `max_tokens` / `max_output_tokens` at 32,768 — OpenCode's
+own completion reserve — so a compact request cannot re-reserve the model's
+full advertised output. Do not copy that cap onto OpenRouter or Cline Union
+Alpha routes without their own evidence.
 
-80,000 compact cannot save a thread OpenCode already counts above 262,144.
-Live compact/non-stream traffic estimated about 434,983 tokens against that
-card. Compact overflow may retry a larger-window model, including a
+OpenCode's tokenizer can still count a thread above 262,144 when Codex reports
+~90–120k. Compact overflow may retry a larger-window model, including a
 same-family OpenCode Go 1M route such as `opencode-go/glm-5.3-flash`, without
 recording a provider cooldown. Compact failures are translated to
 `context_length_exceeded` rather than echoing LiteLLM's model-group wrapper.

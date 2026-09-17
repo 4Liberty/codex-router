@@ -24,6 +24,14 @@
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.
+- **Union Alpha no longer compact-loops on a Codex Desktop tool list.** Compact
+  at 80,000 sat below ~88–108k of cached tool-schema tokens, so every ImageGen
+  skill read compacted, the checkpoint kept a 1k excerpt, and the model
+  re-read the file. Compact is 180,000, above that floor. The 32,768
+  `max_tokens` cap and compact overflow hop stay. Rebuild the catalog and
+  start a new Codex task; a thread already in the compact loop will keep
+  looping.
+
 - **Union Alpha no longer stores a 21-token mid-sentence `final_answer` after a
   premature `reasoning_text` close.** The earlier drop only fired when a
   reasoning-summary delta had already opened the repair. Live ImageGen turns
@@ -35,21 +43,19 @@
 
 - **Compact overflow on Union Alpha can retry a larger-window model.** OpenCode
   estimated about 434,983 tokens against Union Alpha's 262,144 card, so
-  compact-at-80k cannot save that thread. Compact failures are translated to
-  `context_length_exceeded` instead of LiteLLM's model-group wrapper. Compact
-  may retry a larger-window model, including a same-family OpenCode Go 1M
-  route, without recording a cooldown. Ordinary turns still never swap on HTTP
-  400. If every configured window is still too small, start a new Codex task.
+  compacting the same 262k route cannot save that thread. Compact failures
+  are translated to `context_length_exceeded` instead of LiteLLM's model-group
+  wrapper. Compact may retry a larger-window model, including a same-family
+  OpenCode Go 1M route, without recording a cooldown. Ordinary turns still
+  never swap on HTTP 400. If every configured window is still too small, start
+  a new Codex task.
 
-- **Union Alpha on OpenCode Go Messages now compacts before Console Go refuses
-  the prompt-plus-completion budget.** Live turns reported ~90–100k input
-  tokens — under the old 131,072 window-minus-output compact — then 400'd with
-  "Prompt too long for every available model, including the completion". The
-  Go Messages route keeps the advertised 262,144 window, compacts at 80,000,
-  caps Messages `max_tokens` at 32,768, and translates that 400 as a
-  context-window error rather than a generic rejection. Rebuild the catalog
-  and fully quit and reopen Codex; a thread already over the limit needs a
-  new task. The shipped slug is `opencode-go-messages/union-alpha`.
+- **Union Alpha on OpenCode Go Messages caps the Messages completion budget.**
+  Console Go 400s a prompt-plus-completion that does not fit every available
+  backend. The Go Messages route keeps the advertised 262,144 window, caps
+  Messages `max_tokens` at 32,768, and translates that 400 as a context-window
+  error rather than a generic rejection. The shipped slug is
+  `opencode-go-messages/union-alpha`.
 
 - **Union Alpha is now a checked-in OpenRouter route.** OpenRouter publishes
   this stealth preview as `stealth/union-alpha` (262,144 context, 131,072
