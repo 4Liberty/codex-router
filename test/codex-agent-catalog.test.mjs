@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import test from "node:test";
 
 import {
@@ -166,13 +166,15 @@ test("a configured subagent effort round-trips through sync and status", () => {
   const codexHome = path.join(testRoot, "codex");
   const agentsDir = path.join(codexHome, "agents");
 
+  const stateModule = pathToFileURL(path.join(root, "src/multi-agent-state.mjs")).href;
+  const catalogModule = pathToFileURL(path.join(root, "src/codex-agent-catalog.mjs")).href;
   const script = `
     import { mkdirSync } from "node:fs";
     mkdirSync(process.env.CODEX_ROUTER_STATE_DIR, { recursive: true });
     mkdirSync(${JSON.stringify(agentsDir)}, { recursive: true });
-    const { setSubagentEffort } = await import("${root}/src/multi-agent-state.mjs");
+    const { setSubagentEffort } = await import(${JSON.stringify(stateModule)});
     const { syncRoutedCodexAgents, routedCodexAgentStatus } =
-      await import("${root}/src/codex-agent-catalog.mjs");
+      await import(${JSON.stringify(catalogModule)});
     const model = { slug: "grok-oauth/grok-4.5", displayName: "Grok 4.5 (OAuth)" };
     setSubagentEffort(model.slug, "medium");
     syncRoutedCodexAgents([model], ${JSON.stringify(agentsDir)});
