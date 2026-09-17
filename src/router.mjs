@@ -198,6 +198,12 @@ import {
   threadIdFromHeaders,
 } from "./codex-session-names.mjs";
 import { gatewayErrorStatus, translateGatewayError } from "./error-translation.mjs";
+import {
+  INVALID_FUNCTION_CALL_ARGUMENTS_CODE,
+  findUnusableFunctionCallArguments,
+  historyFunctionCallArgumentsError,
+  invalidCompletedFunctionCallTransform,
+} from "./invalid-function-call.mjs";
 import { describeTransportFailure } from "./transport-failure.mjs";
 import {
   endpointCapabilityError,
@@ -3952,6 +3958,27 @@ async function handleResponses(request, response, requestUrl) {
     route = registeredRoute && routeProviderEnabled(registeredRoute.provider)
       ? registeredRoute
       : undefined;
+    if (route) {
+      const invalidHistoryCall = findUnusableFunctionCallArguments(payload.input);
+      if (invalidHistoryCall) {
+        writeJson(response, 400, historyFunctionCallArgumentsError(invalidHistoryCall));
+        console.error(
+          `[codex-router] refused invalid function_call arguments model=${route.slug} tool=${
+            invalidHistoryCall.toolName || "unknown"
+          } ${invalidHistoryCall.param || ""} status=400`,
+        );
+        recordObservedUsage({
+          model: route.slug,
+          provider: canonicalProviderId(route.provider),
+          status: 400,
+          durationMs: Date.now() - startedAt,
+        }, diagnostics);
+        usageRecorded = true;
+        finalStatus = 400;
+        activityStatus = 400;
+        return;
+      }
+    }
     if (registeredRoute && !route) {
       writeJson(response, 409, {
         error: {
@@ -4497,6 +4524,15 @@ async function handleResponses(request, response, requestUrl) {
           ),
         );
       }
+      // Refuse a completed function_call whose arguments are not JSON before
+      // Codex can store it. Relaying that item permanently poisons the thread
+      // (#797). After the namespace transform so restored names appear in the
+      // error, and before the empty-completion guard so the completing snapshot
+      // is withheld even if the opening item already counted as content.
+      const invalidFunctionCall = route
+        ? invalidCompletedFunctionCallTransform(flattenedNamespaces, contentType)
+        : undefined;
+      if (invalidFunctionCall) transforms.push(invalidFunctionCall);
       const guard =
         route && EMPTY_COMPLETION_RETRY
           ? new EmptyCompletionGuard(contentType, {
@@ -4937,6 +4973,51 @@ async function handleResponses(request, response, requestUrl) {
           message: "The router canceled a request that exceeded its execution deadline.",
         });
       }
+      return;
+    }
+    if (
+      error?.code === INVALID_FUNCTION_CALL_ARGUMENTS_CODE &&
+      !response.headersSent
+    ) {
+      finalStatus = error.status || 502;
+      activityStatus = finalStatus;
+      writeJson(response, finalStatus, {
+        error: {
+          type: "invalid_request_error",
+          code: error.code,
+          message: error.message,
+          param: error.param ?? null,
+        },
+      });
+      recordObservedUsage({
+        model: route?.slug || requestedModel,
+        provider: route ? canonicalProviderId(route.provider) : "openai",
+        status: finalStatus,
+        durationMs: Date.now() - startedAt,
+        responseStartMs: upstreamLatencyMs,
+      }, diagnostics);
+      usageRecorded = true;
+      return;
+    }
+    if (
+      error?.code === INVALID_FUNCTION_CALL_ARGUMENTS_CODE
+    ) {
+      finalStatus = 502;
+      activityStatus = 502;
+      writeStreamErrorEvent(response, {
+        code: INVALID_FUNCTION_CALL_ARGUMENTS_CODE,
+        message: error.message,
+      });
+      if (!response.writableEnded && !response.destroyed) response.end();
+      recordObservedUsage({
+        model: route?.slug || requestedModel,
+        provider: route ? canonicalProviderId(route.provider) : "openai",
+        status: 502,
+        durationMs: Date.now() - startedAt,
+        responseStartMs: upstreamLatencyMs,
+        streamAborted: true,
+      }, diagnostics);
+      usageRecorded = true;
       return;
     }
     if (

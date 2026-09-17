@@ -1481,8 +1481,7 @@ test("a responses turn failing over to a chat-completions provider flattens it",
 // A fallback that answers with a flattened tool call. The response transform has
 // to map it back to the client's namespace shape using the *fallback's* map and
 // slug -- the ones adopted during the swap, not the exhausted model's.
-function toolCallSse(name) {
-  const args = JSON.stringify({ task: "audit the map" });
+function toolCallSse(name, args = JSON.stringify({ task: "audit the map" })) {
   const events = [
     { type: "response.created", response: { id: "r-tool" } },
     {
@@ -1926,6 +1925,113 @@ test("a rate limit with no usable window asks for patience", async () => {
       assert.match(message, /Wait a bit and retry\./);
       assert.doesNotMatch(message, /Retry in about 0s/);
     }
+  } finally {
+    await stopChild(child);
+    await closeServer(gw.server);
+  }
+});
+
+const LOCAL_CONVERSION_BODY = JSON.stringify({
+  error: {
+    message:
+      "Failed to parse tool call arguments for tool 'exec_command' (Anthropic tool invoke). " +
+      "Error: Unterminated string starting at: line 1 column 8 (char 7).\n" +
+      '{"cmd":"usage limit reached for your GLM Coding Plan. Upgrade your plan."}',
+  },
+});
+
+test("a local tool-argument conversion 400 is not attributed to the provider and does not failover", async () => {
+  const seen = [];
+  const gw = await gateway(async (request, response) => {
+    const body = await bodyJson(request);
+    seen.push(body);
+    const payload = Buffer.from(LOCAL_CONVERSION_BODY, "utf8");
+    response.writeHead(400, {
+      "Content-Type": "application/json",
+      "Content-Length": String(payload.length),
+    });
+    response.end(payload);
+  });
+  const routerPort = await openPort();
+  const child = run(routerEnv(gw.port, routerPort));
+  try {
+    await waitFor(`http://127.0.0.1:${routerPort}/health`, child);
+    const result = await readRouted(routerPort, TURN_BODY);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].model, PRIMARY.gatewayModel);
+    assert.equal(result.status, 400);
+    const payload = JSON.parse(result.body);
+    assert.equal(payload.error.code, "invalid_function_call_arguments");
+    assert.match(payload.error.message, /not a provider rejection/);
+    assert.doesNotMatch(payload.error.message, /rejected the request/);
+    assert.doesNotMatch(payload.error.message, /usage limit reached/);
+    assert.doesNotMatch(child.testErrors(), /failover/);
+  } finally {
+    await stopChild(child);
+    await closeServer(gw.server);
+  }
+});
+
+test("a stored function_call with unterminated JSON is refused before any provider request", async () => {
+  const seen = [];
+  const gw = await gateway(async (request, response) => {
+    seen.push(await bodyJson(request));
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(contentSse("should-not-run"));
+  });
+  const routerPort = await openPort();
+  const child = run(routerEnv(gw.port, routerPort));
+  try {
+    await waitFor(`http://127.0.0.1:${routerPort}/health`, child);
+    const result = await readRouted(routerPort, {
+      model: PRIMARY.slug,
+      stream: true,
+      input: [
+        { type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] },
+        {
+          type: "function_call",
+          name: "exec_command",
+          call_id: "call_poisoned",
+          arguments: '{"cmd":"echo hello',
+        },
+      ],
+    });
+    assert.equal(seen.length, 0, "the poisoned history must never reach the gateway");
+    assert.equal(result.status, 400);
+    const payload = JSON.parse(result.body);
+    assert.equal(payload.error.code, "invalid_function_call_arguments");
+    assert.match(payload.error.message, /exec_command/);
+    assert.match(payload.error.message, /call_poisoned/);
+    assert.match(payload.error.message, /not a provider rejection/);
+    assert.doesNotMatch(payload.error.message, /echo hello/);
+    assert.doesNotMatch(child.testErrors(), /failover/);
+  } finally {
+    await stopChild(child);
+    await closeServer(gw.server);
+  }
+});
+
+test("a streamed function_call with unterminated JSON is failed and the completing snapshot is withheld", async () => {
+  const seen = [];
+  const gw = await gateway(async (request, response) => {
+    seen.push(await bodyJson(request));
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end(toolCallSse("exec_command", '{"cmd":"echo hello'));
+  });
+  const routerPort = await openPort();
+  const child = run(routerEnv(gw.port, routerPort));
+  try {
+    await waitFor(`http://127.0.0.1:${routerPort}/health`, child);
+    const result = await readRouted(routerPort, TURN_BODY);
+    assert.equal(seen.length, 1, "invalid arguments must not failover onto another provider");
+    assert.equal(seen[0].model, PRIMARY.gatewayModel);
+    assert.doesNotMatch(result.body, /event: response\.function_call_arguments\.done/);
+    assert.doesNotMatch(result.body, /event: response\.output_item\.done/);
+    assert.doesNotMatch(result.body, /"type":"response.completed"/);
+    assert.match(result.body, /invalid_function_call_arguments/);
+    assert.match(result.body, /exec_command/);
+    assert.match(result.body, /event: error/);
+    assert.doesNotMatch(child.testErrors(), /failover/);
   } finally {
     await stopChild(child);
     await closeServer(gw.server);

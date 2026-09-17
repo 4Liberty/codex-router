@@ -4,6 +4,7 @@ import path from "node:path";
 import { writePrivateJson } from "./file-security.mjs";
 import { STATE_DIR } from "./paths.mjs";
 import { upstreamFailureKind } from "./error-translation.mjs";
+import { isLocalToolArgumentConversionFailure } from "./invalid-function-call.mjs";
 import { PROVIDERS } from "./model-registry.mjs";
 import { cooldownScope } from "./provider-cooldown.mjs";
 import { canonicalProviderId } from "./provider-selection.mjs";
@@ -89,6 +90,11 @@ function isoOrUndefined(value) {
 export function classifyRoutedFailure({ status, bodyText, retryAfterSeconds, now } = {}) {
   const code = Number(status);
   if (!Number.isFinite(code) || code < 400) return { swap: false };
+  // A LiteLLM Anthropic-conversion parse of stored tool arguments is a local
+  // request failure. The argument body is echoed in the error and can match a
+  // quota phrase, which would otherwise swap the turn onto another provider
+  // for a request that cannot succeed (#796).
+  if (isLocalToolArgumentConversionFailure(bodyText)) return { swap: false };
   // The local provider forwarder writes this reserved marker only before it
   // has committed a response. A generic provider 5xx remains an application
   // failure and is never switched away silently.

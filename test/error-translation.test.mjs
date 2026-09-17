@@ -479,6 +479,28 @@ test("an unclassified 4xx still names the provider", () => {
   assert.equal(payload.error.type, "invalid_request_error");
 });
 
+test("a local Anthropic tool-argument conversion is not a provider rejection", () => {
+  const payload = translateGatewayError({
+    status: 400,
+    bodyText: JSON.stringify({
+      error: {
+        message:
+          "Failed to parse tool call arguments for tool 'exec_command' (Anthropic tool invoke). " +
+          "Error: Unterminated string starting at: line 1 column 8 (char 7).\n" +
+          '{"cmd":"usage limit reached for your GLM Coding Plan"}',
+      },
+    }),
+    modelName: "Union Alpha Free (opencode Go)",
+    providerName: "opencode",
+  });
+  assert.equal(payload.error.code, "invalid_function_call_arguments");
+  assert.equal(payload.error.type, "invalid_request_error");
+  assert.match(payload.error.message, /exec_command/);
+  assert.match(payload.error.message, /not a provider rejection/);
+  assert.doesNotMatch(payload.error.message, /opencode rejected the request/);
+  assert.doesNotMatch(payload.error.message, /usage limit reached/);
+});
+
 test("a plan without API access is not reported as a bad credential", () => {
   // Command Code's verbatim answer to a valid Go-plan key on /provider/v1.
   const translated = translateGatewayError({
