@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **The Devin CLI model list asks for the method Devin 3000.x actually serves.**
+  `devin-cli` called `GetCascadeModelConfigs`, which is the IDE's method; the
+  CLI moved to `GetCliModelConfigs`, so a CLI-credentialed account was answered
+  Connect `invalid_argument` on every `bin/devin-probe` and `bin/curate-models
+  devin-cli` run (#770). Both methods are still declared on the service, which
+  is why the refusal did not arrive as `unimplemented`. Re-reading every field
+  the router writes against Devin 3000.10.31 found the request shape unchanged,
+  so the method name was the whole drift. The probe now says so when an
+  `invalid_argument` lands behind a clean request-shape check, and the unused
+  `MODEL_INFO` table -- whose field numbers had also gone stale -- is gone. The
+  provider remains unverified: no maintainer has run a live turn.
+
 - **Playwright is 1.63.0 in both the router tests and the Control Center.**
   Dependabot #758 only bumped the root pin. The Control Center lock stays in
   step so renderer tests and docs screenshots use the same browser.

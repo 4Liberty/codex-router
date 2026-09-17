@@ -1663,9 +1663,17 @@ about it.
    (`api.devin.ai`), not a chat API. The models answer only on Cascade —
    `exa.api_server_pb.ApiServerService` over Connect RPC at the
    `api_server_url` the CLI stored. The schemas in `src/devin-proto.mjs` are
-   transcribed from the descriptor set embedded in the shipped `devin` binary,
-   which is the only published source for them. Treat every field number as
-   evidence from one binary version, not as a contract.
+   transcribed from the descriptor the shipped Devin client carries, which is
+   the only published source for them. Treat every field number as evidence
+   from one client version, not as a contract.
+   Where that descriptor lives moved with the 3000.x series. The 2025.x `devin`
+   binary embedded a descriptor set; 3000.10.31 is stripped of one, and the
+   readable source is now the desktop client's generated protobuf-es field
+   lists under `@exa/chat-client` (`Devin.app/Contents/Resources/app/
+   node_modules/`), which spell each `no:` literally for the same
+   `exa.api_server_pb`, `exa.codeium_common_pb`, and `exa.chat_pb` messages.
+   Re-transcribe from whichever of the two the installed client actually ships,
+   and record the version you read.
 2. **Unverified until someone with an account proves it.** No maintainer has
    run a live turn. The registry entry ships no models, the provider is
    catalog-only, and nothing may claim support until `bin/devin-probe --live
@@ -1694,6 +1702,19 @@ about it.
    can change under a `devin` update. When it does, the symptom is a Connect
    `invalid_argument` on every turn, not a subtle wrong answer — keep it that
    way rather than adding tolerant parsing that would mask a schema change.
+   That is not hypothetical: it happened, and the shape of it is worth keeping.
+   Devin 3000.x moved the CLI's model list from `GetCascadeModelConfigs` to
+   `GetCliModelConfigs` (#770). Both methods are still declared on the service
+   — `GetCascadeModelConfigs` is the IDE's and the CLI no longer calls it — so
+   a CLI-credentialed account was answered `invalid_argument` rather than
+   `unimplemented`, and the router read that as its own encoding being wrong.
+   It was not: `bin/devin-probe`'s request-shape check passed in the same run,
+   and re-reading every field the router writes against 3000.10.31 found all of
+   them unchanged. **A refused call whose encoding audits clean is evidence
+   about the method, not about the bytes** — check the method the installed CLI
+   calls before touching a field number. `test/devin-proto.test.mjs` pins the
+   method names and those field numbers as literals, because a test that reads
+   the constant it guards passes straight through a rename.
    Two rules make "loudly" mean something. First, a Connect error code must
    reach the router as the HTTP status the protocol assigns it: the sixteen-code
    table in `src/connect-stream-audit.mjs` is the single source, imported by the
