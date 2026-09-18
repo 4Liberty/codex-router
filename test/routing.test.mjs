@@ -7745,12 +7745,14 @@ test("router strips Fireworks web_search_options on routed and compaction reques
         input: "routed test",
         web_search_options: { search_context_size: "medium" },
         client_metadata: { workspace: "caller-owned" },
+        access_programs: { cyber: "standard" },
       }),
     });
     assert.equal(routed.status, 200, router.testErrors());
     assert.equal(gatewayRequests[0].model, curated.gatewayModel);
     assert.equal(gatewayRequests[0].web_search_options, undefined);
     assert.equal(gatewayRequests[0].client_metadata, undefined);
+    assert.equal(gatewayRequests[0].access_programs, undefined);
 
     const compact = await fetch(`${routerBase(routerPort)}/responses/compact`, {
       method: "POST",
@@ -7766,12 +7768,14 @@ test("router strips Fireworks web_search_options on routed and compaction reques
         ],
         web_search_options: { search_context_size: "medium" },
         client_metadata: { workspace: "caller-owned" },
+        access_programs: { cyber: "standard" },
       }),
     });
     assert.equal(compact.status, 200, router.testErrors());
     assert.equal(gatewayRequests[1].model, curated.gatewayModel);
     assert.equal(gatewayRequests[1].web_search_options, undefined);
     assert.equal(gatewayRequests[1].client_metadata, undefined);
+    assert.equal(gatewayRequests[1].access_programs, undefined);
   } finally {
     await stopChild(router);
     await closeServer(gateway.server);
