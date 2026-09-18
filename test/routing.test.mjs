@@ -6221,6 +6221,80 @@ test("API forwarder routes GLM coding-plan models with thinking enabled", async 
   }
 }));
 
+test("API forwarder gives DeepSeek tool calls without reasoning an empty reasoning_content (#809)", async () => {
+  const upstreamRequests = [];
+  const upstream = await mockServer(async (request, response) => {
+    upstreamRequests.push({ url: request.url, body: await bodyJson(request) });
+    json(response, 200, { choices: [] });
+  });
+  const forwarderPort = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    CODEX_ROUTER_API_PORT: String(forwarderPort),
+    OPENCODE_GO_BASE_URL: `http://127.0.0.1:${upstream.port}`,
+    OPENCODE_GO_API_KEY: "TEST_OPENCODE_GO_API_KEY",
+    CODEX_ROUTER_QUIET: "1",
+  });
+  const history = (model) => ({
+    model,
+    messages: [
+      { role: "user", content: "read the probe result" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{
+          id: "call_probe",
+          type: "function",
+          function: { name: "codex_router_probe", arguments: "{\"value\":\"pending\"}" },
+        }],
+      },
+      { role: "tool", tool_call_id: "call_probe", content: "MARKER" },
+      {
+        role: "assistant",
+        content: [{ type: "thinking", text: "kept" }],
+        tool_calls: [{
+          id: "call_two",
+          type: "function",
+          function: { name: "codex_router_probe", arguments: "{}" },
+        }],
+      },
+      { role: "tool", tool_call_id: "call_two", content: "done" },
+    ],
+    tools: [{
+      type: "function",
+      function: { name: "codex_router_probe", parameters: { type: "object", properties: {} } },
+    }],
+  });
+
+  try {
+    await waitFor(`http://127.0.0.1:${forwarderPort}/health`, forwarder, {
+      Authorization: `Bearer ${INTERNAL_KEY}`,
+    });
+    for (const model of ["opencode-go-deepseek-v4-1-flash", "opencode-go-glm-5-3"]) {
+      const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${INTERNAL_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(history(model)),
+      });
+      assert.equal(response.status, 200, model);
+    }
+    const [deepseek, glm] = upstreamRequests.map((entry) => entry.body.messages);
+    assert.equal(deepseek[1].reasoning_content, "");
+    assert.equal(deepseek[1].content, null);
+    assert.equal(deepseek[1].tool_calls.length, 1);
+    assert.equal(deepseek[3].reasoning_content, "kept");
+    assert.equal(deepseek[0].reasoning_content, undefined);
+    // Only the DeepSeek contract needs the field on every tool call.
+    assert.equal(glm[1].reasoning_content, undefined);
+    assert.equal(glm[3].reasoning_content, "kept");
+  } finally {
+    await stopChild(forwarder);
+    await closeServer(upstream.server);
+  }
+});
+
 test("API forwarder preserves Z.ai cached-token telemetry before the LiteLLM bridge", async () => {
   const upstream = await mockServer(async (request, response) => {
     await bodyJson(request);

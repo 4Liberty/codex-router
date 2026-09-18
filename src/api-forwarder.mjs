@@ -1,5 +1,8 @@
 import http from "node:http";
-import { usesNativeChatReasoning } from "./chat-reasoning.mjs";
+import {
+  requiresReasoningContentOnToolCalls,
+  usesNativeChatReasoning,
+} from "./chat-reasoning.mjs";
 import {
   deepSeekResponsesEffort,
   deepSeekResponsesInput,
@@ -376,6 +379,21 @@ function restoreNativeReasoningContent(messages) {
       restored.reasoning_content = reasoning.join("\n");
     }
     return restored;
+  });
+}
+
+function ensureToolCallReasoningContent(messages) {
+  if (!Array.isArray(messages)) return messages;
+  return messages.map((message) => {
+    if (
+      message?.role !== "assistant" ||
+      !Array.isArray(message.tool_calls) ||
+      message.tool_calls.length === 0 ||
+      typeof message.reasoning_content === "string"
+    ) {
+      return message;
+    }
+    return { ...message, reasoning_content: "" };
   });
 }
 
@@ -1116,6 +1134,9 @@ function normalizeBody(buffer, contentType, route) {
     payload.messages = sanitizeChatToolHistory(payload.messages, provider, model);
     if (usesNativeChatReasoning(model)) {
       payload.messages = restoreNativeReasoningContent(payload.messages);
+    }
+    if (requiresReasoningContentOnToolCalls(model)) {
+      payload.messages = ensureToolCallReasoningContent(payload.messages);
     }
   }
   if (provider.authProfile === "github-copilot") {
