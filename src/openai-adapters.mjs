@@ -353,8 +353,9 @@ function serializeFrame(frame, data = frame.data) {
   return `${lines.join("\n")}\n\n`;
 }
 
-function streamState() {
+function streamState({ pinResponseId = false } = {}) {
   return {
+    pinResponseId,
     responseId: undefined,
     outputIndex: 0,
     itemIndexes: new Map(),
@@ -438,10 +439,11 @@ function normalizeResponsesEvent(frame, state, flatToNative) {
       return invalidStream(state, "The Responses stream changed response IDs.");
     }
     state.responseId ||= responseId;
-  } else if (state.responseId && data.response && typeof data.response === "object") {
-    // Some upstreams (GitHub Copilot) mint a fresh id for every lifecycle
-    // event of one response. The id announced by `response.created` is the
-    // one the client already holds, so later events are pinned to it.
+  } else if (state.pinResponseId && state.responseId && data.response && typeof data.response === "object") {
+    // GitHub Copilot mints a fresh id for every lifecycle event of one
+    // response. The id announced by `response.created` is the one the client
+    // already holds, so later events are pinned to it on that route only; a
+    // mismatched terminal id from any other upstream still voids the stream.
     data.response.id = state.responseId;
   }
   if (data.type === "response.output_item.added") {
@@ -498,12 +500,18 @@ function normalizeResponsesEvent(frame, state, flatToNative) {
   if (data.type === "response.output_text.delta" && !validOutputIndex(data.output_index) && state.outputIndex > 0) {
     data.output_index = state.outputIndex - 1;
   }
+  if (data.type === "response.completed" && data.response && typeof data.response === "object") {
+    if (state.responseId && data.response.id && data.response.id !== state.responseId) {
+      return invalidStream(state, "The Responses completion used a different response ID.");
+    }
+    if (state.responseId && !data.response.id) data.response.id = state.responseId;
+  }
   return serializeFrame(frame, data);
 }
 
-export function createResponsesStreamTransform(flatToNative = new Map()) {
+export function createResponsesStreamTransform(flatToNative = new Map(), options = {}) {
   let buffer = "";
-  const state = streamState();
+  const state = streamState(options);
   const decoder = new TextDecoder();
   const nextBoundary = (value) => {
     const match = /\r?\n\r?\n/.exec(value);

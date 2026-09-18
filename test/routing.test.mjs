@@ -3670,6 +3670,60 @@ test("API forwarder validates Copilot auth, sets identity headers, and retries r
   }
 });
 
+test("API forwarder pins Copilot's per-event Responses ids to the created response (#814)", async () => {
+  const upstream = await mockServer(async (request, response) => {
+    if (request.url === "/user") {
+      json(response, 200, { endpoints: {} });
+      return;
+    }
+    await bodyJson(request);
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    const events = [
+      { type: "response.created", response: { id: "resp_a" } },
+      { type: "response.in_progress", response: { id: "resp_b" } },
+      { type: "response.output_text.delta", output_index: 0, delta: "OK" },
+      { type: "response.completed", response: { id: "resp_c", output: [] } },
+    ];
+    response.end(events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join(""));
+  });
+  const curated = curatedCopilotModel();
+  const forwarderPort = await openPort();
+  const forwarder = run("api-forwarder.mjs", {
+    CODEX_ROUTER_API_PORT: String(forwarderPort),
+    MODEL_ROUTER_USER_MODELS: curated.file,
+    GITHUB_COPILOT_BASE_URL: `http://127.0.0.1:${upstream.port}`,
+    GITHUB_COPILOT_USER_URL: `http://127.0.0.1:${upstream.port}/user`,
+    COPILOT_GITHUB_TOKEN: "github_pat_TEST_GITHUB_SOURCE_TOKEN",
+    CODEX_ROUTER_QUIET: "1",
+  });
+
+  try {
+    await waitFor(`http://127.0.0.1:${forwarderPort}/health`, forwarder, {
+      Authorization: `Bearer ${INTERNAL_KEY}`,
+    });
+    const response = await fetch(`http://127.0.0.1:${forwarderPort}/v1/responses`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${INTERNAL_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ model: `responses/${curated.gatewayModel}`, input: "Reply with exactly OK.", stream: true }),
+    });
+    assert.equal(response.status, 200, forwarder.testErrors());
+    const events = (await response.text())
+      .split("\n\n")
+      .filter((frame) => frame.includes("data: "))
+      .map((frame) => JSON.parse(frame.slice(frame.indexOf("data: ") + 6)));
+    assert.deepEqual(
+      events.map((event) => event.type),
+      ["response.created", "response.in_progress", "response.output_text.delta", "response.completed"],
+    );
+    assert.equal(events[1].response.id, "resp_a");
+    assert.equal(events[3].response.id, "resp_a");
+  } finally {
+    await stopChild(forwarder);
+    await closeServer(upstream.server);
+    rmSync(curated.dir, { recursive: true, force: true });
+  }
+});
+
 // The forwarder sits downstream of the gateway, so Codex's own traffic reaches
 // it already bridged. What this covers is the other way in: a client talking to
 // the gateway directly, whose image would otherwise reach the provider intact

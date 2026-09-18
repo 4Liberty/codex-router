@@ -1551,7 +1551,11 @@ async function relayUpstreamResponse(
     : new Map();
   
   const transform = [
-    responsesStream ? createResponsesStreamTransform(flatToNative) : undefined,
+    responsesStream
+      ? createResponsesStreamTransform(flatToNative, {
+          pinResponseId: normalized.provider.authProfile === "github-copilot",
+        })
+      : undefined,
     responsesJson ? createResponsesJsonTransform(flatToNative) : undefined,
     zaiCacheUsageTransform(normalized.provider.id, upstreamContentType),
   ].filter(Boolean);
