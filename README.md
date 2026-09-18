@@ -324,7 +324,13 @@ platform.moonshot.cn. Accounts, billing, and keys are separate — a key minted 
 one platform is rejected by the other — so each is enabled and credentialed on
 its own, and both can be active at once. Pick the one matching where your key
 was created. (`kimi-oauth` is a third, distinct thing: the Kimi Code
-subscription reused through the official CLI's session.)
+subscription reused through the official CLI's session.) Kimi Code itself also
+has two deployments — kimi.com for mainland China and kimi.ai for the rest of
+the world. A bare `kimi login` targets kimi.com; a kimi.ai account signs in
+with `kimi login --region global` (guided setup asks which site to use). The
+router reads the region the official CLI recorded in `~/.kimi-code/config.toml`
+and refreshes tokens, forwards requests, and reads quota from the matching
+`auth.`/`api.` hosts, so no router-side configuration is needed for either.
 
 The Codex catalog is credential-aware. It includes models only from enabled
 external providers with a stored credential or valid OAuth session. Native GPT

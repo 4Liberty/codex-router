@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { grokOAuthStatus, grokSessionEntry } from "./grok-oauth-status.mjs";
 import { ensureFreshGrokOAuthToken } from "./grok-oauth-session.mjs";
 import { ensureFreshKimiOAuthToken, kimiIdentityHeaders } from "./kimi-oauth-session.mjs";
+import { resolveKimiCodeEnvironment } from "./kimi-region.mjs";
 import {
   assertGitHubCopilotCredential,
   githubCopilotAccountHeaders,
@@ -588,7 +589,7 @@ async function kimiOAuthAccount(fetchImpl) {
   if (!status.configured) return { status: "not-configured", source: "official-api", metrics: [] };
   const accessToken = await ensureFreshKimiOAuthToken();
   const payload = await requestJson(
-    "https://api.kimi.com/coding/v1/usages",
+    `${resolveKimiCodeEnvironment().apiBase}/usages`,
     accessToken,
     kimiIdentityHeaders(),
     fetchImpl,
