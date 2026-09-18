@@ -2834,6 +2834,14 @@ async function summarizeWith(
   normalizeAutoToolChoice(body, route);
   delete body.previous_response_id;
   delete body.client_metadata;
+  // Codex sends reasoning as an object; the ordinary routed turn drops it for
+  // keyless providers because LiteLLM forwards it as a `think` value Ollama
+  // rejects. Compaction spreads the same payload, so it needs the same drop,
+  // or a compaction on a local model fails before any prompt is read.
+  if (providerForModel(route)?.keyless) {
+    delete body.reasoning;
+    delete body.reasoning_effort;
+  }
   applyRoutedServiceTier(body, payload, route);
   body = applyZenFreeIncludeCompatibility(body, route);
   // Compaction re-enters the same provider as the routed turn. Strict Chat
