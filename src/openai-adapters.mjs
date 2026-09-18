@@ -438,6 +438,11 @@ function normalizeResponsesEvent(frame, state, flatToNative) {
       return invalidStream(state, "The Responses stream changed response IDs.");
     }
     state.responseId ||= responseId;
+  } else if (state.responseId && data.response && typeof data.response === "object") {
+    // Some upstreams (GitHub Copilot) mint a fresh id for every lifecycle
+    // event of one response. The id announced by `response.created` is the
+    // one the client already holds, so later events are pinned to it.
+    data.response.id = state.responseId;
   }
   if (data.type === "response.output_item.added") {
     const item = data.item && typeof data.item === "object" ? data.item : undefined;
@@ -492,12 +497,6 @@ function normalizeResponsesEvent(frame, state, flatToNative) {
   }
   if (data.type === "response.output_text.delta" && !validOutputIndex(data.output_index) && state.outputIndex > 0) {
     data.output_index = state.outputIndex - 1;
-  }
-  if (data.type === "response.completed" && data.response && typeof data.response === "object") {
-    if (state.responseId && data.response.id && data.response.id !== state.responseId) {
-      return invalidStream(state, "The Responses completion used a different response ID.");
-    }
-    if (state.responseId && !data.response.id) data.response.id = state.responseId;
   }
   return serializeFrame(frame, data);
 }
