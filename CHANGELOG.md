@@ -1,6 +1,22 @@
 # Changelog
 
 ## Unreleased
+- **An apostrophe in a harness config no longer moves the router's route into
+  somebody else's value.** `yaml-structure.mjs` treated every `'` and `"` as a
+  quoting indicator, but YAML only gives a quote that meaning where a node can
+  begin: `note: don't edit` is a plain scalar, not an unterminated quoted one.
+  A single apostrophe therefore swallowed the rest of the document. When
+  nothing later matched it, the scan refused a perfectly ordinary file and the
+  router could not publish at all; when a later line happened to carry a
+  matching quote, the scan finished quietly having hidden every key in between,
+  and the splice wrote `codex-router:` inside a block scalar or a list item.
+  The harness then saw no route and the user's value grew four lines of YAML.
+  A quote now opens a scalar only at the start of a value, after a flow
+  collection's `[`, `{`, `,` or `:`, and after a block sequence's `- `. Across
+  27,045 generated documents that PyYAML accepts, 6,956 refusals, 184
+  unparseable outputs and 178 misplaced routes all go to zero. Affects
+  DeepSeek Harness `settings.yaml` and `.credentials.yaml`, omp `models.yml`,
+  Hermes Agent `config.yaml`, and caller-capability refreshes into all three.
 - **The Devin CLI model list asks for the method Devin 3000.x actually serves.**
   `devin-cli` called `GetCascadeModelConfigs`, which is the IDE's method; the
   CLI moved to `GetCliModelConfigs`, so a CLI-credentialed account was answered
