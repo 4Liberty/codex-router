@@ -30,9 +30,9 @@ function writeConfig(home, { baseUrl, key, oauthHost }) {
   writeFileSync(path.join(home, "config.toml"), lines.join("\n"));
 }
 
-function scopedKey(oauthHost, baseUrl) {
+function scopedKey(ssoHost, baseUrl) {
   const digest = createHash("sha256")
-    .update(JSON.stringify({ oauthHost, baseUrl }))
+    .update(JSON.stringify({ oauthHost: ssoHost, baseUrl }))
     .digest("hex")
     .slice(0, 16);
   return `oauth/kimi-code-env-${digest}`;
@@ -55,9 +55,9 @@ test("a fresh install with no config resolves to mainland China and kimi-code.js
 
 test("a global (kimi.ai) login recorded by the official CLI is followed (#819)", () => {
   withHome((home) => {
-    const { oauthHost, apiBase } = KIMI_REGION_PROFILES.global;
-    const key = scopedKey(oauthHost, apiBase);
-    writeConfig(home, { baseUrl: apiBase, key, oauthHost });
+    const { ssoHost, apiBase } = KIMI_REGION_PROFILES.global;
+    const key = scopedKey(ssoHost, apiBase);
+    writeConfig(home, { baseUrl: apiBase, key, oauthHost: ssoHost });
     const resolved = resolveKimiCodeEnvironment({ KIMI_CODE_HOME: home });
     assert.equal(resolved.region, "global");
     assert.equal(resolved.oauthHost, "https://auth.kimi.ai");
@@ -93,9 +93,9 @@ test("the install-channel region marker decides when nothing is persisted yet", 
 
 test("environment overrides redirect requests without moving the credential slot", () => {
   withHome((home) => {
-    const { oauthHost, apiBase } = KIMI_REGION_PROFILES.global;
-    const key = scopedKey(oauthHost, apiBase);
-    writeConfig(home, { baseUrl: apiBase, key, oauthHost });
+    const { ssoHost, apiBase } = KIMI_REGION_PROFILES.global;
+    const key = scopedKey(ssoHost, apiBase);
+    writeConfig(home, { baseUrl: apiBase, key, oauthHost: ssoHost });
     const resolved = resolveKimiCodeEnvironment({
       KIMI_CODE_HOME: home,
       KIMI_CODE_OAUTH_HOST: "http://127.0.0.1:4300/",
