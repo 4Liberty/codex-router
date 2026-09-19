@@ -62,9 +62,21 @@ test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
   }
 });
 
+test("Z.ai Coding Flash uses the proven GLM execution and deferred-tool surface without inferring shipped v2", () => {
+  const model = MODEL_BY_SLUG.get("zai-coding/glm-5.3-flash");
+  assert.equal(model?.searchTool?.mode, "standalone");
+  assert.equal(model?.behaviorTemplate, "gpt-5.6-sol");
+  assert.equal(model?.instructionOverlay, "efficient-agentic");
+  assert.notEqual(
+    model?.multiAgentVersion,
+    "v2",
+    "the exact Flash route still needs its own accepted v2_agent proof artifact",
+  );
+});
+
 // A shipped route that no inventory names is a route whose metadata nobody
 // rereads: `commandcode/glm-5.3-flash` sat outside ROUTES from the day it was
-// added and kept a threshold that contradicts the rule above for two weeks.
+// added and kept a threshold that contradicted the shared assumption above.
 // Deriving the expected set from the registry makes the next omission a
 // failure here rather than a silent one.
 test("the ROUTES inventory names every checked-in GLM-5.3-Flash route", () => {

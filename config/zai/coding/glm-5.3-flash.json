@@ -32,7 +32,12 @@
         "image"
       ],
       "requestProfile": "glm-thinking",
-      "compHash": "zai-coding-glm-5-3-flash-v3"
+      "compHash": "zai-coding-glm-5-3-flash-v4",
+      "searchTool": {
+        "mode": "standalone"
+      },
+      "behaviorTemplate": "gpt-5.6-sol",
+      "instructionOverlay": "efficient-agentic"
     }
   ]
 }

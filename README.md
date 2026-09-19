@@ -969,9 +969,18 @@ at 500K. Current Codex Desktop subagents attach a tool-schema prefix large enoug
 that successful Z.ai Coding prompts reached 474K immediately after compaction;
 keeping the copied 400K pin caused compact -> reopen above the threshold ->
 compact loops. The 500K pin is deliberately smaller than the generic 850K
-curation rule and still reserves half of the advertised window. OpenCode Go's
-content moderation still applies to the compaction request itself, so a
-sensitive transcript may be rejected even when the ordinary task turn worked.
+curation rule and still reserves half of the advertised window. The Z.ai Coding
+Flash route also uses the same GPT-5.6 behavior template, concise agentic
+instruction overlay, and standalone tool-search contract as the proven
+full-size `zai-coding/glm-5.3` route. Standalone search keeps deferred tools out
+of the initial Codex tool surface and loads them through the native
+`tool_search` bridge on demand; this is the root fix for the large fixed prefix
+that made compacted Flash subagents reopen above their threshold. These
+execution/catalog capabilities are route-local: Flash remains conservative v1
+for shipped multi-agent capability until its exact route has a separate
+accepted `v2_agent` proof artifact. OpenCode Go's content moderation still
+applies to the compaction request itself, so a sensitive transcript may be
+rejected even when the ordinary task turn worked.
 
 OpenCode Go's current stealth preview is **Union Alpha** (`union-alpha` on
 the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:

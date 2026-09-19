@@ -638,6 +638,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
     "opencode-go/deepseek-v4-flash",
     "xiaomi-mimo/mimo-v2.5",
     "zai-coding/glm-5.3",
+    "zai-coding/glm-5.3-flash",
   ]);
   for (const model of MODELS) {
     if (["grok-oauth/grok-4.5", "grok-oauth/grok-4.6"].includes(model.slug) || standaloneSearchSlugs.has(model.slug)) continue;
