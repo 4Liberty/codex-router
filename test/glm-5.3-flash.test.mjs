@@ -21,12 +21,12 @@ const ROUTES = [
   // which is what being absent from this inventory bought it: the provider's
   // house 900K compaction value, and a pre-0.143 Codex sending `xhigh` --
   // the one rung this model names in its own refusal -- straight through.
-  ["commandcode/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
-  ["opencode-go/glm-5.3-flash", "glm-5.3-flash", "ox-alpha"],
-  ["ollama-cloud/glm-5.3-flash", "glm-5.3-flash:cloud", "ollama-cloud-glm-5-3-flash"],
-  ["openrouter/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha"],
-  ["zai-api/glm-5.3-flash", "glm-5.3-flash", "glm-thinking"],
-  ["zai-coding/glm-5.3-flash", "glm-5.3-flash", "glm-thinking"],
+  ["commandcode/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha", 400_000],
+  ["opencode-go/glm-5.3-flash", "glm-5.3-flash", "ox-alpha", 400_000],
+  ["ollama-cloud/glm-5.3-flash", "glm-5.3-flash:cloud", "ollama-cloud-glm-5-3-flash", 400_000],
+  ["openrouter/glm-5.3-flash", "z-ai/glm-5.3-flash", "ox-alpha", 400_000],
+  ["zai-api/glm-5.3-flash", "glm-5.3-flash", "glm-thinking", 400_000],
+  ["zai-coding/glm-5.3-flash", "glm-5.3-flash", "glm-thinking", 500_000],
 ];
 
 // Every checked-in route reads images, because the model does: Z.ai documents
@@ -39,8 +39,16 @@ const ROUTES = [
 // ternary so a new Flash route cannot quietly ship the same default.
 const IMAGE_INPUT = Object.freeze(["text", "image"]);
 
+// Z.ai Coding is the one provider where live child turns have disproved the
+// inherited 400K pin: Codex Desktop 0.155.0-alpha.9.2 repeatedly rebuilt a
+// ~450K prompt immediately after a successful compaction because its routed
+// subagent tool schema alone occupied most of that budget. Z.ai Coding then
+// served nineteen 400K+ prompts successfully, including 474,443 tokens with
+// non-empty output. 500K is the smallest round provider-specific threshold
+// above that measured floor while still reserving half of the advertised 1M
+// window; the reseller/API routes keep their separately proven 400K pin.
 test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
-  for (const [slug, upstreamModel, requestProfile] of ROUTES) {
+  for (const [slug, upstreamModel, requestProfile, autoCompact] of ROUTES) {
     const model = MODEL_BY_SLUG.get(slug);
     assert.ok(model, `${slug} is missing from the registry`);
     assert.equal(model.upstreamModel, upstreamModel);
@@ -48,7 +56,7 @@ test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
     assert.deepEqual(model.reasoningLevels.map((level) => level.effort), ["low", "high", "max"]);
     assert.equal(model.defaultEffort, "max");
     assert.equal(model.contextWindow, 1_000_000);
-    assert.equal(model.autoCompact, 400_000);
+    assert.equal(model.autoCompact, autoCompact, slug);
     assert.deepEqual(model.inputModalities, IMAGE_INPUT, slug);
     assert.equal(model.requestProfile, requestProfile);
   }

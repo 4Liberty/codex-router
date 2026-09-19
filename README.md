@@ -961,11 +961,15 @@ onto the three the model accepts. Existing `opencode-go/ox-alpha` and locally
 curated `opencode-go/ox-alpha-free` selections migrate to
 `opencode-go/glm-5.3-flash` automatically.
 
-The picker retains OpenCode Go's advertised 1M context, but Codex compacts this
-route — and every other GLM-5.3-Flash route, whichever provider serves it — at
-400K. In live multimodal tasks, larger Flash histories repeatedly returned
-empty completions before the advertised limit; the conservative threshold
-avoids presenting those blank turns as usable context. OpenCode Go's
+The picker retains the advertised 1M context. OpenCode Go, OpenRouter, Z.ai API,
+and the other Flash routes keep the conservative 400K compaction threshold:
+live multimodal histories on the original OpenCode Go route repeatedly returned
+empty completions before the advertised limit. Z.ai Coding is provider-specific
+at 500K. Current Codex Desktop subagents attach a tool-schema prefix large enough
+that successful Z.ai Coding prompts reached 474K immediately after compaction;
+keeping the copied 400K pin caused compact -> reopen above the threshold ->
+compact loops. The 500K pin is deliberately smaller than the generic 850K
+curation rule and still reserves half of the advertised window. OpenCode Go's
 content moderation still applies to the compaction request itself, so a
 sensitive transcript may be rejected even when the ordinary task turn worked.
 
