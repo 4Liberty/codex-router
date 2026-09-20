@@ -34,6 +34,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
   assert.deepEqual(
     LISTED_MODELS.map((model) => model.slug),
     [
+      "ainetcafe/kimi-k3",
       "anthropic-api/claude-opus-4.8",
       "antigravity-oauth/gemini-3.1-pro",
       "antigravity-oauth/gemini-3.5-flash",
@@ -186,6 +187,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go-messages/qwen3.7-plus",
       "opencode-go-messages/qwen3.8-flash",
       "opencode-go-messages/qwen3.8-max",
+      "opencode-go-messages/union-alpha",
       "opencode-go-responses/gpt-5.6-luna",
       "opencode-go-responses/grok-4.5",
       "opencode-go-responses/grok-4.6",
@@ -204,6 +206,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "openrouter/muse-spark-1.3-contributor",
       "openrouter/muse-spark-1.3",
       "openrouter/qwen3.8-flash",
+      "openrouter/union-alpha",
       "qwen-plan/deepseek-v4-flash-0731",
       "qwen-plan/deepseek-v4-pro-0813",
       "qwen-plan/deepseek-v4-pro",
@@ -295,7 +298,10 @@ test("provider registry exposes configured API and OAuth model families", () => 
   assert.equal(PROVIDERS.get("opencode-go-messages").variantOf, "opencode-go");
   assert.equal(PROVIDERS.get("opencode-go-responses").variantOf, "opencode-go");
   assert.equal(PROVIDERS.get("opencode-zen").variantOf, "opencode-go");
-  assert.equal(PROVIDERS.has("opencode-zen-responses"), false);
+  assert.equal(PROVIDERS.get("opencode-zen-messages").variantOf, "opencode-go");
+  assert.equal(PROVIDERS.get("opencode-zen-responses").variantOf, "opencode-go");
+  assert.equal(PROVIDERS.get("opencode-zen-messages").protocol, "anthropic");
+  assert.equal(PROVIDERS.get("opencode-zen-responses").protocol, "openai-responses");
   assert.equal(PROVIDERS.get("commandcode").variantOf, undefined);
   assert.equal(PROVIDERS.get("commandcode-messages").variantOf, "commandcode");
   assert.equal(
@@ -568,6 +574,9 @@ test("provider registry exposes configured API and OAuth model families", () => 
     "DASHSCOPE_API_KEY",
   ]);
   assert.equal(PROVIDERS.get("anthropic-api").protocol, "anthropic");
+  assert.deepEqual(PROVIDERS.get("vertex").credential, {
+    resolver: "google-application-default",
+  });
   // Deliberate v1 holdouts. Both are unproven through the native collaboration
   // probe AGENTS.md requires, and a v2 claim is not inherited from a sibling
   // route: kimi-api-cn is the same model on a different platform, which is
@@ -817,6 +826,47 @@ test("GLM-5.3-Flash replaces OpenCode Go's withdrawn Ox Alpha route", () => {
   assert.equal(MODEL_BY_SLUG.get("opencode-go/ox-alpha"), model);
 });
 
+test("Union Alpha ships on OpenCode Go Messages with sourced stealth metadata", () => {
+  const model = MODEL_BY_SLUG.get("opencode-go-messages/union-alpha");
+  assert.equal(model?.upstreamModel, "union-alpha");
+  assert.equal(model?.provider, "opencode-go-messages");
+  assert.equal(PROVIDERS.get(model.provider).protocol, "anthropic");
+  assert.equal(model?.contextWindow, 262_144);
+  assert.equal(model?.autoCompact, 180_000);
+  assert.equal(model?.maxOutputTokens, 32_768);
+  assert.ok(model.autoCompact > 110_000);
+  assert.ok(model.autoCompact < model.contextWindow);
+  assert.deepEqual(model?.inputModalities, ["text", "image"]);
+  assert.deepEqual(model?.reasoningLevels.map((level) => level.effort), ["high"]);
+  assert.equal(model?.defaultEffort, "high");
+  assert.equal(model?.isFree, true);
+  assert.equal(model?.requestProfile, undefined);
+  assert.notEqual(model?.multiAgentVersion, "v2");
+  assert.equal(MODEL_BY_SLUG.has("opencode-go/union-alpha"), false);
+  assert.equal(MODEL_BY_SLUG.has("opencode-go/omen-alpha"), false);
+});
+
+test("Union Alpha ships on OpenRouter with sourced stealth metadata", () => {
+  const model = MODEL_BY_SLUG.get("openrouter/union-alpha");
+  assert.equal(model?.upstreamModel, "stealth/union-alpha");
+  assert.equal(model?.provider, "openrouter");
+  assert.equal(PROVIDERS.get(model.provider).protocol ?? "openai", "openai");
+  assert.equal(model?.contextWindow, 262_144);
+  assert.equal(model?.autoCompact, 131_072);
+  assert.ok(model.contextWindow - model.autoCompact >= 131_072);
+  assert.deepEqual(model?.inputModalities, ["text", "image"]);
+  assert.deepEqual(model?.reasoningLevels.map((level) => level.effort), ["high"]);
+  assert.equal(model?.defaultEffort, "high");
+  assert.equal(model?.isFree, true);
+  // OpenRouter's /endpoints record for this id: tool_choice auto only
+  // (required and none are false). Codex still sends required unless the
+  // route downgrades it. No advertised reasoning-effort parameter.
+  assert.equal(model?.requestProfile, "auto-tool-choice");
+  assert.notEqual(model?.multiAgentVersion, "v2");
+  assert.equal(MODEL_BY_SLUG.has("openrouter/stealth/union-alpha"), false);
+  assert.equal(MODEL_BY_SLUG.has("commandcode/union-alpha"), false);
+});
+
 test("OpenCode Go routes retain upstream windows instead of the generic fallback", () => {
   const expected = new Map([
     ["opencode-go/mimo-v2.5", [1_000_000, 850_000, "opencode-go-mimo-v2-5-v2"]],
@@ -1059,6 +1109,7 @@ test("LiteLLM configuration is generated from every registry route", () => {
     "Copilot stays catalog-only until account-visible models are curated",
   );
   assert.match(rendered, /model: "anthropic\/opencode-go-messages-minimax-m3"/);
+  assert.match(rendered, /model: "anthropic\/opencode-go-messages-union-alpha"/);
   const lunaBlock = rendered.slice(
     rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"'),
     rendered.indexOf('model_name:', rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"') + 1),
@@ -1368,6 +1419,18 @@ test("every Muse Spark route on opencode flattens recursive tool schemas", () =>
       `${model.slug} must flatten recursive tool schemas`,
     );
   }
+});
+
+test("direct Meta Muse Spark 1.3 Contributor flattens recursive tool schemas", () => {
+  // Issue #792: Meta's direct Responses endpoint answered a Codex turn carrying
+  // a self-referencing tool schema with HTTP 400
+  // `Recursive JSON schemas are not currently supported` before inference.
+  // Only the live-verified contributor route opts into the cycle-closing-edge
+  // repair; sibling Meta routes keep their payloads until their own endpoint
+  // proves the same restriction.
+  const verified = MODELS.find((model) => model.slug === "meta/muse-spark-1.3-contributor");
+  assert.ok(verified, "expected the checked-in direct Meta 1.3 Contributor route");
+  assert.equal(verified.toolSchemaRecursion, "flatten");
 });
 
 test("curated OpenCode Free Muse overlay upgrades text-only image modalities", async () => {
@@ -1808,15 +1871,19 @@ test("opencode's DeepSeek models never receive a forced tool_choice", () => {
     "opencode-go/deepseek-v4-flash",
     "opencode-go/deepseek-v4-pro",
     // Same class, observed 2026-08-15 in the full sweep: 400 on required
-    // (Kimi K2.7 Code on the chat route; the four Qwens on the messages
-    // route answer a bare {"model": ...} echo), clean probe calls under auto.
+    // (Kimi K2.7 Code on the chat route), clean probe calls under auto.
     "opencode-go/kimi-k2.7-code",
+  ]) {
+    assert.equal(MODEL_BY_SLUG.get(slug).requestProfile, "auto-tool-choice", slug);
+  }
+  for (const slug of [
     "opencode-go-messages/qwen3.6-plus",
     "opencode-go-messages/qwen3.7-max",
     "opencode-go-messages/qwen3.7-plus",
+    "opencode-go-messages/qwen3.8-flash",
     "opencode-go-messages/qwen3.8-max",
   ]) {
-    assert.equal(MODEL_BY_SLUG.get(slug).requestProfile, "auto-tool-choice", slug);
+    assert.equal(MODEL_BY_SLUG.get(slug).requestProfile, "omit-tool-choice", slug);
   }
   // The sibling opencode routes keep their defaults: the probe proved nothing
   // about them, and a provider-wide default is what the rule forbids. (kimi-k3
@@ -1824,6 +1891,7 @@ test("opencode's DeepSeek models never receive a forced tool_choice", () => {
   for (const slug of ["opencode-go/glm-5.3", "opencode-go-responses/grok-4.5", "opencode-go/mimo-v2.5"]) {
     assert.equal(MODEL_BY_SLUG.get(slug).requestProfile, undefined, slug);
   }
+  assert.equal(MODEL_BY_SLUG.get("opencode-go-messages/minimax-m3").requestProfile, undefined);
   const goGrok = MODEL_BY_SLUG.get("opencode-go-responses/grok-4.5");
   assert.equal(goGrok.provider, "opencode-go-responses");
   assert.equal(PROVIDERS.get(goGrok.provider).protocol, "openai-responses");
