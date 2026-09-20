@@ -395,6 +395,16 @@ async function main() {
       undefined,
       child,
     );
+  // The watchdog's probe is deliberately short: it runs on a timer while the
+  // gateway is otherwise idle, so it must never park the supervisor for the
+  // cold-start budget `gatewayHealthy` is allowed.
+  const gatewayLivenessCheck = () =>
+    waitForHealth(
+      "LiteLLM gateway liveness",
+      loopback(PORTS.gateway, "/health/liveliness"),
+      {},
+      4_000,
+    );
   const gateway = startGateway();
   await gatewayHealthy(gateway);
 
@@ -485,6 +495,7 @@ async function main() {
       start: startGateway,
       waitForExit,
       waitForHealth: gatewayHealthy,
+      healthCheck: gatewayLivenessCheck,
       isShuttingDown: () => shuttingDown,
       log: (message) => console.error(`[${frontendService}] ${message}`),
       ...gatewaySupervisorLimits(),
