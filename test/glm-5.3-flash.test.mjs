@@ -74,6 +74,38 @@ test("Z.ai Coding Flash uses the proven GLM execution and deferred-tool surface 
   );
 });
 
+test("Z.ai Coding Flash stays aligned with the full GLM execution contract while keeping Flash-specific limits", () => {
+  const full = MODEL_BY_SLUG.get("zai-coding/glm-5.3");
+  const flash = MODEL_BY_SLUG.get("zai-coding/glm-5.3-flash");
+  assert.ok(full);
+  assert.ok(flash);
+
+  const sharedExecution = (model) => ({
+    contextWindow: model.contextWindow,
+    defaultEffort: model.defaultEffort,
+    reasoningLevels: model.reasoningLevels,
+    requestProfile: model.requestProfile,
+    searchTool: model.searchTool,
+    behaviorTemplate: model.behaviorTemplate,
+    instructionOverlay: model.instructionOverlay,
+    supportsReasoningSummaries: model.supportsReasoningSummaries,
+    supportsApplyPatchTool: model.supportsApplyPatchTool,
+    supportsParallelToolCalls: model.supportsParallelToolCalls,
+  });
+  assert.deepEqual(sharedExecution(flash), sharedExecution(full));
+
+  assert.deepEqual(full.inputModalities, ["text"]);
+  assert.deepEqual(flash.inputModalities, ["text", "image"]);
+  assert.equal(full.autoCompact, 900_000);
+  assert.equal(flash.autoCompact, 500_000);
+  assert.equal(full.multiAgentVersion, "v2");
+  assert.notEqual(
+    flash.multiAgentVersion,
+    "v2",
+    "Flash keeps local selected-mode V2 promotion separate from checked-in certification",
+  );
+});
+
 // A shipped route that no inventory names is a route whose metadata nobody
 // rereads: `commandcode/glm-5.3-flash` sat outside ROUTES from the day it was
 // added and kept a threshold that contradicted the shared assumption above.
