@@ -4656,7 +4656,7 @@ async function handleResponses(request, response, requestUrl) {
             route?.slug,
             // A native stream is attached only for the injection, so it must
             // not pick up the routed-provider rewrites on the way through.
-            { pendingInterrupts, injectOnly: !route },
+            { pendingInterrupts, injectOnly: !route, effortForModel: subagentEffort },
           ),
         );
       }
