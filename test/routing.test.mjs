@@ -11461,6 +11461,7 @@ test("Z.ai Flash forwards the client-deferred app surface when tool_search is av
     }
     const outgoing = await bodyJson(request);
     assert.equal(outgoing.model, "zai-coding-glm-5-3-flash");
+    assert.deepEqual(outgoing.tool_choice, { type: "function", name: "tool_search" });
     const names = new Set(
       (outgoing.tools || [])
         .map((tool) => tool?.name ?? tool?.function?.name)
@@ -11524,6 +11525,7 @@ test("Z.ai Flash forwards the client-deferred app surface when tool_search is av
         model: "zai-coding/glm-5.3-flash",
         input: "test deferred tools",
         stream: true,
+        tool_choice: { type: "tool_search", execution: "client" },
         tools: [
           {
             type: "tool_search",

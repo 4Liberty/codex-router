@@ -3608,6 +3608,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   if (namespacesFlattened) {
     routedInput = flattenNamespacedHistory(routedInput, flattenedNamespaces);
     if (
+      chatCompletionsProvider ||
       provider?.id === "groq" ||
       provider?.id === "commandcode" ||
       provider?.id === "commandcode-messages"
