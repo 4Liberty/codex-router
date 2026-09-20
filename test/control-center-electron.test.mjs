@@ -1615,7 +1615,10 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /className="panel-section pm-connections"/);
   assert.match(models, /className="pm-chip"/);
   assert.match(models, /className="pm-connection-menu"/);
-  assert.match(models, /\{connected\.length\} of \{directory\.length\} connected/);
+  // Custom endpoints are reached through the Custom chip rather than sitting
+  // beside it, so the summary counts the chips on the strip, not every
+  // provider in the directory.
+  assert.match(models, /\{connected\.length\} of \{chips\.length\} connected/);
   assert.match(models, /Connect provider/);
   assert.doesNotMatch(models, /className="pm-provider-row"|className="pm-provider-summary"/);
   assert.doesNotMatch(models, /<StatStrip/);
