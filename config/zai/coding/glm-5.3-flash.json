@@ -8,9 +8,9 @@
       "provider": "zai-coding",
       "listed": true,
       "displayName": "GLM-5.3-Flash (Coding Plan)",
-      "description": "GLM-5.3-Flash through the Z.ai GLM Coding Plan subscription. The 1M-context route reads text and images, uses the model's low/high/max reasoning ladder, and compacts at 500K so Codex's large subagent tool surface does not reopen above the threshold immediately after compaction.",
+      "description": "GLM-5.3-Flash through the Z.ai GLM Coding Plan subscription. The 1M-context route reads text and images, defaults to high reasoning for routine agent work with max still available for deep analysis, and compacts at 500K.",
       "priority": 11,
-      "defaultEffort": "max",
+      "defaultEffort": "high",
       "reasoningLevels": [
         {
           "effort": "low",
@@ -32,7 +32,7 @@
         "image"
       ],
       "requestProfile": "glm-thinking",
-      "compHash": "zai-coding-glm-5-3-flash-v4",
+      "compHash": "zai-coding-glm-5-3-flash-v5",
       "searchTool": {
         "mode": "standalone"
       },
