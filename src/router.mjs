@@ -3712,8 +3712,8 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
       routed.reasoning?.effort ??
       routed.reasoning_effort ??
       route.defaultEffort,
-    routedToolCount: Array.isArray(routed.tools) ? routed.tools.length : 0,
-    routedToolSchemaBytes: utf8JsonBytes(routed.tools),
+    providerToolCount: Array.isArray(routed.tools) ? routed.tools.length : 0,
+    providerToolSchemaBytes: utf8JsonBytes(routed.tools),
   };
   return {
     body: Buffer.from(JSON.stringify(routed), "utf8"),
@@ -4207,8 +4207,8 @@ async function handleResponses(request, response, requestUrl) {
     let searchContract;
     const setRoutingDiagnostics = (built) => {
       diagnostics.reasoningEffort = built.usageDiagnostics?.reasoningEffort;
-      diagnostics.routedToolCount = built.usageDiagnostics?.routedToolCount;
-      diagnostics.routedToolSchemaBytes = built.usageDiagnostics?.routedToolSchemaBytes;
+      diagnostics.providerToolCount = built.usageDiagnostics?.providerToolCount;
+      diagnostics.providerToolSchemaBytes = built.usageDiagnostics?.providerToolSchemaBytes;
     };
     // Adopts a rebuilt request for a different model. Everything downstream --
     // the response transforms, the prompt-token estimate, the empty-completion

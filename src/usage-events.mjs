@@ -179,8 +179,8 @@ export function recordUsageEvent({
   contextBytes,
   grokStructuredPatch,
   reasoningEffort,
-  routedToolCount,
-  routedToolSchemaBytes,
+  providerToolCount,
+  providerToolSchemaBytes,
   at = Date.now(),
 }) {
   const diagnostics = usageDiagnosticMetadata({
@@ -188,8 +188,8 @@ export function recordUsageEvent({
     contextBytes,
     grokStructuredPatch,
     reasoningEffort,
-    routedToolCount,
-    routedToolSchemaBytes,
+    providerToolCount,
+    providerToolSchemaBytes,
   });
   const event = {
     ...serviceTierMetadata({
@@ -515,8 +515,8 @@ export function recentUsageEvents({
           contextBytes: event.contextBytes,
           grokStructuredPatch: event.grokStructuredPatch,
           reasoningEffort: event.reasoningEffort,
-          routedToolCount: event.routedToolCount,
-          routedToolSchemaBytes: event.routedToolSchemaBytes,
+          providerToolCount: event.providerToolCount,
+          providerToolSchemaBytes: event.providerToolSchemaBytes,
         });
         return {
           ...serviceTierMetadata(event),

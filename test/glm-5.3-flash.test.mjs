@@ -54,11 +54,7 @@ test("every checked-in GLM-5.3-Flash route records its static metadata", () => {
     assert.equal(model.upstreamModel, upstreamModel);
     assert.equal(model.listed, true);
     assert.deepEqual(model.reasoningLevels.map((level) => level.effort), ["low", "high", "max"]);
-    assert.equal(
-      model.defaultEffort,
-      slug === "zai-coding/glm-5.3-flash" ? "high" : "max",
-      slug,
-    );
+    assert.equal(model.defaultEffort, "max");
     assert.equal(model.contextWindow, 1_000_000);
     assert.equal(model.autoCompact, autoCompact, slug);
     assert.deepEqual(model.inputModalities, IMAGE_INPUT, slug);
@@ -86,6 +82,7 @@ test("Z.ai Coding Flash stays aligned with the full GLM execution contract while
 
   const sharedExecution = (model) => ({
     contextWindow: model.contextWindow,
+    defaultEffort: model.defaultEffort,
     reasoningLevels: model.reasoningLevels,
     requestProfile: model.requestProfile,
     searchTool: model.searchTool,
@@ -97,8 +94,6 @@ test("Z.ai Coding Flash stays aligned with the full GLM execution contract while
   });
   assert.deepEqual(sharedExecution(flash), sharedExecution(full));
 
-  assert.equal(full.defaultEffort, "max");
-  assert.equal(flash.defaultEffort, "high");
   assert.deepEqual(full.inputModalities, ["text"]);
   assert.deepEqual(flash.inputModalities, ["text", "image"]);
   assert.equal(full.autoCompact, 900_000);

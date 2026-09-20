@@ -11454,7 +11454,7 @@ test("Z.ai Flash forwards the client-deferred app surface when tool_search is av
     path.join(stateDir, "enabled-providers.json"),
     `${JSON.stringify({ version: 1, providers: ["zai-coding"] })}\n`,
   );
-  let expectedRoutedToolSchemaBytes;
+  let expectedProviderToolSchemaBytes;
   const gateway = await mockServer(async (request, response) => {
     if (request.method === "GET") {
       json(response, 200, { ok: true, credential_present: true, credential_source: "test" });
@@ -11464,7 +11464,7 @@ test("Z.ai Flash forwards the client-deferred app surface when tool_search is av
     assert.equal(outgoing.model, "zai-coding-glm-5-3-flash");
     assert.equal(outgoing.reasoning?.effort, "high");
     assert.deepEqual(outgoing.tool_choice, { type: "function", name: "tool_search" });
-    expectedRoutedToolSchemaBytes = Buffer.byteLength(JSON.stringify(outgoing.tools), "utf8");
+    expectedProviderToolSchemaBytes = Buffer.byteLength(JSON.stringify(outgoing.tools), "utf8");
     const names = new Set(
       (outgoing.tools || [])
         .map((tool) => tool?.name ?? tool?.function?.name)
@@ -11563,8 +11563,8 @@ test("Z.ai Flash forwards the client-deferred app surface when tool_search is av
       router,
     );
     assert.equal(usage.reasoningEffort, "high");
-    assert.equal(usage?.routedToolCount, 5);
-    assert.equal(usage?.routedToolSchemaBytes, expectedRoutedToolSchemaBytes);
+    assert.equal(usage?.providerToolCount, 5);
+    assert.equal(usage?.providerToolSchemaBytes, expectedProviderToolSchemaBytes);
   } finally {
     await stopChild(router);
     await closeServer(gateway.server);

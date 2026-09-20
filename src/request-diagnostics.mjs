@@ -130,22 +130,22 @@ export function usageDiagnosticMetadata({
   grokStructuredPatch,
   requestedServiceTier,
   reasoningEffort,
-  routedToolCount,
-  routedToolSchemaBytes,
+  providerToolCount,
+  providerToolSchemaBytes,
 } = {}) {
   const safeRequestId = safeDiagnosticRequestId(requestId);
   const safeContextBytes = sanitizeContextBytes(contextBytes);
   const safeStructuredPatch = sanitizeGrokStructuredPatch(grokStructuredPatch);
   const safeEffort = safeReasoningEffort(reasoningEffort);
-  const safeToolCount = safeByteCount(routedToolCount);
-  const safeToolSchemaBytes = safeByteCount(routedToolSchemaBytes);
+  const safeToolCount = safeByteCount(providerToolCount);
+  const safeToolSchemaBytes = safeByteCount(providerToolSchemaBytes);
   return {
     ...serviceTierMetadata({ requestedServiceTier }),
     ...(safeRequestId ? { requestId: safeRequestId } : {}),
     ...(safeContextBytes ? { contextBytes: safeContextBytes } : {}),
     ...(safeStructuredPatch ? { grokStructuredPatch: safeStructuredPatch } : {}),
     ...(safeEffort ? { reasoningEffort: safeEffort } : {}),
-    ...(safeToolCount !== undefined ? { routedToolCount: safeToolCount } : {}),
-    ...(safeToolSchemaBytes !== undefined ? { routedToolSchemaBytes: safeToolSchemaBytes } : {}),
+    ...(safeToolCount !== undefined ? { providerToolCount: safeToolCount } : {}),
+    ...(safeToolSchemaBytes !== undefined ? { providerToolSchemaBytes: safeToolSchemaBytes } : {}),
   };
 }
