@@ -127,6 +127,7 @@ test("V4.1 Flash is added alongside the V4 routes rather than replacing them", (
     ["deepseek/deepseek-v4-flash", "deepseek-v4-flash"],
     ["deepseek/deepseek-v4-flash-vision-exp", "deepseek-v4-flash-vision-exp"],
     ["deepseek/deepseek-v4-pro", "deepseek-v4-pro"],
+    ["openrouter/deepseek-v4-pro", "deepseek/deepseek-v4-pro"],
     ["opencode-go/deepseek-v4-flash", "deepseek-v4-flash"],
     ["opencode-go/deepseek-v4-pro", "deepseek-v4-pro"],
     ["ollama-cloud/deepseek-v4-flash", "deepseek-v4-flash:cloud"],
