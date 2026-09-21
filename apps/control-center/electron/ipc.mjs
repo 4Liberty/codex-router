@@ -1405,6 +1405,7 @@ export function registerIpcHandlers({
   cursorAppPath = cursorDesktopPath,
   openclawAppPath = openclawDesktopPath,
   senderGuard = () => true,
+  onTrayLabels = () => {},
 } = {}) {
   if (!ipcMain?.handle) throw new TypeError("ipcMain.handle is required.");
   const operations = new Map();
@@ -1497,6 +1498,15 @@ export function registerIpcHandlers({
   handle("minimizeWindow", async (_input, event) => {
     windowFor(event).minimize();
     return { ok: true };
+  });
+  // The tray context menu lives in the main process, which owns no interface
+  // dictionary of its own. The renderer sends the two labels it already holds,
+  // so the menu follows the chosen language instead of being pinned to English.
+  handle("setTrayLabels", async (input) => {
+    const open = cleanText(input?.open, "", 80);
+    const quit = cleanText(input?.quit, "", 80);
+    if (open && quit) onTrayLabels({ open, quit });
+    return { ok: Boolean(open && quit) };
   });
   handle("toggleMaximizeWindow", async (_input, event) => {
     const window = windowFor(event);

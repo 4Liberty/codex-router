@@ -1,4 +1,5 @@
 import type { UsageBucket, UsageMetric } from "./types";
+import type { MessageKey, Translate } from "./i18n";
 
 export type AccountBucketSource = "account" | "router-fallback";
 export type AccountDisplayBucket = UsageBucket & { displaySource: AccountBucketSource };
@@ -15,23 +16,43 @@ export function exactNumber(value: number | null | undefined): string {
   return Math.max(0, Math.round(Number(value) || 0)).toLocaleString("en-US");
 }
 
-export function formatContext(value: number | null | undefined): string {
-  if (!Number.isFinite(Number(value)) || Number(value) <= 0) return "Managed";
-  return `${compactNumber(Number(value))} tokens`;
+export function formatContext(value: number | null | undefined, t: Translate): string {
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) return t("common.managed");
+  return t("common.tokensCount", { count: compactNumber(Number(value)) });
 }
 
-export function formatBytesGb(value: number | null | undefined): string {
-  if (!Number.isFinite(Number(value))) return "Size unknown";
+// The router publishes the same effort rungs everywhere it names one, so a
+// single mapping keeps the control center, the tray, and the catalog in step.
+const EFFORT_KEYS: Record<string, MessageKey> = {
+  default: "models.effort.default",
+  minimal: "models.effort.minimal",
+  low: "models.effort.low",
+  medium: "models.effort.medium",
+  high: "models.effort.high",
+  xhigh: "models.effort.xhigh",
+  max: "models.effort.max",
+  ultra: "models.effort.ultra",
+};
+
+export function effortLabel(effort: string, t: Translate): string {
+  const key = EFFORT_KEYS[effort];
+  // An unknown rung is a newer router than this build knows; showing its id
+  // beats inventing a name for it.
+  return key ? t(key) : effort;
+}
+
+export function formatBytesGb(value: number | null | undefined, t: Translate): string {
+  if (!Number.isFinite(Number(value))) return t("common.sizeUnknown");
   return `${Number(value).toFixed(Number(value) < 10 ? 1 : 0)} GB`;
 }
 
-export function formatDateTime(value: number | string | null | undefined): string {
-  if (value === null || value === undefined || value === "") return "Not reported";
+export function formatDateTime(value: number | string | null | undefined, t: Translate): string {
+  if (value === null || value === undefined || value === "") return t("common.notReported");
   const numeric = Number(value);
   const date = Number.isFinite(numeric)
     ? new Date(numeric < 10_000_000_000 ? numeric * 1_000 : numeric)
     : new Date(value);
-  if (Number.isNaN(date.getTime())) return "Not reported";
+  if (Number.isNaN(date.getTime())) return t("common.notReported");
   return new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
@@ -47,14 +68,14 @@ export function formatDuration(milliseconds: number | null | undefined): string 
   return `${Math.floor(value / 60_000)}m ${Math.round((value % 60_000) / 1_000)}s`;
 }
 
-export function metricValue(metric: UsageMetric): string {
+export function metricValue(metric: UsageMetric, t: Translate): string {
   if (metric.kind === "balance" && Number.isFinite(Number(metric.value))) {
     return formatBalance(Number(metric.value), metric.currency);
   }
-  if (Number.isFinite(Number(metric.remainingPercent))) return `${Math.round(Number(metric.remainingPercent))}% left`;
-  if (Number.isFinite(Number(metric.usedPercent))) return `${Math.round(100 - Number(metric.usedPercent))}% left`;
-  if (Number.isFinite(Number(metric.remaining))) return `${compactNumber(Number(metric.remaining))} left`;
-  return "Reported";
+  if (Number.isFinite(Number(metric.remainingPercent))) return t("common.percentLeft", { percent: Math.round(Number(metric.remainingPercent)) });
+  if (Number.isFinite(Number(metric.usedPercent))) return t("common.percentLeft", { percent: Math.round(100 - Number(metric.usedPercent)) });
+  if (Number.isFinite(Number(metric.remaining))) return t("common.countLeft", { count: compactNumber(Number(metric.remaining)) });
+  return t("common.reported");
 }
 
 export function remainingPercent(metric: UsageMetric): number | null {

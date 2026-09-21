@@ -270,10 +270,10 @@ export function observedModelSpeed(providerUsage, providerId, modelSlug) {
 // forwarder is a fifth local port with its own probe, so it belongs here
 // alongside the other two forwarders rather than being reported by nobody.
 const SERVICE_ROWS = [
-  ["gateway", "Gateway"],
-  ["oauth", "OAuth forwarder"],
-  ["api", "API forwarder"],
-  ["grokOauth", "Grok OAuth forwarder"],
+  ["gateway", "serviceHealth.gateway"],
+  ["oauth", "serviceHealth.forwarder.oauth"],
+  ["api", "serviceHealth.forwarder.api"],
+  ["grokOauth", "serviceHealth.forwarder.grokOauth"],
 ];
 const FORWARDER_IDS = new Set(["oauth", "api", "grokOauth"]);
 
@@ -288,19 +288,21 @@ export function serviceHealthRows(health) {
   const routerKnown = typeof health?.ok === "boolean";
   const rows = [{
     id: "router",
-    label: "Router",
+    label: t("serviceHealth.router"),
     state: !routerKnown ? "unknown" : health.ok ? "ready" : degraded.size ? "degraded" : "offline",
-    status: !routerKnown ? "Unknown" : health.ok ? "Ready" : degraded.size ? "Degraded" : "Offline",
+    status: !routerKnown
+      ? t("serviceHealth.unknown")
+      : health.ok ? t("serviceHealth.ready") : degraded.size ? t("serviceHealth.degraded") : t("serviceHealth.offline"),
     detail: !routerKnown
-      ? "Waiting for health report"
+      ? t("serviceHealth.waiting")
       : health.ok
-        ? "Serving locally"
+        ? t("serviceHealth.servingLocally")
         : degraded.size
-          ? `${degraded.size} ${degraded.size === 1 ? "dependency needs" : "dependencies need"} attention`
-          : "Health endpoint unavailable",
+          ? t(degraded.size === 1 ? "serviceHealth.dependencyAttention" : "serviceHealth.dependenciesAttention", { count: degraded.size })
+          : t("serviceHealth.endpointUnavailable"),
   }];
 
-  for (const [id, label] of SERVICE_ROWS) {
+  for (const [id, labelKey] of SERVICE_ROWS) {
     const service = health?.[id];
     const shouldShow = id === "gateway" || Boolean(service) || degraded.has(id);
     if (!shouldShow) continue;
@@ -312,7 +314,7 @@ export function serviceHealthRows(health) {
     const inferredReady = !service && health?.ok === true && !degraded.has(id);
     rows.push({
       id,
-      label,
+      label: t(labelKey),
       state: !hasHealth || !service
         ? degraded.has(id) ? "offline" : inferredReady ? "ready" : "unknown"
         : service.enabled === false && !degraded.has(id)
@@ -321,19 +323,23 @@ export function serviceHealthRows(health) {
             ? "offline"
             : service.reachable === true ? "ready" : "unknown",
       status: !hasHealth || !service
-        ? degraded.has(id) ? "Offline" : inferredReady ? "Ready" : "Unknown"
+        ? degraded.has(id)
+          ? t("serviceHealth.offline")
+          : inferredReady ? t("serviceHealth.ready") : t("serviceHealth.unknown")
         : service.enabled === false && !degraded.has(id)
-          ? "Standby"
+          ? t("serviceHealth.standby")
           : service.reachable === false || degraded.has(id)
-            ? "Offline"
-            : service.reachable === true ? "Ready" : "Unknown",
+            ? t("serviceHealth.offline")
+            : service.reachable === true ? t("serviceHealth.ready") : t("serviceHealth.unknown"),
       detail: !hasHealth || !service
-        ? degraded.has(id) ? "Unreachable" : inferredReady ? "Reachable" : "Waiting for health report"
+        ? degraded.has(id)
+          ? t("serviceHealth.unreachable")
+          : inferredReady ? t("serviceHealth.reachable") : t("serviceHealth.waiting")
         : service.enabled === false && !degraded.has(id)
-          ? "Not enabled"
+          ? t("serviceHealth.notEnabled")
           : service.reachable === false || degraded.has(id)
-            ? "Unreachable"
-            : service.reachable === true ? "Reachable" : "Waiting for health report",
+            ? t("serviceHealth.unreachable")
+            : service.reachable === true ? t("serviceHealth.reachable") : t("serviceHealth.waiting"),
     });
   }
 
@@ -341,10 +347,10 @@ export function serviceHealthRows(health) {
   if (!forwarders.length) {
     rows.push({
       id: "forwarders",
-      label: "External forwarders",
+      label: t("serviceHealth.externalForwarders"),
       state: hasHealth ? "standby" : "unknown",
-      status: hasHealth ? "Standby" : "Unknown",
-      detail: hasHealth ? "No external forwarders enabled" : "Waiting for health report",
+      status: hasHealth ? t("serviceHealth.standby") : t("serviceHealth.unknown"),
+      detail: hasHealth ? t("serviceHealth.noForwarders") : t("serviceHealth.waiting"),
     });
   }
   return rows;

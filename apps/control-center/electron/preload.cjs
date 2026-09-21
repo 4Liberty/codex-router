@@ -5,6 +5,10 @@ const call = (name, input) => ipcRenderer.invoke(`router-control:${name}`, input
 const routerControl = Object.freeze({
   platform: process.platform,
   minimizeWindow: () => call("minimizeWindow"),
+  setTrayLabels: (labels) => call("setTrayLabels", {
+    open: String(labels?.open || ""),
+    quit: String(labels?.quit || ""),
+  }),
   toggleMaximizeWindow: () => call("toggleMaximizeWindow"),
   closeWindow: () => call("closeWindow"),
   getSnapshot: () => call("getSnapshot"),

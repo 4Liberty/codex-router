@@ -765,6 +765,7 @@ export interface RouterControlApi {
   minimizeWindow(): Promise<unknown>;
   toggleMaximizeWindow(): Promise<unknown>;
   closeWindow(): Promise<unknown>;
+  setTrayLabels?(labels: { open: string; quit: string }): Promise<unknown>;
   getSnapshot(): Promise<RouterSnapshot>;
   getChatGptSession(): Promise<ChatGptSessionStatus>;
   getChatGptAccountPool(): Promise<ChatGptAccountPool>;

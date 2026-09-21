@@ -28,6 +28,9 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const DEVELOPMENT_ICON = path.resolve(HERE, "..", "assets", "icon.png");
 let mainWindow;
 let tray;
+// English until the renderer reports the interface language it restored; the
+// window always loads, even for a tray-only launch, so this is brief.
+let trayLabels = { open: "Open Control Center", quit: "Quit Codex Router" };
 let mutationLifecycle = {
   hasActiveMutations: () => false,
   whenMutationsIdle: () => Promise.resolve(),
@@ -269,11 +272,7 @@ function createTray() {
   const createdTray = new Tray(image);
   try {
     createdTray.setToolTip("Codex Router");
-    createdTray.setContextMenu(Menu.buildFromTemplate([
-      { label: "Open Control Center", click: showWindow },
-      { type: "separator" },
-      { label: "Quit Codex Router", click: () => app.quit() },
-    ]));
+    applyTrayMenu(createdTray);
     createdTray.on("click", showWindow);
   } catch (error) {
     createdTray.destroy();
@@ -281,6 +280,30 @@ function createTray() {
   }
   tray = createdTray;
   return tray;
+}
+
+function buildTrayMenu() {
+  return Menu.buildFromTemplate([
+    { label: trayLabels.open, click: showWindow },
+    { type: "separator" },
+    { label: trayLabels.quit, click: () => app.quit() },
+  ]);
+}
+
+function applyTrayMenu(target) {
+  const owner = target || tray;
+  if (!owner || owner.isDestroyed?.()) return;
+  owner.setContextMenu(buildTrayMenu());
+}
+
+// Called from the renderer over IPC with the labels its own dictionary already
+// carries. Nothing here is trusted beyond being a short display string.
+function setTrayLabels(labels) {
+  const open = typeof labels?.open === "string" && labels.open.trim() ? labels.open.trim().slice(0, 80) : trayLabels.open;
+  const quit = typeof labels?.quit === "string" && labels.quit.trim() ? labels.quit.trim().slice(0, 80) : trayLabels.quit;
+  if (open === trayLabels.open && quit === trayLabels.quit) return;
+  trayLabels = { open, quit };
+  applyTrayMenu();
 }
 
 function trayIsAvailable() {
@@ -375,6 +398,7 @@ if (primaryInstance && !quitForUpdateInvocation) {
       BrowserWindow,
       shell,
       senderGuard: trustedRendererSender,
+      onTrayLabels: setTrayLabels,
     });
     ipcMain.on("router-control:navigation-ready", (event) => {
       if (!trustedRendererSender(event)) return;
