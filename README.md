@@ -324,7 +324,13 @@ platform.moonshot.cn. Accounts, billing, and keys are separate — a key minted 
 one platform is rejected by the other — so each is enabled and credentialed on
 its own, and both can be active at once. Pick the one matching where your key
 was created. (`kimi-oauth` is a third, distinct thing: the Kimi Code
-subscription reused through the official CLI's session.)
+subscription reused through the official CLI's session.) Kimi Code itself also
+has two deployments — kimi.com for mainland China and kimi.ai for the rest of
+the world. A bare `kimi login` targets kimi.com; a kimi.ai account signs in
+with `kimi login --region global` (guided setup asks which site to use). The
+router reads the region the official CLI recorded in `~/.kimi-code/config.toml`
+and refreshes tokens, forwards requests, and reads quota from the matching
+`auth.`/`api.` hosts, so no router-side configuration is needed for either.
 
 The Codex catalog is credential-aware. It includes models only from enabled
 external providers with a stored credential or valid OAuth session. Native GPT
@@ -637,6 +643,17 @@ The provider's normal credential isolation and generic-provider DNS checks
 still apply. Messages-native provider protocols cannot opt into this OpenAI
 endpoint.
 
+The managed base URL also exposes `/v1/decisions` for OpenRouter's native
+Decisions protocol. A model such as `openrouter-decisions/jev-latest` rides on the same
+stored OpenRouter key as normal chat models, but its provider variant targets
+`https://openrouter.ai/api/alpha`. This route preserves the caller capability,
+body and response bounds, cancellation, and usage metering used by other native
+routes. It is not a chat-completions adapter and does not synthesize an
+assistant message; callers submit and consume the structured Decisions payload.
+The Jev route is intentionally unlisted, so it cannot appear in Codex's
+conversational model picker. It is for an explicit local integration such as
+jev-pruner, never a substitute for Codex native compaction.
+
 ### opencode (Go subscription and Zen)
 
 The opencode provider family covers both of opencode's endpoints with one
@@ -948,7 +965,11 @@ added per machine with `./bin/curate-models commandcode`. Point
 it, so a redirected provider stays coherent. The tray reports the plan's
 remaining credits and its 5-hour and weekly windows from the same undocumented
 billing route the official CLI polls, and links to Command Code Studio when
-that route is unavailable.
+that route is unavailable. A **Monthly limit** card is derived from the
+billing-period spend in the usage summary plus the remaining plan credits,
+resetting at the subscription's period end; it is omitted, rather than shown
+as a guessed percentage, when either read fails or the subscription is past
+due.
 
 ### Ox Alpha
 
@@ -1444,6 +1465,26 @@ The optional native redirect is independent of this switch and of model
 failover. If native redirect is set, every unmatched native GPT turn that
 reaches the router continues to use its configured external route until
 `./bin/control native-redirect clear` is run.
+
+If **Approve for me** stops working once the ChatGPT plan is exhausted, that is
+a separate quota from the session's. Codex runs automatic approval reviews on
+its own hidden native model, so a session answered by an external provider can
+keep reasoning and proposing commands while every review still costs ChatGPT
+quota. Name a routed model to take those reviews over when that happens:
+
+```
+./bin/control auto-review-fallback set kimi-oauth/k3
+./bin/control auto-review-fallback status
+./bin/control auto-review-fallback clear
+```
+
+The fallback engages only after Codex's own reviewer has refused a review *for
+quota*, and only for the window that refusal named. A denial, a policy
+rejection, a malformed answer, and any other failure all stay with the native
+reviewer -- a `deny` is a decision, and it is never retried through another
+model. The first answer the native reviewer gives afterwards ends the window,
+so reviews return to it on their own. It changes nothing about which model runs
+the session.
 
 ### Use Codex without an OpenAI login
 
