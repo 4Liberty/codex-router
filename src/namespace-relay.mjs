@@ -1615,6 +1615,12 @@ export function flattenToolSearchHistory(
   const initialNameAliases = new Map(
     NAME_ALIASES.get(namespaces)?.nativeToProvider || [],
   );
+  // The live tools' own wire spellings, captured before any discovery mints an
+  // alias of its own. `visibleNames` holds provider-facing names, and on a
+  // route that aliases collisions a discovery of the same wire spelling is
+  // handed a different one -- so comparing provider names alone let the stale
+  // discovered schema back in beside the live tool it was supposed to lose to.
+  const liveWireNames = new Set(NAME_ALIASES.get(namespaces)?.wireOwners?.keys() || []);
   const definitionOwnersByName = new Map();
   const discoveries = [];
   const discoveriesByOutputIndex = new Map();
@@ -1625,8 +1631,12 @@ export function flattenToolSearchHistory(
     for (const candidate of discoveredProviderTools(item.tools, namespaces)) {
       const name = providerFunctionName(candidate.tool);
       if (!name) continue;
+      const wireName = candidate.native
+        ? `${candidate.native.namespace}${NAMESPACE_DELIMITER}${candidate.native.name}`
+        : candidate.nativeName;
       const priorOwner = definitionOwnersByName.get(name);
-      const shadowedByClient = visibleNames.has(name) && !priorOwner;
+      const shadowedByClient =
+        (visibleNames.has(name) || liveWireNames.has(wireName)) && !priorOwner;
       const record = {
         ...candidate,
         name,
