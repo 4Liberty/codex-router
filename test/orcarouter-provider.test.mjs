@@ -250,7 +250,7 @@ test("--free-only additively curates the live free OrcaRouter catalog", () => {
       path.join(root, "apps", "control-center", "src", "pages", "ModelsPage.tsx"),
       "utf8",
     );
-    assert.match(modelsPage, /model\.isFree \? <Badge tone="success">Free<\/Badge>/);
+    assert.match(modelsPage, /model\.isFree \? <Badge tone="success">\{uiText\("Free"\)\}<\/Badge>/);
     const branding = readFileSync(
       path.join(root, "apps", "control-center", "src", "provider-branding.tsx"),
       "utf8",
