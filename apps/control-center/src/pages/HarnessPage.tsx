@@ -26,7 +26,8 @@ import opencodeLogo from "../assets/providers/opencode.png";
 import commandCodeLogo from "../assets/providers/commandcode.svg";
 import nousResearchLogo from "../assets/providers/nousresearch.png";
 import { Badge, Button, InlineNotice, PageHeader, PanelSkeleton, SectionHeading, StatStrip, Toggle } from "../components";
-import { useI18n, type Translate } from "../i18n";
+import { useI18n } from "../i18n-react";
+import type { Translate } from "../i18n";
 import type {
   AgentBridgeDescriptor,
   AgentBridgeSnapshot,

@@ -13,7 +13,8 @@ import {
 import { Badge, Button, EmptyState, PageHeader, PanelSkeleton, SectionHeading, SkeletonBlock } from "../components";
 import { ProviderLogo } from "../provider-branding";
 import { ServiceHealthPanel } from "../ServiceHealth";
-import { useI18n, type Translate } from "../i18n";
+import { useI18n } from "../i18n-react";
+import type { Translate } from "../i18n";
 import {
   compactNumber,
   exactNumber,

@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, CircleAlert, CircleDashed, CircleOff } from "lucide-react";
 import { Badge, Button } from "./components";
 import { serviceHealthRows, type ServiceHealthRow } from "./service-health";
-import { useI18n } from "./i18n";
+import { useI18n } from "./i18n-react";
 import type { RouterHealth } from "./types";
 
 export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, repairing = false }: {

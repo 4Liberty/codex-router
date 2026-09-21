@@ -1,4 +1,3 @@
-import { createContext, useContext } from "react";
 import { en } from "./locales/en.ts";
 import { zhCN } from "./locales/zh-CN.ts";
 import { zhTW } from "./locales/zh-TW.ts";
@@ -102,6 +101,3 @@ export function createTranslator(language: LanguageId): Translate {
 export function translatorLocale(t: Translate): string {
   return languageOption(t.language ?? detectLanguage()).locale;
 }
-
-export const I18nContext = createContext<Translate>(createTranslator("en"));
-export function useI18n(): Translate { return useContext(I18nContext); }

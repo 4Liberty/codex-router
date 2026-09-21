@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, type LucideIcon } from "lucide-react";
 import type { ViewId } from "./types";
-import { useI18n } from "./i18n";
+import { useI18n } from "./i18n-react";
 import "./search-dialog.css";
 
 export interface SearchDialogItem {

@@ -24,6 +24,9 @@ this change must not silently ship their unrelated backend changes.
 - Add a descriptive, stable key to `src/locales/en.ts`, then add the same key to
   `zh-CN.ts` and `zh-TW.ts`. `satisfies Record<keyof typeof en, string>` detects
   omissions and unexpected keys during TypeScript checking.
+- Keep `i18n.ts`, its dictionaries and formatters framework-independent. React
+  context and hooks live in `i18n-react.ts`; root tests must not require the
+  renderer package to be installed.
 - Render with the existing `Translate` function (`t("section.intent", values)`).
   Bind translators to the selected language; include `t` or language in memo
   dependencies when they build presentation text. Do not create a second

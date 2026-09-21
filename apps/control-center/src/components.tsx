@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } f
 import { createPortal } from "react-dom";
 import { AlertTriangle, CheckCircle2, RefreshCw, Search, X } from "lucide-react";
 import { classNames } from "./lib";
-import { useI18n } from "./i18n";
+import { useI18n } from "./i18n-react";
 
 export function Badge({ children, tone = "neutral" }: { children: ReactNode; tone?: "neutral" | "success" | "warning" | "danger" | "accent" }) {
   return <span className={classNames("badge", `badge-${tone}`)}>{children}</span>;

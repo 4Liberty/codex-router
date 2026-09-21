@@ -1,3 +1,4 @@
+import { I18nContext } from "./i18n-react";
 import { backendText } from "./backend-text";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -31,7 +32,6 @@ import { StatusPage } from "./pages/StatusPage";
 import { UsagePage } from "./pages/UsagePage";
 import { SearchDialog } from "./SearchDialog";
 import {
-  I18nContext,
   applyDocumentLanguage,
   detectLanguage,
   storeLanguage,

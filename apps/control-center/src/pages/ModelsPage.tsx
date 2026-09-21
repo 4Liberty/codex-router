@@ -18,7 +18,8 @@ import {
 } from "../model-catalog-search.mjs";
 import { groupModelFamilies, preferredFamilyRoute } from "../model-families.mjs";
 import { useOptimisticValues, type RunAction } from "../useOptimisticValues";
-import { useI18n, type Translate } from "../i18n";
+import { useI18n } from "../i18n-react";
+import type { Translate } from "../i18n";
 import type {
   ModelViewFocusRequest,
   ProviderCatalog,

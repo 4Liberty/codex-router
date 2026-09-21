@@ -22,7 +22,7 @@ import {
   StatStrip,
 } from "../components";
 import { compactNumber, formatDateTime } from "../lib";
-import { useI18n } from "../i18n";
+import { useI18n } from "../i18n-react";
 import type {
   ContextSessionsSnapshot,
   HarnessId,

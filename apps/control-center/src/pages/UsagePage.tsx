@@ -29,7 +29,8 @@ import type {
   UsageEvent,
   UsageMetric,
 } from "../types";
-import { useI18n, type Translate } from "../i18n";
+import { useI18n } from "../i18n-react";
+import type { Translate } from "../i18n";
 import "./usage-status.css";
 
 type UsageBucketWithRequests = UsageBucket & {

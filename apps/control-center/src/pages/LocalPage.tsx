@@ -26,7 +26,8 @@ import {
 } from "../components";
 import { compactNumber, effortLabel, formatBytesGb } from "../lib";
 import { BrandLogo, brandForLocalModel } from "../provider-branding";
-import { useI18n, type Translate } from "../i18n";
+import { useI18n } from "../i18n-react";
+import type { Translate } from "../i18n";
 import type { LocalModel, LocalModelsSnapshot, OperationEvent, RouterControlApi, RouterDataReady, RouterTarget, VisionEngine } from "../types";
 import { useOptimisticValues, type RunAction } from "../useOptimisticValues";
 import "./local-harness-context.css";
