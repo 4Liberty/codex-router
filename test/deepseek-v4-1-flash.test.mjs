@@ -139,3 +139,15 @@ test("V4.1 Flash is added alongside the V4 routes rather than replacing them", (
     assert.equal(model.listed, true);
   }
 });
+
+test("DeepSeek V4 Pro on OpenRouter matches the live catalog capabilities", () => {
+  const model = MODEL_BY_SLUG.get("openrouter/deepseek-v4-pro");
+  assert.ok(model);
+  assert.equal(model.provider, "openrouter");
+  assert.equal(model.upstreamModel, "deepseek/deepseek-v4-pro");
+  assert.equal(model.requestProfile, "auto-tool-choice");
+  assert.equal(model.defaultEffort, "high");
+  assert.deepEqual(model.reasoningLevels.map(({ effort }) => effort), ["high", "xhigh"]);
+  assert.equal(model.contextWindow, 1_048_576);
+  assert.deepEqual(model.inputModalities, ["text"]);
+});

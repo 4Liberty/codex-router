@@ -195,6 +195,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go-responses/muse-spark-1.3-contributor",
       "opencode-free-responses/muse-spark-1.3-contributor-free",
       "openrouter/claude-fable-5.1",
+      "openrouter/deepseek-v4-pro",
       "openrouter/deepseek-v4.1-flash",
       "openrouter/gemini-3.8-flash",
       "openrouter/glm-5.3-flash",
