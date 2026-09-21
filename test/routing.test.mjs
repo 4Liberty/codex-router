@@ -11906,6 +11906,132 @@ test("router repairs malformed Z.ai message envelopes after LiteLLM Responses tr
   }
 });
 
+test("Z.ai Flash forwards the client-deferred app surface when tool_search is available", async () => {
+  const testRoot = mkdtempSync(path.join(os.tmpdir(), "zai-flash-deferred-tools-router-"));
+  const stateDir = path.join(testRoot, "state");
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(
+    path.join(stateDir, "enabled-providers.json"),
+    `${JSON.stringify({ version: 1, providers: ["zai-coding"] })}\n`,
+  );
+  let expectedProviderToolSchemaBytes;
+  const gateway = await mockServer(async (request, response) => {
+    if (request.method === "GET") {
+      json(response, 200, { ok: true, credential_present: true, credential_source: "test" });
+      return;
+    }
+    const outgoing = await bodyJson(request);
+    assert.equal(outgoing.model, "zai-coding-glm-5-3-flash");
+    assert.equal(outgoing.reasoning?.effort, "high");
+    assert.deepEqual(outgoing.tool_choice, { type: "function", name: "tool_search" });
+    expectedProviderToolSchemaBytes = Buffer.byteLength(JSON.stringify(outgoing.tools), "utf8");
+    const names = new Set(
+      (outgoing.tools || [])
+        .map((tool) => tool?.name ?? tool?.function?.name)
+        .filter(Boolean),
+    );
+    assert.equal(names.has("tool_search"), true);
+    assert.equal(names.has("exec_command"), true);
+    assert.equal(names.has("codex_app__load_workspace_dependencies"), true);
+    assert.equal(names.has("codex_app__navigate_to_codex_page"), true);
+    assert.equal(names.has("codex_app__read_thread_terminal"), true);
+    assert.equal(names.has("codex_app__create_thread"), false);
+    assert.equal(names.has("codex_app__automation_update"), false);
+    assert.equal(names.has("plugin_management__uninstall_plugin"), false);
+
+    response.writeHead(200, { "Content-Type": "text/event-stream" });
+    response.end([
+      {
+        type: "response.output_text.delta",
+        output_index: 0,
+        content_index: 0,
+        item_id: "msg_tools",
+        model: "zai-coding-glm-5-3-flash",
+        delta: "OK",
+      },
+      {
+        type: "response.output_text.done",
+        output_index: 0,
+        content_index: 0,
+        item_id: "msg_tools",
+        model: "zai-coding-glm-5-3-flash",
+        text: "OK",
+      },
+      {
+        type: "response.completed",
+        response: {
+          id: "resp_tools",
+          status: "completed",
+          output: [],
+          usage: { input_tokens: 5, output_tokens: 1, total_tokens: 6 },
+        },
+      },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""));
+  });
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_ROUTER_STATE_DIR: stateDir,
+    CODEX_ROUTER_SHOW_ALL_MODELS: "0",
+    CODEX_ROUTER_GATEWAY_BASE_URL: `http://127.0.0.1:${gateway.port}/v1`,
+    CODEX_ROUTER_GATEWAY_HEALTH_URL: `http://127.0.0.1:${gateway.port}/health`,
+    CODEX_ROUTER_API_HEALTH_URL: `http://127.0.0.1:${gateway.port}/health`,
+    CODEX_ROUTER_GROK_OAUTH_HEALTH_URL: `http://127.0.0.1:${gateway.port}/health`,
+    CODEX_ROUTER_QUIET: "1",
+  });
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    const response = await fetch(`${routerBase(routerPort)}/responses`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "zai-coding/glm-5.3-flash",
+        input: "test deferred tools",
+        stream: true,
+        reasoning: { effort: "high" },
+        tool_choice: { type: "tool_search", execution: "client" },
+        tools: [
+          {
+            type: "tool_search",
+            execution: "client",
+            description: "Search deferred tools.",
+            parameters: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+              additionalProperties: false,
+            },
+          },
+          { type: "function", name: "exec_command", parameters: { type: "object" } },
+          {
+            type: "namespace",
+            name: "codex_app",
+            tools: [
+              { type: "function", name: "load_workspace_dependencies" },
+              { type: "function", name: "navigate_to_codex_page" },
+              { type: "function", name: "read_thread_terminal" },
+            ],
+          },
+        ],
+      }),
+    });
+    assert.equal(response.status, 200);
+    await response.text();
+    const usage = await waitForUsageEvent(
+      stateDir,
+      (event) => event.model === "zai-coding/glm-5.3-flash",
+      router,
+    );
+    assert.equal(usage.reasoningEffort, "high");
+    assert.equal(usage?.providerToolCount, 5);
+    assert.equal(usage?.providerToolSchemaBytes, expectedProviderToolSchemaBytes);
+  } finally {
+    await stopChild(router);
+    await closeServer(gateway.server);
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
 test("router repairs LiteLLM legacy argument events for native Z.ai custom tools", async () => {
   const testRoot = mkdtempSync(path.join(os.tmpdir(), "zai-custom-tool-router-"));
   const stateDir = path.join(testRoot, "state");

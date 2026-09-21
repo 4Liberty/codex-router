@@ -2251,6 +2251,10 @@ function sanitizeSpawnAgentModel(item, lookups) {
 // name (some models emit the unqualified form) is restored only when it is
 // unambiguous across every flattened namespace; a collision stays untouched
 // rather than guessing which runtime owns it.
+function providerFunctionNamespaceAbsent(item) {
+  return item?.namespace === undefined || item.namespace === null;
+}
+
 function functionRelayIdentityMatches(item, relay) {
   if (!relay || item?.type !== "function_call" || item.name !== relay.nativeName) return false;
   if (typeof relay.nativeNamespace === "string" && relay.nativeNamespace) {
@@ -2301,7 +2305,7 @@ function rewriteToolSearchFunctionCallItem(item, lookups, allowPlaceholder) {
     !relay ||
     item?.type !== "function_call" ||
     item.name !== relay.providerName ||
-    item.namespace !== undefined ||
+    !providerFunctionNamespaceAbsent(item) ||
     typeof item.call_id !== "string" ||
     !item.call_id
   ) {
@@ -2378,7 +2382,7 @@ function litellmCustomToolInput(argumentsText) {
 function rewriteCustomToolFunctionCallItem(item, lookups, allowPlaceholder) {
   if (
     item?.type !== "function_call" ||
-    item.namespace !== undefined ||
+    !providerFunctionNamespaceAbsent(item) ||
     !(lookups.customTools instanceof Map)
   ) {
     return undefined;
@@ -2409,7 +2413,7 @@ function customToolIdentity(value) {
 function customCallIdentityMatches(source, item, lookups) {
   if (typeof item.name !== "string" || !item.name) return false;
   if (source?.type === "function_call") {
-    if (source.namespace !== undefined) return false;
+    if (!providerFunctionNamespaceAbsent(source)) return false;
     const native = customToolIdentity(lookups.customTools?.get(source.name));
     return Boolean(native && native.name === item.name && native.namespace === item.namespace);
   }
@@ -2429,12 +2433,12 @@ function rewriteNamespaceFunctionCallItem(
   if (!rawCodecItem(item, lookups) && !jsonArgumentsAreUnambiguous(item.arguments, { allowEmpty: true })) return undefined;
   const exactPlainProviderIdentity =
     lookups.identityAliases &&
-    item.namespace === undefined &&
+    providerFunctionNamespaceAbsent(item) &&
     lookups.plainToolNames?.has(item.name);
   const functionRelay = lookups.functionRelays instanceof Map
     ? lookups.functionRelays.get(item.name)
     : undefined;
-  if (functionRelay && item.namespace === undefined) {
+  if (functionRelay && providerFunctionNamespaceAbsent(item)) {
     if (allowIncompleteToolSearch && (item.arguments === undefined || item.arguments === "")) {
       return restoreFunctionRelayCall(item, functionRelay, item.arguments ?? "");
     }
@@ -2470,7 +2474,7 @@ function rewriteNamespaceFunctionCallItem(
   } else {
     const owners = lookups.bareToNamespaces.get(item.name);
     if (
-      item.namespace === undefined &&
+      providerFunctionNamespaceAbsent(item) &&
       !lookups.plainToolNames?.has(item.name) &&
       owners &&
       owners.size === 1
@@ -2521,7 +2525,7 @@ function rewriteOutputItems(output, lookups, sessionModel, { effortForModel } = 
 // Only the exact declared client-hook codec defers argument syntax to the
 // native hook. Identity, outer JSON, lifecycle and byte bounds stay enforced.
 function rawCodecItem(item, lookups) {
-  return item?.type === "function_call" && item.namespace === undefined &&
+  return item?.type === "function_call" && providerFunctionNamespaceAbsent(item) &&
     lookups?.customCodecs?.get(item.name)?.preserveRawArguments === true;
 }
 

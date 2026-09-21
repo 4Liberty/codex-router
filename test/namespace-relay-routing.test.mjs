@@ -1378,7 +1378,7 @@ test("Groq rejects a known history overflow before spending a vision or gateway 
   }
 });
 
-test("non-Groq routes preserve the full expanded and discovered tool surface", async () => {
+test("non-Groq discovery routes preserve the reduced client and discovered tool surface", async () => {
   const result = await scenario(false, {
     requestPayload: (stream, model) => groqToolSurfacePayload(stream, model, {
       plainTools: 110,
@@ -1389,10 +1389,13 @@ test("non-Groq routes preserve the full expanded and discovered tool surface", a
   });
   assert.equal(result.gatewayBodies.length, 1);
   const outgoing = result.gatewayBodies[0];
-  assert.equal(outgoing.tools.length, 149);
+  assert.equal(outgoing.tools.length, 134);
   const names = new Set(outgoing.tools.map((tool) => tool.name));
-  assert.ok(names.has("codex_app__create_thread"));
-  assert.ok(names.has("plugin_management__uninstall_plugin"));
+  assert.ok(names.has("codex_app__load_workspace_dependencies"));
+  assert.ok(names.has("codex_app__navigate_to_codex_page"));
+  assert.ok(names.has("codex_app__read_thread_terminal"));
+  assert.equal(names.has("codex_app__create_thread"), false);
+  assert.equal(names.has("plugin_management__uninstall_plugin"), false);
   for (let index = 0; index < 20; index += 1) {
     assert.ok(names.has(`discovered_tool_${index}`));
   }
@@ -1654,7 +1657,26 @@ test("bounded routes preserve one alias for pre-flattened MCP definitions and hi
 });
 
 test("non-streaming routed responses restore namespace calls before client dispatch", async () => {
-  const result = await scenario(false);
+  const result = await scenario(false, {
+    requestPayload: (stream, model) => {
+      const payload = routedRequestPayload(stream, model);
+      payload.input.push(
+        {
+          type: "function_call",
+          name: "send_message_to_thread",
+          namespace: "codex_app",
+          call_id: "call_prior_followup",
+          arguments: JSON.stringify({ threadId: "thread_1", prompt: "prior" }),
+        },
+        {
+          type: "function_call_output",
+          call_id: "call_prior_followup",
+          output: "{}",
+        },
+      );
+      return payload;
+    },
+  });
   assert.equal(result.gatewayBodies.length, 1);
   assert.equal(result.gatewayBodies[0].stream, false);
 
