@@ -85,11 +85,15 @@ function detectLanguage() {
 
 // A declared script wins over region; preference IDs stay backwards compatible.
 export function resolveLanguage(value) {
-  const parts = typeof value === "string" ? value.trim().replaceAll("_", "-").toLowerCase().split("-") : [];
-  if (parts[0] === "zh") {
-    if (parts.includes("hant")) return "zh-TW";
-    if (parts.includes("hans")) return "zh-CN";
-    return parts.some((part) => ["tw", "hk", "mo"].includes(part)) ? "zh-TW" : "zh-CN";
+  if (typeof value !== "string" || value.length > 128 || !value.trim()) return "en";
+  let locale;
+  try { locale = new Intl.Locale(value.trim().replaceAll("_", "-")); }
+  catch { return "en"; }
+  if (locale.language === "zh") {
+    if (locale.script === "Hans") return "zh-CN";
+    if (locale.script === "Hant") return "zh-TW";
+    if (locale.script) return "en";
+    return ["TW", "HK", "MO"].includes(locale.region ?? "") ? "zh-TW" : "zh-CN";
   }
-  return LANGUAGE_OPTIONS.some((option) => option.id === parts[0]) ? parts[0] : "en";
+  return LANGUAGE_OPTIONS.some((option) => option.id === locale.language) ? locale.language : "en";
 }

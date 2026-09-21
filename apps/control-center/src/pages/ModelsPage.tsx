@@ -1,6 +1,6 @@
 import { backendText } from "../backend-text";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Check, ChevronDown, Filter, KeyRound, Link2, LogIn, MoreHorizontal, Plus, SearchX, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Filter, KeyRound, Link2, LogIn, MoreHorizontal, Pencil, Plus, SearchX, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge, Button, CatalogSkeleton, Dialog, EmptyState, PageHeader, PanelSkeleton, SearchField, SkeletonBlock, Toggle } from "../components";
 import { BrandLogo, ProviderLogo, brandForModel } from "../provider-branding";
 import { effortLabel, formatContext, formatDateTime } from "../lib";
@@ -21,6 +21,7 @@ import { useOptimisticValues, type RunAction } from "../useOptimisticValues";
 import { useI18n } from "../i18n-react";
 import type { Translate } from "../i18n";
 import type {
+  CustomEndpointResult,
   ModelViewFocusRequest,
   ProviderCatalog,
   ProviderSetup,
@@ -169,6 +170,17 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
   const [credentialProvider, setCredentialProvider] = useState<ProviderSetup | null>(null);
   const [configurationProvider, setConfigurationProvider] = useState<ProviderSetup | null>(null);
   const [removeProvider, setRemoveProvider] = useState<ProviderSetup | null>(null);
+  const [customEndpointOpen, setCustomEndpointOpen] = useState(false);
+  const [editingEndpoint, setEditingEndpoint] = useState<ProviderSetup | null>(null);
+  const [addModelsQuery, setAddModelsQuery] = useState("");
+  const [namedModelEndpoint, setNamedModelEndpoint] = useState<ProviderSetup | null>(null);
+  // A saved endpoint whose first live check failed. The endpoint is kept --
+  // an unreachable host is usually a network or key problem the operator fixes
+  // next -- so this says what happened and offers the two ways forward.
+  const [endpointNotice, setEndpointNotice] = useState<{ id: string; displayName: string; reason: string } | null>(null);
+  // Set once a new endpoint is saved; the model picker opens as soon as the
+  // refreshed snapshot shows that endpoint with a catalog to browse.
+  const [awaitingEndpointId, setAwaitingEndpointId] = useState<string | null>(null);
   const [catalogStates, setCatalogStates] = useState<Record<string, CatalogViewState>>({});
   const catalogRequestGenerations = useRef<Record<string, number>>({});
   // Slugs committed to the picker but not yet published, per provider. Adding
@@ -220,7 +232,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
   );
   const directory = useMemo<ProviderDirectoryEntry[]>(() => {
     const entries = new Map<string, ProviderDirectoryEntry>();
-    for (const provider of setup?.providers ?? []) {
+    for (const provider of [...(setup?.providers ?? []), ...(setup?.customEndpoints ?? [])]) {
       entries.set(provider.id, { id: provider.id, displayName: provider.displayName, setup: provider, models: [], knownModels: [] });
     }
     for (const provider of target?.providers ?? []) {
@@ -258,7 +270,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
       const rightConnected = providerConnected(right, enabledProviders);
       return Number(rightConnected) - Number(leftConnected) || left.displayName.localeCompare(right.displayName);
     });
-  }, [catalog?.knownModels, enabledProviders, models, setup?.providers, target?.providers, t]);
+  }, [catalog?.knownModels, enabledProviders, models, setup?.customEndpoints, setup?.providers, target?.providers, t]);
   const directoryById = useMemo(() => new Map(directory.map((entry) => [entry.id, entry])), [directory]);
   const providerStates = useMemo(() => new Map(directory.map((entry) => [
     entry.id,
@@ -431,10 +443,26 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
     }
   };
 
-  const openAddModels = () => {
+  const openAddModels = (query = "") => {
+    setAddModelsQuery(query);
     setAddModelsOpen(true);
     void loadConnectedCatalogs();
   };
+
+  const removeEndpointModel = (entry: ProviderDirectoryEntry, model: RouterModel) => {
+    if (!api) return;
+    void runAction(t("customEndpoint.action.removeModel", { name: model.displayName }), () => api.removeCustomEndpointModels(entry.id, [model.slug]));
+  };
+
+  useEffect(() => {
+    if (!awaitingEndpointId) return;
+    const entry = directoryById.get(awaitingEndpointId);
+    if (!entry || !catalogEligible(entry)) return;
+    setAwaitingEndpointId(null);
+    openAddModels(entry.displayName);
+    // openAddModels reads the directory this render just produced.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingEndpointId, directoryById]);
 
   const openProviderMenu = (providerId: string) => {
     setManagedProviderId((current) => (current === providerId ? null : providerId));
@@ -458,7 +486,14 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
       onCloseProvider={() => setManagedProviderId(null)}
       connectMenuOpen={connectMenuOpen}
       onConnectMenuOpen={setConnectMenuOpen}
-      isEnabled={(entry) => optimisticProviders.value(entry.id, enabledProviders.has(entry.id) || entry.models.some((model) => model.native))}
+      isEnabled={(entry) => optimisticProviders.value(entry.id, entry.setup?.generic
+        ? entry.setup.enabled !== false
+        : enabledProviders.has(entry.id) || entry.models.some((model) => model.native))}
+      onAddEndpoint={() => { setManagedProviderId(null); setEditingEndpoint(null); setCustomEndpointOpen(true); }}
+      onEditEndpoint={(entry) => { if (!entry.setup) return; setManagedProviderId(null); setEditingEndpoint(entry.setup); setCustomEndpointOpen(true); }}
+      onAddEndpointModels={(entry) => { setManagedProviderId(null); openAddModels(entry.displayName); }}
+      onAddNamedModel={(entry) => { if (!entry.setup) return; setManagedProviderId(null); setNamedModelEndpoint(entry.setup); }}
+      onRemoveEndpointModel={removeEndpointModel}
       onEnabledChange={(entry, checked) => {
         if (!api) return;
         void optimisticProviders.mutate(entry.id, checked, checked ? t("models.action.enableProvider", { name: entry.displayName }) : t("models.action.disableProvider", { name: entry.displayName }), () => api.setProviderEnabled(entry.id, checked));
@@ -477,6 +512,76 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
   );
   const renderConnectionDialogs = () => (
     <>
+      <Dialog
+        open={Boolean(endpointNotice)}
+        title={t("customEndpoint.notice.title", { name: endpointNotice?.displayName || t("customEndpoint.fallbackName") })}
+        description={t("customEndpoint.notice.description")}
+        onClose={() => setEndpointNotice(null)}
+      >
+        <div className="pm-credential-warning">
+          <ShieldCheck aria-hidden size={17} strokeWidth={1.7} />
+          <p>{backendText(endpointNotice?.reason, t)} {t("customEndpoint.notice.help")}</p>
+        </div>
+        <div className="dialog-actions">
+          <Button variant="secondary" onClick={() => setEndpointNotice(null)}>{t("models.config.close")}</Button>
+          <Button
+            variant="primary"
+            onClick={() => {
+              const target = endpointNotice;
+              setEndpointNotice(null);
+              const entry = target ? directoryById.get(target.id) : undefined;
+              if (entry?.setup) setNamedModelEndpoint(entry.setup);
+            }}
+          >
+            <Plus aria-hidden size={14} strokeWidth={1.7} /> {t("customEndpoint.named.title")}
+          </Button>
+        </div>
+      </Dialog>
+      <NamedModelDialog
+        provider={namedModelEndpoint}
+        onClose={() => setNamedModelEndpoint(null)}
+        onSave={async (provider, modelId) => {
+          if (!api) return;
+          await runAction(t("customEndpoint.action.addModel", { model: `${provider.id}/${modelId}` }), () => api.addCustomEndpointModel(provider.id, modelId));
+        }}
+      />
+      <CustomEndpointDialog
+        open={customEndpointOpen}
+        editing={editingEndpoint}
+        onClose={() => { setCustomEndpointOpen(false); setEditingEndpoint(null); }}
+        onSave={async (endpoint, editing) => {
+          if (!api) return;
+          if (editing) {
+            let editCheck: CustomEndpointResult["check"];
+            await runProviderCredentialAction(editing, t("customEndpoint.action.update", { name: endpoint.displayName }), async () => {
+              const { credential, ...fields } = endpoint;
+              const result = await api.editCustomEndpoint(editing.id, fields);
+              if (credential) await api.saveProviderCredential(editing.id, credential);
+              editCheck = result.check;
+            });
+            if (editCheck && !editCheck.ok) {
+              setEndpointNotice({ id: editing.id, displayName: endpoint.displayName, reason: editCheck.reason || "The endpoint did not respond." });
+            }
+            return;
+          }
+          let saved: CustomEndpointResult | undefined;
+          await runAction(t("customEndpoint.action.add", { name: endpoint.displayName }), async () => {
+            saved = await api.addCustomEndpoint(endpoint);
+          });
+          if (!saved) return;
+          onRefresh();
+          // Only browse a catalog the endpoint just proved it can serve.
+          if (saved.check && !saved.check.ok) {
+            setEndpointNotice({
+              id: saved.providerId,
+              displayName: endpoint.displayName,
+              reason: saved.check.reason || "The endpoint did not respond.",
+            });
+            return;
+          }
+          setAwaitingEndpointId(saved.providerId);
+        }}
+      />
       <CredentialDialog
         provider={credentialProvider}
         onSave={(provider, secret) => api
@@ -499,7 +604,9 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
         </div>
       </Dialog>
       <Dialog open={Boolean(removeProvider)} title={t("models.disconnect.title")} description={t("models.disconnect.description")} onClose={() => setRemoveProvider(null)}>
-        <div className="pm-credential-warning"><ShieldCheck aria-hidden size={17} strokeWidth={1.7} /><p>{removeProvider?.id === "antigravity-oauth"
+        <div className="pm-credential-warning"><ShieldCheck aria-hidden size={17} strokeWidth={1.7} /><p>{removeProvider?.generic
+          ? t("customEndpoint.removeBody")
+          : removeProvider?.id === "antigravity-oauth"
           ? t("models.disconnect.antigravity")
           : t("models.disconnect.env")}</p></div>
         <div className="dialog-actions">
@@ -780,7 +887,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
                 </div>
               ) : null}
             </div>
-            <Button variant="primary" disabled={!api || !connectedProviderCount} onClick={openAddModels}>
+            <Button variant="primary" disabled={!api || !connectedProviderCount} onClick={() => openAddModels()}>
               <Plus aria-hidden size={14} strokeWidth={1.9} /> {t("models.addModels")}
             </Button>
           </div>
@@ -830,6 +937,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
         disabled={!api}
         pendingModels={pendingModels}
         onReload={() => void loadConnectedCatalogs({ refresh: true })}
+        initialQuery={addModelsQuery}
         onAdd={(selection) => void addCatalogModels(selection)}
         onClose={() => setAddModelsOpen(false)}
       />
@@ -855,6 +963,11 @@ function ConnectionsBar({
   onConfigure,
   onKey,
   onRemove,
+  onAddEndpoint,
+  onEditEndpoint,
+  onAddEndpointModels,
+  onAddNamedModel,
+  onRemoveEndpointModel,
 }: {
   directory: ProviderDirectoryEntry[];
   enabledProviders: Set<string>;
@@ -872,12 +985,24 @@ function ConnectionsBar({
   onConfigure: (entry: ProviderDirectoryEntry) => void;
   onKey: (entry: ProviderDirectoryEntry) => void;
   onRemove: (entry: ProviderDirectoryEntry) => void;
+  onAddEndpoint: () => void;
+  onEditEndpoint: (entry: ProviderDirectoryEntry) => void;
+  onAddEndpointModels: (entry: ProviderDirectoryEntry) => void;
+  onAddNamedModel: (entry: ProviderDirectoryEntry) => void;
+  onRemoveEndpointModel: (entry: ProviderDirectoryEntry, model: RouterModel) => void;
 }) {
   const t = useI18n();
   const barRef = useRef<HTMLElement | null>(null);
   const setConnectMenuOpen = onConnectMenuOpen;
-  const connected = directory.filter((entry) => providerConnected(entry, enabledProviders));
-  const available = directory.filter((entry) => !providerConnected(entry, enabledProviders));
+  // Every operator-added endpoint lives under the Custom container: one chip
+  // for the lot, with the endpoints listed inside it, instead of a chip each.
+  const container = directory.find((entry) => entry.setup?.kind === "per-model");
+  const endpoints = container ? directory.filter((entry) => entry.setup?.generic) : [];
+  const chips = directory.filter((entry) => !endpoints.includes(entry));
+  const isConnected = (entry: ProviderDirectoryEntry) => providerConnected(entry, enabledProviders) || (entry === container && endpoints.length > 0);
+  const connected = chips.filter(isConnected);
+  const available = chips.filter((entry) => !isConnected(entry));
+  const openEndpoint = endpoints.find((entry) => entry.id === openProviderId);
 
   useEffect(() => {
     if (!openProviderId && !connectMenuOpen) return;
@@ -903,7 +1028,7 @@ function ConnectionsBar({
     <section className="panel-section pm-connections" id="model-provider-directory" ref={barRef} aria-label={t("models.providerConnectionsAria")}>
       <div className="pm-connections-label">
         <strong>{t("models.connections")}</strong>
-        <small>{t("models.connectionsCount", { connected: connected.length, total: directory.length })}</small>
+        <small>{t("models.connectionsCount", { connected: connected.length, total: chips.length })}</small>
       </div>
       <div className="pm-connections-chips">
         {connected.map((entry) => (
@@ -913,26 +1038,37 @@ function ConnectionsBar({
               className="pm-chip"
               data-state="connected"
               aria-haspopup="dialog"
-              aria-expanded={openProviderId === entry.id}
+              aria-expanded={openProviderId === entry.id || (entry === container && Boolean(openEndpoint))}
               onClick={() => { setConnectMenuOpen(false); onOpenProvider(entry.id); }}
             >
               <ProviderLogo providerId={entry.id} displayName={entry.displayName} size="small" />
               <span>{entry.displayName}</span>
-              <i className="pm-chip-dot" data-enabled={isEnabled(entry)} aria-hidden />
+              <i className="pm-chip-dot" data-enabled={entry === container && endpoints.length ? endpoints.some(isEnabled) || (entry.models.length > 0 && isEnabled(entry)) : isEnabled(entry)} aria-hidden />
             </button>
-            {openProviderId === entry.id ? (
+            {[openProviderId === entry.id ? entry : entry === container ? openEndpoint : undefined].map((shown) => shown ? (
               <ProviderMenu
-                entry={entry}
-                usage={usageById.get(entry.id)}
+                key={shown.id}
+                entry={shown}
+                usage={usageById.get(shown.id)}
                 apiAvailable={apiAvailable}
                 platform={platform}
-                enabled={isEnabled(entry)}
-                onEnabledChange={(checked) => onEnabledChange(entry, checked)}
-                onSignIn={() => onSignIn(entry)}
-                onKey={() => onKey(entry)}
-                onRemove={() => onRemove(entry)}
+                enabled={isEnabled(shown)}
+                endpoints={shown === container ? endpoints : undefined}
+                isEndpointEnabled={isEnabled}
+                onOpenEndpoint={onOpenProvider}
+                onBack={shown === openEndpoint ? () => onOpenProvider(entry.id) : undefined}
+                backLabel={entry.displayName}
+                onEnabledChange={(checked) => onEnabledChange(shown, checked)}
+                onSignIn={() => onSignIn(shown)}
+                onKey={() => onKey(shown)}
+                onRemove={() => onRemove(shown)}
+                onAddEndpoint={onAddEndpoint}
+                onEditEndpoint={() => onEditEndpoint(shown)}
+                onAddModels={() => onAddEndpointModels(shown)}
+                onAddNamedModel={() => onAddNamedModel(shown)}
+                onRemoveModel={(model) => onRemoveEndpointModel(shown, model)}
               />
-            ) : null}
+            ) : null)}
           </div>
         ))}
         {available.length ? (
@@ -961,6 +1097,7 @@ function ConnectionsBar({
                       if (entry.setup.kind === "oauth" || entry.setup.signIn) onSignIn(entry);
                       else if (entry.setup.kind === "configuration") onConfigure(entry);
                       else if (entry.setup.kind === "anonymous") onEnabledChange(entry, true);
+                      else if (entry.setup.kind === "per-model") onAddEndpoint();
                       else onKey(entry);
                     }}
                   >
@@ -984,12 +1121,27 @@ function ProviderMenu({
   apiAvailable,
   platform,
   enabled,
+  endpoints,
+  isEndpointEnabled,
+  onOpenEndpoint,
+  onBack,
+  backLabel,
   onEnabledChange,
   onSignIn,
   onKey,
   onRemove,
+  onAddEndpoint,
+  onEditEndpoint,
+  onAddModels,
+  onAddNamedModel,
+  onRemoveModel,
 }: {
   entry: ProviderDirectoryEntry;
+  endpoints?: ProviderDirectoryEntry[];
+  isEndpointEnabled: (entry: ProviderDirectoryEntry) => boolean;
+  onOpenEndpoint: (providerId: string) => void;
+  onBack?: () => void;
+  backLabel?: string;
   usage?: NonNullable<ProviderUsageSnapshot["providers"]>[number];
   apiAvailable: boolean;
   platform?: string;
@@ -998,34 +1150,117 @@ function ProviderMenu({
   onSignIn: () => void;
   onKey: () => void;
   onRemove: () => void;
+  onAddEndpoint: () => void;
+  onEditEndpoint: () => void;
+  onAddModels: () => void;
+  onAddNamedModel: () => void;
+  onRemoveModel: (model: RouterModel) => void;
 }) {
   const t = useI18n();
   const setup = entry.setup;
+  // The Custom container is a launcher, not an account: until it holds models
+  // of its own there is nothing to switch off and no traffic to report.
+  const launcher = setup?.kind === "per-model";
+  const emptyLauncher = launcher && entry.models.length === 0;
   return (
     <div className="pm-connection-menu" role="dialog" aria-label={t("models.connection.dialog", { name: entry.displayName })}>
+      {onBack ? (
+        <button type="button" className="pm-connection-menu-back" onClick={onBack}>
+          <ChevronLeft aria-hidden size={12} strokeWidth={1.8} /> {backLabel}
+        </button>
+      ) : null}
       <div className="pm-connection-menu-head">
         <ProviderLogo providerId={entry.id} displayName={entry.displayName} size="large" />
         <div>
           <strong>{entry.displayName}</strong>
-          <small>{connectionMethod(entry, t)}</small>
+          <small>{launcher ? launcherSummary(entry, endpoints?.length ?? 0, t) : connectionMethod(entry, t)}</small>
         </div>
       </div>
       <p className="pm-connection-menu-copy">
-        {backendText(setup?.planNote, t) || connectionDetail(entry, t, usage?.account?.status, usage?.account?.message, platform === "darwin")}
+        {setup?.generic
+          ? `${setup.baseUrl} · ${setup.adapter === "openai-responses" ? "Responses API" : "Chat Completions"}${setup.hasKey ? "" : t("customEndpoint.noKeySuffix")}`
+          : setup?.kind === "per-model"
+            ? t("customEndpoint.introduction")
+            : backendText(setup?.planNote, t) || connectionDetail(entry, t, usage?.account?.status, usage?.account?.message, platform === "darwin")}
       </p>
-      {usage?.requests ? <small className="pm-connection-menu-usage">{t("models.connection.soFar", { count: usage.requests, word: t(usage.requests === 1 ? "models.connection.request" : "models.connection.requests") })}</small> : null}
+      {usage?.requests && !emptyLauncher ? <small className="pm-connection-menu-usage">{t(usage.requests === 1 ? "models.connection.oneRequestSoFar" : "models.connection.requestsSoFar", { count: usage.requests })}</small> : null}
       {setup ? (
         <>
-          <label className="pm-connection-menu-enable">
-            <span>{t("models.connection.available")}</span>
-            <Toggle
-              checked={enabled}
-              disabled={!apiAvailable || !setup.configured}
-              label={t("models.connection.makeAvailable", { name: entry.displayName })}
-              onChange={onEnabledChange}
-            />
-          </label>
-          <div className="pm-connection-menu-actions">
+          {emptyLauncher ? null : (
+            <label className="pm-connection-menu-enable">
+              <span>{t("models.connection.available")}</span>
+              <Toggle
+                checked={enabled}
+                disabled={!apiAvailable || !setup.configured}
+                label={t("models.connection.makeAvailable", { name: entry.displayName })}
+                onChange={onEnabledChange}
+              />
+            </label>
+          )}
+          {setup.generic ? (
+            <div className="pm-endpoint-models" aria-label={t("customEndpoint.modelsAria", { name: entry.displayName })}>
+              <div className="pm-endpoint-models-head">
+                <strong>{t("nav.models")}</strong>
+                <span className="pm-endpoint-models-buttons">
+                  <Button variant="ghost" disabled={!apiAvailable || !setup.configured || setup.enabled === false} onClick={onAddModels}>
+                    <Plus aria-hidden size={13} strokeWidth={1.8} /> {t("models.addModels")}
+                  </Button>
+                  <Button variant="ghost" disabled={!apiAvailable || setup.enabled === false} onClick={onAddNamedModel}>
+                    <Pencil aria-hidden size={13} strokeWidth={1.8} /> {t("customEndpoint.byName")}
+                  </Button>
+                </span>
+              </div>
+              {entry.models.length ? (
+                <ul>
+                  {entry.models.map((model) => (
+                    <li key={model.slug}>
+                      <div>
+                        <span>{model.displayName}</span>
+                        <small>{model.slug}</small>
+                      </div>
+                      <button
+                        type="button"
+                        className="pm-endpoint-model-remove"
+                        disabled={!apiAvailable}
+                        aria-label={t("customEndpoint.action.removeModel", { name: model.displayName })}
+                        title={t("customEndpoint.removeModel")}
+                        onClick={() => onRemoveModel(model)}
+                      >
+                        <Trash2 aria-hidden size={13} strokeWidth={1.7} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <small>{t("customEndpoint.noModels")}</small>
+              )}
+            </div>
+          ) : null}
+          {launcher && endpoints?.length ? (
+            <div className="pm-endpoint-models pm-endpoint-list" aria-label={t("customEndpoint.listAria")}>
+              <div className="pm-endpoint-models-head"><strong>{t("customEndpoint.listTitle")}</strong></div>
+              <ul>
+                {endpoints.map((endpoint) => (
+                  <li key={endpoint.id}>
+                    <button type="button" onClick={() => onOpenEndpoint(endpoint.id)}>
+                      <i className="pm-chip-dot" data-enabled={isEndpointEnabled(endpoint)} aria-hidden />
+                      <div>
+                        <span>{endpoint.displayName}</span>
+                        <small>{endpoint.setup?.baseUrl} · {t(endpoint.models.length === 1 ? "customEndpoint.modelCountOne" : "customEndpoint.modelCount", { count: endpoint.models.length })}</small>
+                      </div>
+                      <ChevronRight aria-hidden size={12} strokeWidth={1.8} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <div className="pm-connection-menu-actions" data-solo={launcher}>
+            {setup.generic ? (
+              <Button variant="ghost" disabled={!apiAvailable} onClick={onEditEndpoint}>
+                <Pencil aria-hidden size={14} strokeWidth={1.7} /> {t("customEndpoint.edit")}
+              </Button>
+            ) : null}
             {setup.kind === "oauth" || setup.signIn ? (
               <Button
                 variant="ghost"
@@ -1037,6 +1272,11 @@ function ProviderMenu({
                 {setup.action === "probe" ? t("models.connection.runLiveTest") : setup.configured ? t("models.connection.signInAgain") : t("models.connection.openSignIn")}
               </Button>
             ) : null}
+            {setup.kind === "per-model" ? (
+              <Button variant="secondary" disabled={!apiAvailable} onClick={onAddEndpoint}>
+                <Plus aria-hidden size={14} strokeWidth={1.7} /> {t("customEndpoint.add")}
+              </Button>
+            ) : null}
             {setup.kind === "api" && entry.id !== "local" ? (
               <Button variant="ghost" disabled={!apiAvailable} onClick={onKey}>
                 <KeyRound aria-hidden size={14} strokeWidth={1.7} /> {setup.configured ? t("models.connection.replaceKey") : t("models.connection.addKey")}
@@ -1044,7 +1284,7 @@ function ProviderMenu({
             ) : null}
             {((setup.kind === "api" && setup.configured) || setup.disconnectable) && entry.id !== "local" ? (
               <Button variant="ghost" disabled={!apiAvailable} onClick={onRemove}>
-                <Trash2 aria-hidden size={14} strokeWidth={1.7} /> {t("models.disconnect.confirm")}
+                <Trash2 aria-hidden size={14} strokeWidth={1.7} /> {setup.generic ? t("customEndpoint.remove") : t("models.disconnect.confirm")}
               </Button>
             ) : null}
           </div>
@@ -1532,8 +1772,10 @@ function AddModelsDialog({
   onReload,
   onAdd,
   onClose,
+  initialQuery = "",
 }: {
   open: boolean;
+  initialQuery?: string;
   directory: ProviderDirectoryEntry[];
   catalogStates: Record<string, CatalogViewState>;
   loading: boolean;
@@ -1549,7 +1791,7 @@ function AddModelsDialog({
   const [shownLimit, setShownLimit] = useState(120);
 
   useEffect(() => {
-    if (open) return;
+    if (open) { setQuery(initialQuery); return; }
     setQuery("");
     setSelected([]);
     setShownLimit(120);
@@ -1704,10 +1946,103 @@ function CredentialDialog({ provider, onSave, onClose }: { provider: ProviderSet
     <Dialog open={Boolean(provider)} title={provider?.configured ? t("models.credential.replace", { name: provider.displayName }) : t("models.credential.connect", { name: provider?.displayName || t("models.credential.provider") })} description={t("models.credential.description")} onClose={close}>
       <form className="pm-credential-form" onSubmit={(event) => void submit(event)}>
         {provider ? <div className="pm-credential-provider"><ProviderLogo providerId={provider.id} displayName={provider.displayName} size="large" /><div><strong>{provider.displayName}</strong><small>{provider.id}</small></div></div> : null}
-        <label htmlFor="provider-credential">{provider?.credentialLabel || t("models.credential.apiKey")}</label>
+        <label htmlFor="provider-credential">{backendText(provider?.credentialLabel, t) || t("models.credential.apiKey")}</label>
         <input id="provider-credential" type="password" value={credential} onChange={(event) => setCredential(event.target.value)} autoComplete="off" spellCheck={false} placeholder={t("models.credential.placeholder")} autoFocus />
         <p><Link2 aria-hidden size={13} strokeWidth={1.7} /> {t("models.credential.note")}</p>
         <div className="dialog-actions"><Button type="button" variant="secondary" onClick={close}>{t("models.add.cancel")}</Button><Button type="submit" variant="primary" disabled={!credential.trim()}>{t("models.credential.save")}</Button></div>
+      </form>
+    </Dialog>
+  );
+}
+
+function NamedModelDialog({ provider, onSave, onClose }: { provider: ProviderSetup | null; onSave: (provider: ProviderSetup, modelId: string) => Promise<void>; onClose: () => void }) {
+  const t = useI18n();
+  const [modelId, setModelId] = useState("");
+  const trimmed = modelId.trim();
+  function close() { setModelId(""); onClose(); }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!provider || !trimmed) return;
+    const target = provider;
+    setModelId("");
+    onClose();
+    await onSave(target, trimmed);
+  }
+  return (
+    <Dialog
+      open={Boolean(provider)}
+      title={t("customEndpoint.named.title")}
+      description={t("customEndpoint.named.description")}
+      onClose={close}
+    >
+      <form className="pm-credential-form" onSubmit={(event) => void submit(event)}>
+        <label htmlFor="named-model-id">{t("models.details.modelId")}</label>
+        <input id="named-model-id" value={modelId} onChange={(event) => setModelId(event.target.value)} autoComplete="off" spellCheck={false} placeholder="provider-model-id" autoFocus />
+        <p><Link2 aria-hidden size={13} strokeWidth={1.7} /> {t("customEndpoint.named.note", { model: `${provider ? `${provider.id}/` : ""}${trimmed || t("customEndpoint.named.placeholder")}` })}</p>
+        <div className="dialog-actions"><Button type="button" variant="secondary" onClick={close}>{t("models.add.cancel")}</Button><Button type="submit" variant="primary" disabled={!trimmed}>{t("customEndpoint.named.add")}</Button></div>
+      </form>
+    </Dialog>
+  );
+}
+
+type CustomEndpointInput = { displayName: string; baseUrl: string; adapter: "openai-chat" | "openai-responses"; credential?: string };
+
+function CustomEndpointDialog({ open, editing, onSave, onClose }: { open: boolean; editing: ProviderSetup | null; onSave: (endpoint: CustomEndpointInput, editing: ProviderSetup | null) => Promise<void>; onClose: () => void }) {
+  const t = useI18n();
+  const [displayName, setDisplayName] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [adapter, setAdapter] = useState<CustomEndpointInput["adapter"]>("openai-chat");
+  const [credential, setCredential] = useState("");
+  useEffect(() => {
+    if (!open || !editing) return;
+    setDisplayName(editing.displayName);
+    setBaseUrl(editing.baseUrl || "");
+    setAdapter(editing.adapter === "openai-responses" ? "openai-responses" : "openai-chat");
+    setCredential("");
+  }, [editing, open]);
+  const urlValid = (() => {
+    try { return ["http:", "https:"].includes(new URL(baseUrl.trim()).protocol); } catch { return false; }
+  })();
+  const ready = Boolean(displayName.trim()) && urlValid;
+  function reset() { setDisplayName(""); setBaseUrl(""); setAdapter("openai-chat"); setCredential(""); }
+  function close() { reset(); onClose(); }
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    if (!ready) return;
+    const endpoint: CustomEndpointInput = {
+      displayName: displayName.trim(),
+      baseUrl: baseUrl.trim(),
+      adapter,
+      ...(credential.trim() ? { credential } : {}),
+    };
+    const target = editing;
+    reset();
+    onClose();
+    await onSave(endpoint, target);
+  }
+  return (
+    <Dialog
+      open={open}
+      title={editing ? t("customEndpoint.form.editTitle", { name: editing.displayName }) : t("customEndpoint.form.addTitle")}
+      description={editing
+        ? t("customEndpoint.form.editDescription", { prefix: `${editing.id}/` })
+        : t("customEndpoint.form.addDescription")}
+      onClose={close}
+    >
+      <form className="pm-credential-form" onSubmit={(event) => void submit(event)}>
+        <label htmlFor="custom-endpoint-name">{t("customEndpoint.form.name")}</label>
+        <input id="custom-endpoint-name" value={displayName} onChange={(event) => setDisplayName(event.target.value)} autoComplete="off" spellCheck={false} placeholder={t("customEndpoint.form.namePlaceholder")} maxLength={120} autoFocus />
+        <label htmlFor="custom-endpoint-url">{t("customEndpoint.form.baseUrl")}</label>
+        <input id="custom-endpoint-url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} autoComplete="off" spellCheck={false} placeholder="https://api.example.com/v1" />
+        <label htmlFor="custom-endpoint-adapter">{t("customEndpoint.form.format")}</label>
+        <select id="custom-endpoint-adapter" value={adapter} onChange={(event) => setAdapter(event.target.value as CustomEndpointInput["adapter"])}>
+          <option value="openai-chat">Chat Completions (/chat/completions)</option>
+          <option value="openai-responses">Responses (/responses)</option>
+        </select>
+        <label htmlFor="custom-endpoint-key">{t("models.credential.apiKey")}</label>
+        <input id="custom-endpoint-key" type="password" value={credential} onChange={(event) => setCredential(event.target.value)} autoComplete="off" spellCheck={false} placeholder={editing ? (editing.hasKey ? t("customEndpoint.form.keepKey") : t("customEndpoint.form.stayKeyless")) : t("customEndpoint.form.keylessLocal")} />
+        <p><Link2 aria-hidden size={13} strokeWidth={1.7} /> {t("customEndpoint.form.keyNote")}</p>
+        <div className="dialog-actions"><Button type="button" variant="secondary" onClick={close}>{t("models.add.cancel")}</Button><Button type="submit" variant="primary" disabled={!ready}>{editing ? t("customEndpoint.form.save") : t("customEndpoint.form.saveChoose")}</Button></div>
       </form>
     </Dialog>
   );
@@ -1720,12 +2055,24 @@ function providerConnected(entry: ProviderDirectoryEntry, enabledProviders: Set<
   // the bulk "connected" request. Its explicit provider selection is the
   // connection boundary instead.
   if (entry.setup?.kind === "anonymous") return enabledProviders.has(entry.id);
+  // The Custom container is always "configured" because it needs no key. It is
+  // only a connection once it holds models; empty, it belongs in the connect
+  // menu as the way to add an endpoint.
+  if (entry.setup?.kind === "per-model") return entry.models.length > 0;
   if (entry.setup) return entry.setup.configured || entry.setup.signedIn === true;
   return entry.models.some((model) => model.native) || enabledProviders.has(entry.id);
 }
 
 function providerDisplayName(providerId: string, t: Translate): string {
   return providerId === "openai" ? t("models.provider.openaiNative") : providerId;
+}
+
+function launcherSummary(entry: ProviderDirectoryEntry, endpointCount: number, t: Translate): string {
+  const parts = [
+    endpointCount ? t(endpointCount === 1 ? "customEndpoint.endpointCountOne" : "customEndpoint.endpointCount", { count: endpointCount }) : "",
+    entry.models.length ? t(entry.models.length === 1 ? "customEndpoint.modelCountOne" : "customEndpoint.modelCount", { count: entry.models.length }) : "",
+  ].filter(Boolean);
+  return parts.join(" · ") || t("customEndpoint.bringYourOwn");
 }
 
 function connectionMethod(entry: ProviderDirectoryEntry, t: Translate): string {
@@ -1737,8 +2084,10 @@ function connectionMethod(entry: ProviderDirectoryEntry, t: Translate): string {
   if (entry.setup.kind === "oauth") return t("models.method.signIn");
   if (entry.setup.kind === "configuration") return t("models.method.localConfig");
   if (entry.setup.kind === "anonymous") return t("models.method.noKey");
+  if (entry.setup.generic) return t("customEndpoint.method");
+  if (entry.setup.kind === "per-model") return t("customEndpoint.addMethod");
   if (entry.setup.signIn) return t("models.method.keyOrSignIn");
-  return entry.setup.credentialLabel || t("models.method.apiKey");
+  return backendText(entry.setup.credentialLabel, t) || t("models.method.apiKey");
 }
 
 function connectionDetail(entry: ProviderDirectoryEntry, t: Translate, accountStatus?: string, accountMessage?: string, canOpenTerminal?: boolean): string {
@@ -1758,8 +2107,8 @@ function connectionDetail(entry: ProviderDirectoryEntry, t: Translate, accountSt
     if (!canOpenTerminal) return t("models.detail.oauthTerminal");
     return entry.setup.cliInstalled === false ? t("models.detail.oauthInstall") : t("models.detail.oauthSignIn");
   }
-  if (entry.setup.signIn) return t("models.detail.keyOrBrowser", { credential: entry.setup.credentialLabel || t("models.detail.anApiKey") });
-  return t("models.detail.addKey", { credential: entry.setup.credentialLabel || t("models.detail.anApiKey") });
+  if (entry.setup.signIn) return t("models.detail.keyOrBrowser", { credential: backendText(entry.setup.credentialLabel, t) || t("models.detail.anApiKey") });
+  return t("models.detail.addKey", { credential: backendText(entry.setup.credentialLabel, t) || t("models.detail.anApiKey") });
 }
 
 function safeId(value: string): string { return value.replace(/[^a-zA-Z0-9_-]/g, "-"); }

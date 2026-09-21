@@ -31,14 +31,17 @@ export function isLanguageId(value: unknown): value is LanguageId {
 // Script takes precedence over region: zh-Hans-TW is Simplified Chinese,
 // while zh-Hant-CN, zh-HK and zh-MO belong to the Traditional catalog.
 export function resolveLanguage(value: unknown): LanguageId {
-  const tag = typeof value === "string" ? value.trim().replaceAll("_", "-").toLowerCase() : "";
-  const parts = tag.split("-");
-  if (parts[0] === "zh") {
-    if (parts.includes("hant")) return "zh-TW";
-    if (parts.includes("hans")) return "zh-CN";
-    return parts.some((part) => ["tw", "hk", "mo"].includes(part)) ? "zh-TW" : "zh-CN";
+  if (typeof value !== "string" || value.length > 128 || !value.trim()) return "en";
+  let locale: Intl.Locale;
+  try { locale = new Intl.Locale(value.trim().replaceAll("_", "-")); }
+  catch { return "en"; }
+  if (locale.language === "zh") {
+    if (locale.script === "Hans") return "zh-CN";
+    if (locale.script === "Hant") return "zh-TW";
+    if (locale.script) return "en";
+    return ["TW", "HK", "MO"].includes(locale.region ?? "") ? "zh-TW" : "zh-CN";
   }
-  return isLanguageId(parts[0]) ? parts[0] : "en";
+  return isLanguageId(locale.language) ? locale.language : "en";
 }
 
 export function languageOption(language: LanguageId) {

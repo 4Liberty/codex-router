@@ -324,7 +324,13 @@ platform.moonshot.cn. Accounts, billing, and keys are separate — a key minted 
 one platform is rejected by the other — so each is enabled and credentialed on
 its own, and both can be active at once. Pick the one matching where your key
 was created. (`kimi-oauth` is a third, distinct thing: the Kimi Code
-subscription reused through the official CLI's session.)
+subscription reused through the official CLI's session.) Kimi Code itself also
+has two deployments — kimi.com for mainland China and kimi.ai for the rest of
+the world. A bare `kimi login` targets kimi.com; a kimi.ai account signs in
+with `kimi login --region global` (guided setup asks which site to use). The
+router reads the region the official CLI recorded in `~/.kimi-code/config.toml`
+and refreshes tokens, forwards requests, and reads quota from the matching
+`auth.`/`api.` hosts, so no router-side configuration is needed for either.
 
 The Codex catalog is credential-aware. It includes models only from enabled
 external providers with a stored credential or valid OAuth session. Native GPT
@@ -827,6 +833,39 @@ shared and rate limited to roughly 30 requests per minute per IP, and its owner
 says it will be retired once launch interest fades — so treat it as a model to
 try, not one to depend on.
 
+Your own endpoints are added from the desktop app rather than by hand. Open
+**Control Center → Models**, click the **Custom** chip, and choose **Add
+endpoint**. Give it a name, the base URL, whether it speaks Chat Completions or
+Responses, and its API key; the key goes to the router over standard input and
+is stored in its protected credential file, never in a command argument or a
+log. Saving runs one `GET /models` against the address, so a typo, an
+unreachable host, or a rejected key is reported while you are still looking at
+the form.
+
+Each endpoint then owns a chip of its own. Its menu lists the models you added
+from it, with **Add models** to pick more from the endpoint's own catalog, **By
+name** for a private or preview id that catalog never lists, a bin icon to drop
+one, **Edit endpoint** to change the address, protocol, or key, and **Remove
+endpoint** to delete the endpoint, its key, and its models together. Models are
+published as `<endpoint>/<model id>`, so two endpoints serving the same model id
+never collide.
+
+The same operations exist on the command line, where an endpoint added this way
+is a generic provider:
+
+```sh
+./bin/model-router codex providers generic add my-endpoint \
+  --name "My Endpoint" --base-url https://api.example.com/v1 --adapter openai-chat
+./bin/model-router codex providers generic credential my-endpoint set
+./bin/curate-models my-endpoint
+./bin/model-router codex providers generic add-model my-endpoint private-preview-1
+```
+
+`add-model` is the terminal form of **By name**: it registers an id the
+endpoint does not advertise, without asking its catalog whether the id exists.
+Nothing verifies it, exactly as nothing verifies a base URL — a wrong id fails
+on its first request and can be removed again.
+
 An endpoint reached with **no credential** is the one thing a registry fragment
 cannot introduce on its own. Its address has to be allowlisted in
 `src/model-registry.mjs`, exactly as an anonymous provider's is, because
@@ -926,7 +965,11 @@ added per machine with `./bin/curate-models commandcode`. Point
 it, so a redirected provider stays coherent. The tray reports the plan's
 remaining credits and its 5-hour and weekly windows from the same undocumented
 billing route the official CLI polls, and links to Command Code Studio when
-that route is unavailable.
+that route is unavailable. A **Monthly limit** card is derived from the
+billing-period spend in the usage summary plus the remaining plan credits,
+resetting at the subscription's period end; it is omitted, rather than shown
+as a guessed percentage, when either read fails or the subscription is past
+due.
 
 ### Ox Alpha
 

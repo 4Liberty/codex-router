@@ -15,9 +15,10 @@ runtime conversion of the other.
 
 Provider authentication, routing decisions, quotas, secrets, submitted effort
 IDs and user-owned content are outside the presentation layer. New diagnostic
-copy in the current main branch is mapped only at its display boundary. UI
-features from still-unmerged PRs #853 and #836 remain separate dependencies;
-this change must not silently ship their unrelated backend changes.
+copy in the current main branch is mapped only at its display boundary. Upstream PRs #836 (Usage and tray fixes) and #853 (custom endpoints) are now
+merged in main at 54e8f70 and retained through a normal merge. Their new
+presentation copy uses this same semantic catalog; their backend behavior,
+credential validation and quota calculations remain upstream-owned.
 
 ## Control Center
 

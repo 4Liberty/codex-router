@@ -1,6 +1,61 @@
 # Changelog
 
 ## Unreleased
+- **Your own OpenAI-compatible endpoints can be added from Control Center.**
+  A generic provider already carried everything an operator needs — an address,
+  a protected key file, `/models` discovery, curation into the picker, and
+  `<provider>/<model>` slugs that cannot collide — but it existed only on the
+  command line, and `providerOnboardingSnapshot()` walked the checked-in
+  registry alone, so nothing in the desktop app could see one. **Models →
+  Custom → Add endpoint** now takes a name, a base URL, a Chat Completions or
+  Responses choice, and a key, and the endpoint's own chip owns the rest: add
+  models from its catalog, add one **By name** for a private or preview id that
+  catalog never lists, remove a model, edit the address or key, or remove the
+  endpoint with its key and models. The key crosses from the renderer on
+  standard input (`providers generic credential ID set --stdin`), because the
+  existing hidden prompt opens `/dev/tty` and an Electron child has none.
+  Endpoints ride in their own `customEndpoints` array rather than among
+  `providers`, so the tray and guided setup cannot mistake one for a
+  checked-in provider they may select.
+- **Adding a custom endpoint no longer fails on the deadline check.**
+  `generic-providers` republishes the overlay and restarts the router, exactly
+  as `credential` does, but it was missing from control.mjs's restart-bearing
+  set. It therefore ran under the 850-second budget while
+  `assertRestartingPublicationAllowance` demands room for a full
+  publication-plus-readiness epoch, and every add refused with "The
+  model-overlay deadline cannot preserve publication and the full router
+  readiness allowance" before writing anything.
+- **A crashing router child no longer reports itself as a stack trace.**
+  `safeFailure()` forwarded Node's whole uncaught-exception report, so a
+  desktop error read `file:///…/model-overlay-publication.mjs:94 const error =
+  new Error( ^ Error: …` with the sentence buried in the middle. It now keeps
+  the message and drops the file, the source excerpt, the caret, and the
+  frames; a child that failed without throwing is still shown whole, and
+  redaction is unchanged.
+- **A saved endpoint says at once whether it answers.** Adding or editing one
+  runs a single `GET /models` against it, so an unreachable host, a typo, or a
+  rejected key is named while the operator is still in the dialog, with the
+  option to register a model by name anyway, instead of silently opening an
+  empty model picker.
+- **Publishing into a DeepSeek Harness settings file no longer nests the route
+  inside somebody else's provider, and removing it no longer empties the
+  file.** `dsh-config-manager.mjs` read "does this mapping hold anything but
+  ours?" off `children`, which is only the keys the YAML lexer could register.
+  A block sequence, a merge key, or a provider id the key grammar declines
+  (`openrouter/free:`) lives inside the node while being invisible there. So
+  publishing copied its indentation off a hoisted grandchild and wrote
+  `codex-router:` two columns too deep -- inside the user's provider, where the
+  harness never looks, while every status read agreed the publish had worked --
+  and removal, seeing `children.size === 1`, spliced the whole `providers:`
+  section away: a 143-byte settings file with somebody else's route in it came
+  back empty. One comment line above our key was enough to do the same. The
+  credentials document had the matching failure: `refs:` holding an entry the
+  grammar declines left the indent falling back to `refs.indent + 2` while the
+  entries on disk sat at four, and that mixed-indent block costs every
+  adapter's key, not just ours. `routed-harness-document.mjs` already refused
+  all of this; its `unaccountedLines` helper moves to `yaml-structure.mjs` and
+  both managers now share it. Anything this reader cannot account for is
+  refused with the file untouched and the offending line named.
 - **An apostrophe in a harness config no longer moves the router's route into
   somebody else's value.** `yaml-structure.mjs` treated every `'` and `"` as a
   quoting indicator, but YAML only gives a quote that meaning where a node can

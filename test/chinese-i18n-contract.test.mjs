@@ -61,7 +61,9 @@ test("all UI surfaces distinguish script, region and persisted locale ids consis
     ["zh", "zh-CN"], ["zh_CN", "zh-CN"], ["zh-SG", "zh-CN"],
     ["zh-Hans-TW", "zh-CN"], ["zh-Hans-HK", "zh-CN"],
     ["zh-Hant", "zh-TW"], ["zh-Hant-CN", "zh-TW"], ["zh-TW", "zh-TW"],
-    ["ZH_hk", "zh-TW"], ["zh-MO", "zh-TW"], ["ja-JP", "ja"], ["fr-FR", "en"],
+    ["ZH_hk", "zh-TW"], ["zh-MO", "zh-TW"],
+    ["zh-x-hant", "zh-CN"], ["zh-x-TW", "zh-CN"], ["zh-Hant-x-hans", "zh-TW"],
+    ["zh-u-rg-twzzzz", "zh-CN"], ["zh-Latn-TW", "en"], ["zh---CN", "en"], ["ja-JP", "ja"], ["fr-FR", "en"],
   ]);
   for (const [tag, language] of expected) {
     assert.equal(resolveLanguage(tag), language, tag);

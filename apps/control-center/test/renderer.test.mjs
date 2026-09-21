@@ -417,6 +417,10 @@ const bridgeSource = String.raw`
             id: "deepseek",
             displayName: "DeepSeek",
             credentialType: "api",
+            inputTokens: 10_000,
+            regularInputTokens: 7_500,
+            cachedInputTokens: searchParams.get("coldCache") === "1" ? 0 : 2_500,
+            cacheTelemetrySeen: true,
             totalTokens,
             requests: 8,
             last24hTokens: totalTokens,
@@ -446,6 +450,10 @@ const bridgeSource = String.raw`
             id: "venice",
             displayName: "Venice",
             credentialType: "api",
+            inputTokens: 0,
+            regularInputTokens: 0,
+            cachedInputTokens: 0,
+            cacheTelemetrySeen: false,
             totalTokens: 0,
             requests: 0,
             last24hTokens: 0,
@@ -532,6 +540,62 @@ const bridgeSource = String.raw`
       return () => { if (operationListener === listener) operationListener = undefined; };
     },
   });
+
+  if (searchParams.get("customEndpoints") === "1") {
+    providers.providers.push({ id: "custom", displayName: "Custom", kind: "per-model", configured: true });
+    providers.customEndpoints = [];
+    const baseApi = window.routerControl;
+    const clone = (value) => JSON.parse(JSON.stringify(value));
+    window.routerControl = Object.freeze({
+      ...baseApi,
+      getSnapshot: async () => clone(await baseApi.getSnapshot()),
+      getProviders: async () => clone(await baseApi.getProviders()),
+      addCustomEndpoint: async (input) => {
+        record("addCustomEndpoint", clone(input));
+        const id = "user_fixture";
+        providers.customEndpoints.push({
+          id, ...input, kind: "api", generic: true, configured: true, enabled: true,
+          hasKey: Boolean(input.credential), credentialLabel: "API key",
+          catalogSources: [{ id, displayName: input.displayName, kind: "models-endpoint" }],
+        });
+        // An exact raw diagnostic must remain visible in every UI language.
+        return { providerId: id, check: { ok: false, reason: "provider/401 raw_diagnostic" } };
+      },
+      editCustomEndpoint: async (id, input) => {
+        record("editCustomEndpoint", id, clone(input));
+        const endpoint = providers.customEndpoints.find((entry) => entry.id === id);
+        Object.assign(endpoint, input);
+        return { providerId: id, check: { ok: true } };
+      },
+      saveProviderCredential: async (id, credential) => {
+        record("saveProviderCredential", id, credential);
+        return { ok: true };
+      },
+      addCustomEndpointModel: async (id, modelId) => {
+        record("addCustomEndpointModel", id, modelId);
+        const model = {
+          slug: id + "/" + modelId, displayName: modelId, provider: id,
+          enabled: true, visible: true, contextWindow: 128000, inputModalities: ["text"],
+        };
+        target.models.push(model);
+        snapshot.catalog.models.push(model);
+        return { ok: true };
+      },
+      removeCustomEndpointModels: async (id, slugs) => {
+        record("removeCustomEndpointModels", id, [...slugs]);
+        target.models = target.models.filter((model) => !slugs.includes(model.slug));
+        snapshot.catalog.models = snapshot.catalog.models.filter((model) => !slugs.includes(model.slug));
+        return { ok: true };
+      },
+      removeProviderCredential: async (id) => {
+        record("removeProviderCredential", id);
+        providers.customEndpoints = providers.customEndpoints.filter((entry) => entry.id !== id);
+        target.models = target.models.filter((model) => model.provider !== id);
+        snapshot.catalog.models = snapshot.catalog.models.filter((model) => model.provider !== id);
+        return { ok: true };
+      },
+    });
+  }
   window.routerControlTest = Object.freeze({
     calls: () => calls.map((call) => ({ name: call.name, args: call.args })),
     navigationReady: () => Boolean(navigationListener),
@@ -656,6 +720,19 @@ test("the production renderer exposes model discovery and picker actions", { tim
     );
     await page.getByRole("heading", { name: "Usage", exact: true }).waitFor();
     await page.getByText("8.25 DIEM", { exact: true }).waitFor();
+    // #824: the chosen source is labelled and its allowances are grouped under
+    // it instead of being silently floated above the other accounts.
+    assert.equal(await page.getByLabel("Usage source").inputValue(), "provider:deepseek");
+    await page.locator(".us-source-group-label", { hasText: "Selected · DeepSeek" }).waitFor();
+    assert.equal(await page.locator(".us-source-group-label", { hasText: "Other connected accounts" }).count(), 1);
+    assert.equal(await page.locator(".us-source-badges .badge", { hasText: "Selected" }).count(), 1);
+    // #826: cache hits render as a count plus a share of reported input; a
+    // provider with no cache telemetry says so rather than reading "0%".
+    await page.getByText("2.5k (25%)", { exact: true }).waitFor();
+    await page.getByLabel("Usage source").selectOption("provider:venice");
+    await page.getByText(/hit rate not reported/).waitFor();
+    assert.equal(await page.getByText(/\(0%\)/).count(), 0);
+    await page.getByLabel("Usage source").selectOption("provider:deepseek");
     assert.equal(
       await page.evaluate(() => window.routerControlTest.navigate({ destination: "usage-resets", sourceId: "deepseek" })),
       true,
@@ -1441,4 +1518,145 @@ test(`${language} covers every page, dialogs, raw values, English round trips an
   }
 });
 
+}
+
+
+// Independent expectations for the newly merged Usage and custom-endpoint
+// surfaces. Use the actual compiled renderer; the bridge is the only mock.
+for (const [language, copy] of [
+  ["en", {
+    addTitle: "Add custom endpoint", saveChoose: "Save and choose models", cancel: "Cancel",
+    namedTitle: "Add a model by name", addModel: "Add model", edit: "Edit endpoint", save: "Save changes",
+    remove: "Remove endpoint", removeModel: "Remove this model", noModels: "No models added yet.",
+    disconnectTitle: "Disconnect provider", disconnect: "Disconnect", addModels: "Add models",
+    closeDialog: "Close dialog", selected: "Selected · DeepSeek", others: "Other connected accounts",
+    noHit: "hit rate not reported", key: "API key",
+  }],
+  ["zh-CN", {
+    addTitle: "添加自定义接口", saveChoose: "保存并选择模型", cancel: "取消",
+    namedTitle: "按名称添加模型", addModel: "添加模型", edit: "编辑接口", save: "保存更改",
+    remove: "移除接口", removeModel: "移除此模型", noModels: "尚未添加模型。",
+    disconnectTitle: "断开服务商", disconnect: "断开连接", addModels: "添加模型",
+    closeDialog: "关闭对话框", selected: "已选择 · DeepSeek", others: "其他已连接账户",
+    noHit: "未报告缓存命中率", key: "API 密钥",
+  }],
+  ["zh-TW", {
+    addTitle: "新增自訂端點", saveChoose: "儲存並選擇模型", cancel: "取消",
+    namedTitle: "依名稱新增模型", addModel: "新增模型", edit: "編輯端點", save: "儲存變更",
+    remove: "移除端點", removeModel: "移除此模型", noModels: "尚未新增模型。",
+    disconnectTitle: "中斷供應商連線", disconnect: "中斷連線", addModels: "加入模型",
+    closeDialog: "關閉對話框", selected: "已選取 · DeepSeek", others: "其他已連線帳戶",
+    noHit: "未回報快取命中率", key: "API 金鑰",
+  }],
+]) {
+  test(`${language} custom endpoint dialogs retain raw values and support add/edit/remove`, { timeout: 90_000 }, async () => {
+    const { url, close } = await serveRenderer();
+    const browser = await chromium.launch({ executablePath: chromiumPath, headless: true, args: process.platform === "linux" ? ["--no-sandbox"] : [] });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 }, locale: "en-US" });
+      page.setDefaultTimeout(10_000);
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.addInitScript((locale) => localStorage.setItem("codex-router-language", locale), language);
+      await page.goto(url + "?customEndpoints=1");
+      await page.locator(".primary-nav button").nth(3).click();
+      const openAdd = async () => {
+        await page.locator(".pm-chip-add").click();
+        await page.getByRole("menuitem").filter({ hasText: "Custom" }).click();
+        await page.getByRole("dialog", { name: copy.addTitle, exact: true }).waitFor();
+      };
+      await openAdd();
+      await page.getByRole("dialog", { name: copy.addTitle, exact: true }).getByRole("button", { name: copy.cancel, exact: true }).click();
+      assert.equal(await page.evaluate(() => window.routerControlTest.calls().filter((c) => c.name === "addCustomEndpoint").length), 0);
+      await openAdd();
+      const dialog = page.getByRole("dialog", { name: copy.addTitle, exact: true });
+      const name = "Fixture {count}";
+      const address = "https://api.example.test/v1";
+      await dialog.locator("#custom-endpoint-name").fill(name);
+      await dialog.locator("#custom-endpoint-url").fill("not a URL");
+      assert.equal(await dialog.getByRole("button", { name: copy.saveChoose, exact: true }).isDisabled(), true);
+      await dialog.locator("#custom-endpoint-url").fill(address);
+      await dialog.locator("#custom-endpoint-adapter").selectOption("openai-responses");
+      await dialog.getByLabel(copy.key, { exact: true }).fill("test-only-not-a-real-key");
+      await dialog.getByRole("button", { name: copy.saveChoose, exact: true }).click();
+      await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "addCustomEndpoint"));
+      assert.deepEqual(await page.evaluate(() => window.routerControlTest.calls().find((c) => c.name === "addCustomEndpoint").args), [{
+        displayName: name, baseUrl: address, adapter: "openai-responses", credential: "test-only-not-a-real-key",
+      }]);
+      const notice = page.getByRole("dialog").filter({ hasText: "provider/401 raw_diagnostic" });
+      await notice.waitFor();
+      assert.match(await notice.innerText(), /Fixture \{count\}/);
+      assert.doesNotMatch(await notice.innerText(), /test-only-not-a-real-key/);
+      await notice.getByRole("button", { name: copy.namedTitle, exact: true }).click();
+      const named = page.getByRole("dialog", { name: copy.namedTitle, exact: true });
+      const modelId = "vendor/model-{count}";
+      await named.locator("#named-model-id").fill(modelId);
+      await named.getByRole("button", { name: copy.addModel, exact: true }).click();
+      await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "addCustomEndpointModel"));
+      assert.deepEqual(await page.evaluate(() => window.routerControlTest.calls().find((c) => c.name === "addCustomEndpointModel").args), ["user_fixture", modelId]);
+      const openEndpoint = async () => {
+        await page.locator(".pm-chip").filter({ hasText: "Custom" }).click();
+        await page.locator(".pm-endpoint-list button").filter({ hasText: name }).click();
+        await page.getByRole("button", { name: copy.edit, exact: true }).waitFor();
+      };
+      await openEndpoint();
+      await page.getByRole("button", { name: copy.edit, exact: true }).click();
+      const editing = page.getByRole("dialog").filter({ has: page.locator("#custom-endpoint-name") });
+      assert.equal(await editing.locator("#custom-endpoint-name").inputValue(), name);
+      assert.equal(await editing.locator("#custom-endpoint-key").inputValue(), "", "stored credentials must not be rendered back");
+      await editing.locator("#custom-endpoint-url").fill("https://new.example.test/v1");
+      await editing.getByRole("button", { name: copy.save, exact: true }).click();
+      await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "editCustomEndpoint"));
+      const editArgs = await page.evaluate(() => window.routerControlTest.calls().find((c) => c.name === "editCustomEndpoint").args);
+      assert.deepEqual(editArgs, ["user_fixture", { displayName: name, baseUrl: "https://new.example.test/v1", adapter: "openai-responses" }]);
+      assert.equal(await page.evaluate(() => window.routerControlTest.calls().filter((c) => c.name === "saveProviderCredential").length), 0, "empty key keeps the stored credential");
+      await openEndpoint();
+      await page.getByRole("button", { name: copy.addModels, exact: true }).click();
+      const catalogDialog = page.getByRole("dialog", { name: copy.addModels, exact: true });
+      await catalogDialog.waitFor();
+      assert.equal(await catalogDialog.locator(".pm-add-models-toolbar input").inputValue(), name);
+      await catalogDialog.getByRole("button", { name: copy.closeDialog, exact: true }).click();
+      await openEndpoint();
+      await page.getByTitle(copy.removeModel, { exact: true }).click();
+      await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "removeCustomEndpointModels"));
+      assert.deepEqual(await page.evaluate(() => window.routerControlTest.calls().find((c) => c.name === "removeCustomEndpointModels").args), ["user_fixture", ["user_fixture/" + modelId]]);
+      await page.getByText(copy.noModels, { exact: true }).waitFor();
+      await page.getByRole("button", { name: copy.remove, exact: true }).click();
+      const removal = page.getByRole("dialog", { name: copy.disconnectTitle, exact: true });
+      await removal.getByRole("button", { name: copy.cancel, exact: true }).click();
+      assert.equal(await page.evaluate(() => window.routerControlTest.calls().filter((c) => c.name === "removeProviderCredential").length), 0);
+      // Cancel dismisses the provider popover through its outside-pointer guard.
+      await openEndpoint();
+      await page.getByRole("button", { name: copy.remove, exact: true }).click();
+      await removal.getByRole("button", { name: copy.disconnect, exact: true }).click();
+      await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "removeProviderCredential"));
+      assert.deepEqual(await page.evaluate(() => window.routerControlTest.calls().find((c) => c.name === "removeProviderCredential").args), ["user_fixture"]);
+      assert.deepEqual(errors, []);
+    } finally { await browser.close(); await close(); }
+  });
+
+  test(`${language} Usage keeps selected accounts and missing versus zero cache telemetry`, { timeout: 60_000 }, async () => {
+    const { url, close } = await serveRenderer();
+    const browser = await chromium.launch({ executablePath: chromiumPath, headless: true, args: process.platform === "linux" ? ["--no-sandbox"] : [] });
+    try {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+      page.setDefaultTimeout(10_000);
+      await page.addInitScript((locale) => localStorage.setItem("codex-router-language", locale), language);
+      await page.goto(url);
+      await page.locator(".primary-nav button").nth(1).click();
+      const select = page.locator(".us-source-select select");
+      await select.selectOption("provider:deepseek");
+      await page.getByText(copy.selected, { exact: true }).waitFor();
+      await page.getByText(copy.others, { exact: true }).waitFor();
+      await page.getByText("2.5k (25%)", { exact: true }).waitFor();
+      await select.selectOption("provider:venice");
+      await page.getByText(copy.noHit, { exact: false }).waitFor();
+      assert.doesNotMatch(await page.locator(".us-summary-grid").innerText(), /\(0%\)/);
+      await page.goto(url + "?coldCache=1");
+      await page.locator(".primary-nav button").nth(1).click();
+      await page.locator(".us-source-select select").selectOption("provider:deepseek");
+      await page.getByText("0 (0%)", { exact: true }).waitFor();
+      assert.equal(await page.getByText(copy.noHit, { exact: false }).count(), 0);
+    } finally { await browser.close(); await close(); }
+  });
 }

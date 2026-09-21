@@ -449,13 +449,15 @@ private extension RouterWidgetSnapshot {
 
 final class TraditionalChineseWidgetTests: XCTestCase {
   func testIdentifiersPreserveOldSnapshots() {
-    for tag in ["traditionalChinese", "zh-TW", "zh-Hant", "zh-HK", "zh_MO", "zh-Hant-CN"] {
+    for tag in ["traditionalChinese", "zh-TW", "zh-Hant", "zh-HK", "zh_MO", "zh-Hant-CN", "zh-Hant-x-hans"] {
       XCTAssertEqual(RouterWidgetLanguage.resolve(tag), .traditionalChinese)
     }
-    for tag in ["chinese", "zh-CN", "zh-Hans-TW", "zh"] {
+    for tag in ["chinese", "zh-CN", "zh-Hans-TW", "zh", "zh-x-hant", "zh-x-TW", "zh-u-rg-twzzzz"] {
       XCTAssertEqual(RouterWidgetLanguage.resolve(tag), .chinese)
     }
     XCTAssertEqual(RouterWidgetLanguage.resolve("japanese"), .english)
+    XCTAssertEqual(RouterWidgetLanguage.resolve("zh-Latn-TW"), .english)
+    XCTAssertEqual(RouterWidgetLanguage.resolve("zh---CN"), .english)
     XCTAssertEqual(RouterWidgetLanguage.publishedIdentifier(for: .traditionalChinese), "traditionalChinese")
   }
 

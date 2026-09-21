@@ -110,13 +110,22 @@ enum RouterLanguage {
   }
 
   static func resolve(_ languageTag: String) -> ResolvedTrayLanguage {
-    let parts = languageTag.replacingOccurrences(of: "_", with: "-").lowercased().split(separator: "-").map(String.init)
-    if parts.first == "zh" {
-      if parts.contains("hant") { return .traditionalChinese }
-      if parts.contains("hans") { return .chinese }
-      return parts.contains(where: { ["tw", "hk", "mo"].contains($0) }) ? .traditionalChinese : .chinese
+    let tag = languageTag.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "_", with: "-")
+    guard !tag.isEmpty, tag.count <= 128,
+      tag.range(of: #"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$"#, options: .regularExpression) != nil
+    else { return .english }
+    // A script or region inside an extension/private-use value is not the
+    // language's declared script/region (zh-x-hant still means Simplified).
+    let core = tag.split(separator: "-").prefix { $0.count != 1 }.joined(separator: "-")
+    let locale = Locale(identifier: core)
+    if locale.languageCode == "zh" {
+      if locale.scriptCode == "Hans" { return .chinese }
+      if locale.scriptCode == "Hant" { return .traditionalChinese }
+      if locale.scriptCode != nil { return .english }
+      return ["TW", "HK", "MO"].contains(locale.regionCode ?? "") ? .traditionalChinese : .chinese
     }
-    switch parts.first {
+    switch locale.languageCode {
     case "ar": return .arabic
     case "hi": return .hindi
     case "ja": return .japanese

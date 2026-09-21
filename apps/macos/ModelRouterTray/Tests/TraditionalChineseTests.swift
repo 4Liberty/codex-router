@@ -6,10 +6,10 @@ import Testing
 struct TraditionalChineseTests {
   @Test("Chinese script wins over region and existing preference ids survive")
   func localeResolution() {
-    for tag in ["zh-TW", "zh-Hant", "zh-HK", "zh_MO", "zh-Hant-CN"] {
+    for tag in ["zh-TW", "zh-Hant", "zh-HK", "zh_MO", "zh-Hant-CN", "zh-Hant-x-hans"] {
       #expect(RouterLanguage.resolve(tag) == .traditionalChinese)
     }
-    for tag in ["zh", "zh-CN", "zh-SG", "zh-Hans-HK", "zh-Hans-TW"] {
+    for tag in ["zh", "zh-CN", "zh-SG", "zh-Hans-HK", "zh-Hans-TW", "zh-x-hant", "zh-x-TW", "zh-u-rg-twzzzz"] {
       #expect(RouterLanguage.resolve(tag) == .chinese)
     }
     #expect(TrayLanguage(rawValue: "chinese") == .chinese)
@@ -17,6 +17,8 @@ struct TraditionalChineseTests {
     #expect(TrayLanguage(rawValue: "traditionalChinese") == .traditionalChinese)
     #expect(ResolvedTrayLanguage.traditionalChinese.widgetIdentifier == "traditionalChinese")
     #expect(RouterLanguage.resolve("unknown") == .english)
+    #expect(RouterLanguage.resolve("zh-Latn-TW") == .english)
+    #expect(RouterLanguage.resolve("zh---CN") == .english)
   }
 
   @Test("whole native sentences keep named placeholders in both scripts")

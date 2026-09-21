@@ -2,6 +2,7 @@
 import type { MessageKey } from "./i18n.ts";
 
 export const backendMessageKeys = {
+  "The endpoint did not respond.": "customEndpoint.noResponse",
   "Search": "common.search",
   "Clear search": "common.clearSearch",
   "Refresh": "common.refresh",

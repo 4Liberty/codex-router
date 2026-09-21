@@ -18,21 +18,26 @@ enum RouterWidgetLanguage: String {
 
   static func resolve(_ published: String?) -> RouterWidgetLanguage {
     guard let published, !published.isEmpty else { return system }
-    let lowered = published.lowercased()
-    if lowered == "traditionalchinese" { return .traditionalChinese }
-    if lowered == "chinese" { return .chinese } // Older snapshots keep their exact meaning.
-    let parts = lowered.replacingOccurrences(of: "_", with: "-").split(separator: "-").map(String.init)
-    if parts.first == "zh" {
-      if parts.contains("hant") { return .traditionalChinese }
-      if parts.contains("hans") { return .chinese }
-      return parts.contains(where: { ["tw", "hk", "mo"].contains($0) }) ? .traditionalChinese : .chinese
-    }
-    return .english
+    let tag = published.trimmingCharacters(in: .whitespacesAndNewlines)
+      .replacingOccurrences(of: "_", with: "-")
+    if tag.lowercased() == "traditionalchinese" { return .traditionalChinese }
+    if tag.lowercased() == "chinese" { return .chinese } // Older snapshots keep their exact meaning.
+    guard !tag.isEmpty, tag.count <= 128,
+      tag.range(of: #"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$"#, options: .regularExpression) != nil
+    else { return .english }
+    // Ignore extension/private-use values when resolving a declared script.
+    let core = tag.split(separator: "-").prefix { $0.count != 1 }.joined(separator: "-")
+    let locale = Locale(identifier: core)
+    guard locale.languageCode == "zh" else { return .english }
+    if locale.scriptCode == "Hans" { return .chinese }
+    if locale.scriptCode == "Hant" { return .traditionalChinese }
+    if locale.scriptCode != nil { return .english }
+    return ["TW", "HK", "MO"].contains(locale.regionCode ?? "") ? .traditionalChinese : .chinese
   }
 
   static var system: RouterWidgetLanguage {
-    let preferred = (Locale.preferredLanguages.first ?? Locale.current.identifier).lowercased()
-    return resolve(preferred)
+    let preferred = Locale.preferredLanguages.first ?? Locale.current.identifier
+    return preferred.isEmpty ? .english : resolve(preferred)
   }
 
   /// The identifier a tray publishes for a given resolved language. Kept here
