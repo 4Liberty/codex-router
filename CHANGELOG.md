@@ -1,6 +1,26 @@
 # Changelog
 
 ## Unreleased
+- **A connect timeout is bounded now, and the retry that exists to absorb it is
+  finally reachable.** `upstream-retry.mjs` has always listed
+  `UND_ERR_CONNECT_TIMEOUT` as retryable, but its pre-retry budget was a fixed
+  5s while the socket was allowed undici's 10s default to connect: by the time
+  the failure arrived, the attempt had already spent the budget, so the retry
+  never started and the blip was relayed as a 502. One incident across two
+  machines (2026-09-21) logged 454 connect timeouts and *zero* connect retries,
+  each failure costing its caller 10.2s. The process-wide pool now carries an
+  explicit `connectTimeout` (3s; `CODEX_ROUTER_CONNECT_TIMEOUT_MS` to tune,
+  clamped 0.5-30s) and races the resolved addresses (`autoSelectFamily`, 250ms
+  per attempt) instead of serializing one dead anycast IP in front of a healthy
+  one, and `upstream-retry.mjs` derives its default budget from the same bound
+  (`3 x connectTimeout`, 9s by default) so the two cannot drift apart again.
+  The worst case for a request that does fail is unchanged at ~10s -- three
+  bounded attempts plus backoff, where one undici-default attempt used to be --
+  and a slow failure is still relayed untouched: the 504 an edge spends half a
+  minute producing is not retried. Measured against a blackholed address, a
+  connect failure is now detected at 3.5s instead of 10.0s.
+  (`CODEX_ROUTER_NATIVE_RETRIES`, `CODEX_ROUTER_NATIVE_RETRY_BACKOFF_MS` and
+  `CODEX_ROUTER_NATIVE_RETRY_BUDGET_MS` still tune the loop; `0` disables it.)
 - **An apostrophe in a harness config no longer moves the router's route into
   somebody else's value.** `yaml-structure.mjs` treated every `'` and `"` as a
   quoting indicator, but YAML only gives a quote that meaning where a node can

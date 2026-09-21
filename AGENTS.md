@@ -1929,8 +1929,16 @@ merely failing them.
 3. Keep the bound small. Codex retries roughly five times on its own and the
    two loops multiply, so the router's share (2 retries, 250ms then 750ms) has
    to keep the product a fast failure. A retry is also only *started* while the
-   request has been cheap so far — a five-second budget, because a 504 the edge
-   spent half a minute producing, or a connect timeout, must not be tripled.
+   request has been cheap so far - a 504 the edge spent half a minute producing
+   must not be tripled, so the budget refuses it. A connect timeout is the one
+   retryable failure that is *bounded* rather than slow: the dispatcher caps it
+   (`CODEX_ROUTER_CONNECT_TIMEOUT_MS`, 3s by default, see
+   `src/fetch-transport.mjs`), and the default budget is derived from that same
+   bound (`3 x connectTimeout`), so three bounded attempts plus backoff still
+   fit the worst case one undici-default attempt used to cost. Never fix that
+   budget to a constant again: a fixed five-second budget against undici's
+   ten-second connect default made every connect timeout in the retryable set
+   unreachable, and 454 of them were relayed as 502s on 2026-09-21.
    `CODEX_ROUTER_NATIVE_RETRIES`, `CODEX_ROUTER_NATIVE_RETRY_BACKOFF_MS`, and
    `CODEX_ROUTER_NATIVE_RETRY_BUDGET_MS` tune it; `0` disables it.
 4. The request body must stay replayable: encode it into a Buffer once, above
