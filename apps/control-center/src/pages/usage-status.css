@@ -135,7 +135,15 @@
 
 .usage-page .us-summary-grid .tone-total dd { color: var(--telemetry-accent); }
 .usage-page .us-summary-grid .tone-regular dd { color: var(--token-regular); }
-.usage-page .us-summary-grid .tone-cached dd { color: var(--token-cached); }
+/* The upstream cache counter now includes a hit rate. A narrow summary cell
+   must wrap the rate instead of hiding it behind an ellipsis in any locale. */
+.usage-page .us-summary-grid .tone-cached dd {
+  color: var(--token-cached);
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .usage-page .us-summary-grid .tone-output dd { color: var(--token-output); }
 
 .status-page .st-summary-grid .tone-success dd { color: var(--success); }

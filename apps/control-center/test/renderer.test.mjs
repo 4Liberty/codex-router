@@ -1670,6 +1670,16 @@ for (const [language, copy] of [
         assert.match(axis, /月|\d+\/\d+/);
       }
       await page.getByText("2.5k (25%)", { exact: true }).waitFor();
+      // A present string can still be invisible behind CSS text-overflow.
+      // Verify that both the counter and rate fit at supported window sizes.
+      for (const width of [960, 1280, 1600]) {
+        await page.setViewportSize({ width, height: 900 });
+        const fits = await page.locator(".us-summary-grid .tone-cached dd").evaluate((element) =>
+          element.scrollWidth <= element.clientWidth + 1
+          && element.scrollHeight <= element.clientHeight + 1);
+        assert.equal(fits, true, `${language} cache hit rate is clipped at ${width}px`);
+      }
+      await page.setViewportSize({ width: 1280, height: 900 });
       await captureIntegrationView(page, `usage-account-groups-${language}`);
       await select.selectOption("provider:venice");
       await page.getByText(copy.noHit, { exact: false }).waitFor();
