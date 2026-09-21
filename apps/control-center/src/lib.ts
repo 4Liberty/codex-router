@@ -73,7 +73,7 @@ export function formatDuration(milliseconds: number | null | undefined, t: Trans
 
 export function metricValue(metric: UsageMetric, t: Translate = createTranslator(detectLanguage())): string {
   if (metric.kind === "balance" && Number.isFinite(Number(metric.value))) {
-    return formatBalance(Number(metric.value), metric.currency);
+    return formatBalance(Number(metric.value), metric.currency, t);
   }
   if (Number.isFinite(Number(metric.remainingPercent))) return t("common.percentLeft", { percent: Math.round(Number(metric.remainingPercent)) });
   if (Number.isFinite(Number(metric.usedPercent))) return t("common.percentLeft", { percent: Math.round(100 - Number(metric.usedPercent)) });
@@ -136,10 +136,10 @@ export function classNames(...values: Array<string | false | null | undefined>):
   return values.filter(Boolean).join(" ");
 }
 
-function formatBalance(value: number, currency?: string): string {
+function formatBalance(value: number, currency: string | undefined, t: Translate): string {
   const code = typeof currency === "string" && currency.trim() ? currency.trim() : "USD";
   try {
-    return new Intl.NumberFormat("en-US", {
+    return new Intl.NumberFormat(translatorLocale(t), {
       style: "currency",
       currency: code,
       maximumFractionDigits: 2,
@@ -147,7 +147,7 @@ function formatBalance(value: number, currency?: string): string {
   } catch {
     // Venice reports a DIEM ledger that is not an ISO 4217 code. Intl throws
     // RangeError, React unmounts Usage, and the operator sees a white screen.
-    return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value)} ${code}`;
+    return `${new Intl.NumberFormat(translatorLocale(t), { maximumFractionDigits: 2 }).format(value)} ${code}`;
   }
 }
 

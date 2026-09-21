@@ -15,7 +15,7 @@ import { ProviderLogo } from "../provider-branding";
 import { ServiceHealthPanel } from "../ServiceHealth";
 import { useOptimisticValues, type RunAction } from "../useOptimisticValues";
 import { useI18n } from "../i18n-react";
-import type { Translate } from "../i18n";
+import { translatorLocale, type Translate } from "../i18n";
 import {
   classNames,
   compactNumber,
@@ -245,7 +245,7 @@ export function DashboardPage({
   // event stream gives the dashboard an honest hourly shape. Keep this local to
   // the renderer: it is a presentation view and must not become a second
   // accounting ledger in the router.
-  const trafficBuckets = buildTrafficBuckets(events, providerUsage, eventHours, trafficRange, Date.now());
+  const trafficBuckets = buildTrafficBuckets(events, providerUsage, eventHours, trafficRange, Date.now(), t);
   const providerBreakdown = buildProviderBreakdown(providerUsage, events, Date.now());
   const modelBreakdown = buildModelBreakdown(providerUsage, events, Date.now());
   const trafficHasRequests = trafficBuckets.some((bucket) => bucket.requests > 0);
@@ -598,8 +598,8 @@ function TokenActivity({
   const t = useI18n();
   const [mode, setMode] = useState<TokenActivityMode>("daily");
   const activity = useMemo(
-    () => buildTokenActivity(events, providerUsage, Date.now()),
-    [events, providerUsage],
+    () => buildTokenActivity(events, providerUsage, Date.now(), t),
+    [events, providerUsage, t],
   );
   const viewDays = useMemo(
     () => tokenActivityForMode(activity.days, mode, t),
@@ -984,6 +984,7 @@ function buildTokenActivity(
   events: UsageEvent[] | undefined,
   providerUsage: ProviderUsageSnapshot | undefined,
   now: number,
+  t: Translate,
 ): { days: TokenActivityDay[]; months: TokenActivityMonth[]; today: number } {
   const today = new Date(now);
   today.setUTCHours(0, 0, 0, 0);
@@ -1034,7 +1035,7 @@ function buildTokenActivity(
     };
   });
 
-  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
+  const monthFormatter = new Intl.DateTimeFormat(translatorLocale(t), { month: "short", timeZone: "UTC" });
   const months: TokenActivityMonth[] = [];
   let previousMonth = -1;
   for (const day of days) {
@@ -1053,7 +1054,7 @@ function tokenActivityForMode(
   mode: TokenActivityMode,
   t: Translate,
 ): TokenActivityViewDay[] {
-  const dateFormatter = new Intl.DateTimeFormat("en-US", {
+  const dateFormatter = new Intl.DateTimeFormat(translatorLocale(t), {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -1136,18 +1137,12 @@ function buildTrafficBuckets(
   hours: UsageEventHour[] | undefined,
   range: TrafficRange,
   now: number,
+  t: Translate,
 ): TrafficBucket[] {
   return range === 24
-    ? buildHourlyTrafficBuckets(events, hours, now)
-    : buildDailyTrafficBuckets(events, providerUsage, range, now);
+    ? buildHourlyTrafficBuckets(events, hours, now, t)
+    : buildDailyTrafficBuckets(events, providerUsage, range, now, t);
 }
-
-const HOUR_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
-const HOUR_FULL_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
-  month: "short",
-  day: "numeric",
-  hour: "numeric",
-});
 
 // `events` is a bounded sample -- the router caps it at 1,000 rows -- so on a
 // busy day it covers a couple of hours, not twenty-four. Summing it drew most
@@ -1155,7 +1150,11 @@ const HOUR_FULL_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
 // total, right next to a summary tile that added up every provider row. The
 // router now publishes an hourly rollup over the uncapped window; the sample
 // remains the fallback for a router that predates it.
-function hourlyBucketsFromRollup(hours: UsageEventHour[]): TrafficBucket[] {
+function hourlyBucketsFromRollup(hours: UsageEventHour[], t: Translate): TrafficBucket[] {
+  const hourLabelFormatter = new Intl.DateTimeFormat(translatorLocale(t), { hour: "numeric" });
+  const hourFullLabelFormatter = new Intl.DateTimeFormat(translatorLocale(t), {
+    month: "short", day: "numeric", hour: "numeric",
+  });
   // Label each bar from the hour the router actually measured rather than from
   // a grid anchored on the renderer's clock. The two agree until the hour turns
   // over between the snapshot and the render, and then this keeps the newest
@@ -1164,8 +1163,8 @@ function hourlyBucketsFromRollup(hours: UsageEventHour[]): TrafficBucket[] {
     const start = new Date(hour.startedAt);
     return {
       key: hour.startedAt,
-      label: HOUR_LABEL_FORMATTER.format(start),
-      fullLabel: HOUR_FULL_LABEL_FORMATTER.format(start),
+      label: hourLabelFormatter.format(start),
+      fullLabel: hourFullLabelFormatter.format(start),
       tokens: hour.tokens,
       requests: hour.requests,
       measuredTokens: hour.measuredTokens,
@@ -1181,8 +1180,9 @@ function buildHourlyTrafficBuckets(
   events: UsageEvent[] | undefined,
   hours: UsageEventHour[] | undefined,
   now: number,
+  t: Translate,
 ): TrafficBucket[] {
-  if (hours?.length) return hourlyBucketsFromRollup(hours);
+  if (hours?.length) return hourlyBucketsFromRollup(hours, t);
   const windowStart = now - 24 * HOUR_MS;
   const firstAnchor = new Date(windowStart);
   firstAnchor.setMinutes(0, 0, 0);
@@ -1192,8 +1192,8 @@ function buildHourlyTrafficBuckets(
   const lastHour = lastAnchor.getTime();
   const lastBucket = now === lastHour ? lastHour - HOUR_MS : lastHour;
   const bucketCount = Math.floor((lastBucket - first) / HOUR_MS) + 1;
-  const formatter = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
-  const fullFormatter = new Intl.DateTimeFormat("en-US", {
+  const formatter = new Intl.DateTimeFormat(translatorLocale(t), { hour: "numeric" });
+  const fullFormatter = new Intl.DateTimeFormat(translatorLocale(t), {
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -1241,6 +1241,7 @@ function buildDailyTrafficBuckets(
   providerUsage: ProviderUsageSnapshot | undefined,
   range: Exclude<TrafficRange, 24>,
   now: number,
+  t: Translate,
 ): TrafficBucket[] {
   // Daily buckets are keyed by UTC day, both by the router and by OpenAI's
   // account stream. Anchoring this grid on local midnight put each bucket on
@@ -1251,12 +1252,12 @@ function buildDailyTrafficBuckets(
   const anchor = new Date(now);
   anchor.setUTCHours(0, 0, 0, 0);
   const first = anchor.getTime() - (range - 1) * DAY_MS;
-  const labelFormatter = new Intl.DateTimeFormat("en-US", {
+  const labelFormatter = new Intl.DateTimeFormat(translatorLocale(t), {
     month: "short",
     day: "numeric",
     timeZone: "UTC",
   });
-  const fullFormatter = new Intl.DateTimeFormat("en-US", {
+  const fullFormatter = new Intl.DateTimeFormat(translatorLocale(t), {
     month: "short",
     day: "numeric",
     year: range === 30 ? "numeric" : undefined,

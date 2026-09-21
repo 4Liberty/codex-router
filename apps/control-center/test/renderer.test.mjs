@@ -1626,9 +1626,10 @@ for (const [language, copy] of [
       assert.deepEqual(editArgs, ["user_fixture", { displayName: name, baseUrl: "https://new.example.test/v1", adapter: "openai-responses" }]);
       assert.equal(await page.evaluate(() => window.routerControlTest.calls().filter((c) => c.name === "saveProviderCredential").length), 0, "empty key keeps the stored credential");
       await openEndpoint();
-      await page.getByRole("button", { name: copy.addModels, exact: true }).click();
+      await page.locator(".pm-connection-menu").getByRole("button", { name: copy.addModels, exact: true }).click();
       const catalogDialog = page.getByRole("dialog", { name: copy.addModels, exact: true });
       await catalogDialog.waitFor();
+      await page.waitForFunction((expected) => document.querySelector(".pm-add-models-toolbar input")?.value === expected, name);
       assert.equal(await catalogDialog.locator(".pm-add-models-toolbar input").inputValue(), name);
       await catalogDialog.getByRole("button", { name: copy.closeDialog, exact: true }).click();
       await openEndpoint();
@@ -1663,6 +1664,11 @@ for (const [language, copy] of [
       await select.selectOption("provider:deepseek");
       await page.getByText(copy.selected, { exact: true }).waitFor();
       await page.getByText(copy.others, { exact: true }).waitFor();
+      if (language !== "en") {
+        const axis = await page.locator(".us-chart-caption").innerText();
+        assert.doesNotMatch(axis, /Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec/);
+        assert.match(axis, /月|\d+\/\d+/);
+      }
       await page.getByText("2.5k (25%)", { exact: true }).waitFor();
       await captureIntegrationView(page, `usage-account-groups-${language}`);
       await select.selectOption("provider:venice");

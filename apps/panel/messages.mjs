@@ -1277,7 +1277,7 @@ export const MESSAGES = {
     "models.toolAgingEnvironment": "已被環境覆寫強制關閉",
     "models.toolAgingNote": "壓縮超過 32 KiB 的已使用結果；RTK 精簡僅在路由壓縮時執行",
     "models.toolAgingOn": "下一次外部模型請求已啟用 Token 精簡。",
-    "models.toolAgingExact": "Token 精簡 已關閉；下一次外部模型請求將傳送精確的工具結果。",
+    "models.toolAgingExact": "Token 精簡已關閉；下一次外部模型請求將傳送精確的工具結果。",
     "models.localModel": "本機模型",
     "models.installedSummary": "已安裝 {count} 個 · {size} GB",
     "models.noneInstalled": "未安裝任何項目",

@@ -30,7 +30,7 @@ import type {
   UsageMetric,
 } from "../types";
 import { useI18n } from "../i18n-react";
-import type { Translate } from "../i18n";
+import { translatorLocale, type Translate } from "../i18n";
 import "./usage-status.css";
 
 type UsageBucketWithRequests = UsageBucket & {
@@ -334,8 +334,8 @@ export function UsagePage({
               <UsageChartHint sourceKind={source.kind} buckets={buckets} range={range} />
               <TokenMix source={source} buckets={buckets} range={range} />
               <div className="us-chart-caption">
-                <span>{formatBucketDate(buckets[0]?.startDate)}</span>
-                <span>{formatBucketDate(buckets.at(-1)?.startDate)}</span>
+                <span>{formatBucketDate(buckets[0]?.startDate, t)}</span>
+                <span>{formatBucketDate(buckets.at(-1)?.startDate, t)}</span>
               </div>
               {source.kind === "subscription" && routerAggregate ? (
                 <p className="us-live-note" role="status">
@@ -718,7 +718,7 @@ function usageSummary(
         label: t("usage.summary.lastReportedDay"),
         value: latestTokens == null ? t("usage.summary.notReported") : compactNumber(latestTokens),
         detail: latestReportedBucket
-          ? t("usage.summary.accountTokensDate", { count: exactNumber(latestTokens), date: formatBucketDate(latestReportedBucket.startDate) })
+          ? t("usage.summary.accountTokensDate", { count: exactNumber(latestTokens), date: formatBucketDate(latestReportedBucket.startDate, t) })
           : t("usage.summary.noDailyBucket"),
       },
       {
@@ -915,7 +915,7 @@ function RangePicker({ value, onChange }: {
           className={value === days ? "is-active" : ""}
           onClick={() => onChange(days)}
         >
-          {days}D
+          {t("display.daysD", { days })}
         </button>
       ))}
     </div>
@@ -998,7 +998,7 @@ function UsageChart({ buckets, sourceKind, t }: {
                   height={Math.max(bucket.tokens ? 2 : 0, barHeight)}
                   rx="2"
                 >
-                  <title>{t("usage.chart.barTitle", { date: formatBucketDate(bucket.startDate), count: exactNumber(bucket.tokens) })}</title>
+                  <title>{t("usage.chart.barTitle", { date: formatBucketDate(bucket.startDate, t), count: exactNumber(bucket.tokens) })}</title>
                 </rect>
               );
             }
@@ -1023,7 +1023,7 @@ function UsageChart({ buckets, sourceKind, t }: {
                       height={Math.max(1, barHeight)}
                       rx={part.tone === "output" || part.tone === "other" ? "1" : "0"}
                     >
-                      <title>{t("usage.chart.partTitle", { date: formatBucketDate(bucket.startDate), count: exactNumber(part.tokens), label: part.label })}</title>
+                      <title>{t("usage.chart.partTitle", { date: formatBucketDate(bucket.startDate, t), count: exactNumber(part.tokens), label: part.label })}</title>
                     </rect>
                   );
                 })}
@@ -1045,7 +1045,7 @@ function UsageChart({ buckets, sourceKind, t }: {
           const breakdownItems = parts?.filter((part) => part.tokens > 0)
             .map((part) => t("usage.chart.partValue", { label: part.label, count: exactNumber(part.tokens) })) ?? [];
           const label = [
-            `${formatBucketDate(bucket.startDate)}.`,
+            `${formatBucketDate(bucket.startDate, t)}.`,
             `${t("usage.chart.totalLabel", { count: exactNumber(bucket.tokens) })}.`,
             ...(bucket.displaySource === "router-fallback"
               ? [t("usage.fallback.point")]
@@ -1150,7 +1150,7 @@ function ChartTooltip({ bucket, parts, sourceKind, t }: {
   const hasRows = visibleParts.length > 0;
   return (
     <span className="us-chart-tooltip" aria-hidden="true">
-      <span className="us-chart-tooltip-date">{formatBucketDate(bucket.startDate)}</span>
+      <span className="us-chart-tooltip-date">{formatBucketDate(bucket.startDate, t)}</span>
       <strong className="us-chart-tooltip-total">{t("usage.chart.tokensTotal", { count: compactNumber(bucket.tokens).toUpperCase() })}</strong>
       <span className="us-chart-tooltip-exact">{t("usage.chart.totalTokens", { count: exactNumber(bucket.tokens) })}</span>
       {hasRows ? (
@@ -1487,11 +1487,11 @@ function friendlyPlanName(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function formatBucketDate(value?: string): string {
-  if (!value) return "No data";
+function formatBucketDate(value: string | undefined, t: Translate): string {
+  if (!value) return t("display.noData");
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat(translatorLocale(t), { month: "short", day: "numeric" }).format(date);
 }
 
 function hasMetricCounts(metric: UsageMetric): boolean {
