@@ -1335,7 +1335,7 @@ async function checkCustomEndpoint(id) {
   }
 }
 
-function customEndpointBaseUrl(value) {
+export function customEndpointBaseUrl(value) {
   let parsed;
   try { parsed = new URL(stringValue(value, "Base URL")); } catch { throw new Error("Base URL is invalid."); }
   if (!["https:", "http:"].includes(parsed.protocol)) throw new Error("Base URL must use http or https.");
@@ -1344,17 +1344,32 @@ function customEndpointBaseUrl(value) {
   return parsed.href.replace(/\/+$/, "");
 }
 
-function loopbackOrPrivateHost(hostname) {
-  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
-  return host === "localhost" || host.endsWith(".localhost") || host === "::1" ||
-    /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) ||
-    /^172\.(1[6-9]|2\d|3[01])\./.test(host);
+// Mirrors the ranges the router itself treats as private
+// (isPrivateGenericProviderHostname in src/generic-provider-state.mjs). That
+// check is the real gate and runs server-side; this one only decides whether to
+// pass --allow-private, so under-detecting costs a confusing refusal rather
+// than opening a hole. It cannot import the router module: this file ships in
+// the Electron bundle and resolves the router source at runtime.
+export function loopbackOrPrivateHost(hostname) {
+  const host = String(hostname).replace(/^\[|\]$/g, "").toLowerCase();
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host === "::1" || host === "::") return true;
+  // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
+  if (/^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host)) return true;
+  return /^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    // Link-local and carrier-grade NAT: not routable to a public endpoint.
+    /^169\.254\./.test(host) || /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(host) ||
+    host === "0.0.0.0";
 }
 
 // The provider id is the slug prefix of every model it publishes
 // (`<id>/<upstream model>`), so a fresh id keeps those slugs unique.
-function customEndpointId(displayName, takenIds) {
-  const base = displayName.toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-")
+export function customEndpointId(displayName, takenIds) {
+  // Strip the combining marks NFKD leaves behind, or "Ünïcødé" decomposes into
+  // marks that the separator rule below turns into their own dashes.
+  const base = displayName.toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "").slice(0, 40) || "custom-endpoint";
   const stem = /^[a-z0-9]/.test(base) ? base : `custom-${base}`;
   for (let index = 1; index < 1000; index += 1) {

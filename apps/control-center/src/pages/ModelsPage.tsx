@@ -1087,7 +1087,6 @@ function ConnectionsBar({
                       else if (entry.setup.kind === "configuration") onConfigure(entry);
                       else if (entry.setup.kind === "anonymous") onEnabledChange(entry, true);
                       else if (entry.setup.kind === "per-model") onAddEndpoint();
-                      else if (entry.setup.generic && entry.setup.enabled === false) onEnabledChange(entry, true);
                       else onKey(entry);
                     }}
                   >
