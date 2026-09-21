@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Switching native models no longer carries an unsupported reasoning effort
+  into the next turn.** Codex can apply the newly selected model before it
+  replaces the previous model's effort, so moving from a model with a
+  `minimal` rung to GPT-6 Astra, GPT-5.6 Sol, or GPT-5.6 Luna sent an invalid
+  model/effort pair and ChatGPT rejected the whole turn with HTTP 400. Native
+  passthrough now checks the target model's current account-catalog ladder and
+  clamps only known Codex effort names onto it. Already-supported values remain
+  unchanged, unknown values still reach the upstream validator, and a missing
+  or unreadable catalog remains fail-open.
 - **An apostrophe in a harness config no longer moves the router's route into
   somebody else's value.** `yaml-structure.mjs` treated every `'` and `"` as a
   quoting indicator, but YAML only gives a quote that meaning where a node can
