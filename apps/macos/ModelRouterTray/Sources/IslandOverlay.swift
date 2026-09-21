@@ -294,9 +294,7 @@ private struct IslandOverlayView: View {
           .font(.system(size: 9.5, weight: .semibold, design: .rounded))
           .foregroundStyle(.white.opacity(0.72))
           .fixedSize()
-          .help(RouterLanguage.isSimplifiedChinese
-            ? "\(activeSessions.count) 个会话运行中"
-            : "\(activeSessions.count) running \(activeSessions.count == 1 ? "chat" : "chats")")
+          .help(routerMessage(activeSessions.count == 1 ? .runningChatsOne : .runningChats, ["count": "\(activeSessions.count)"]))
       }
       if store.activeRequests.isEmpty {
         Text(compactUsageSummary)
@@ -369,9 +367,7 @@ private struct IslandOverlayView: View {
           Text(store.activityState.label)
             .font(.system(size: 12, weight: .semibold, design: .rounded))
             .foregroundStyle(store.activityState.tint)
-          Text(RouterLanguage.isSimplifiedChinese
-            ? "\(activeSessions.count) 个会话运行中"
-            : "\(activeSessions.count) \(activeSessions.count == 1 ? "CHAT" : "CHATS") RUNNING")
+          Text(routerMessage(activeSessions.count == 1 ? .runningChatsUpperOne : .runningChatsUpper, ["count": "\(activeSessions.count)"]))
             .font(.system(size: 8, weight: .semibold, design: .monospaced))
             .foregroundStyle(routerMuted)
         }
@@ -474,9 +470,7 @@ private struct IslandOverlayView: View {
           .foregroundStyle(routerMuted)
         Spacer()
         Text(store.hasConcurrentActivity
-          ? (RouterLanguage.isSimplifiedChinese
-            ? "\(store.activeChatCount) 个会话运行中"
-            : "\(store.activeChatCount) chats running")
+          ? (routerMessage(.chatsRunning, ["count": "\(store.activeChatCount)"]))
           : routerLocalized("Account and traffic are provider-scoped"))
           .font(.system(size: 9, design: .rounded))
           .foregroundStyle(routerMuted)
@@ -526,12 +520,8 @@ private struct IslandOverlayView: View {
             .font(.system(size: 15, weight: .semibold, design: .rounded))
             .lineLimit(1)
           Text(selectedSession == nil
-            ? (RouterLanguage.isSimplifiedChinese
-              ? "\(activeSessions.count) 个会话运行中"
-              : "\(activeSessions.count) \(activeSessions.count == 1 ? "chat" : "chats") running")
-            : (RouterLanguage.isSimplifiedChinese
-              ? "\(selectedSession?.agents.count ?? 0) 个已分配智能体"
-              : "\(selectedSession?.agents.count ?? 0) assigned agents"))
+            ? (routerMessage(activeSessions.count == 1 ? .chatsRunningOne : .chatsRunning, ["count": "\(activeSessions.count)"]))
+            : (routerMessage(.assignedAgents, ["count": "\(selectedSession?.agents.count ?? 0)"])))
             .font(.system(size: 9, weight: .medium, design: .rounded))
             .foregroundStyle(store.activityState.tint)
         }
@@ -624,14 +614,13 @@ private struct IslandOverlayView: View {
     if provider == "grok-oauth" { return routerLocalized("XAI • OAUTH SESSION") }
     if provider == "grok-api" { return routerLocalized("XAI • METERED API") }
     if provider.hasSuffix("-api") || ["deepseek", "chutes", "orca"].contains(provider) {
-      if RouterLanguage.isSimplifiedChinese { return "计量 API" }
-      return "METERED API"
+      return routerMessage(.meteredApi)
     }
     return routerLocalized("OAUTH ROUTE")
   }
 
   private var compactUsageSummary: String {
-    RouterLanguage.isSimplifiedChinese ? "今天 \(todayTokenValue)" : "\(todayTokenValue) today"
+    routerMessage(.tokensToday, ["tokens": "\(todayTokenValue)"])
   }
 
   private var todayTokenValue: String {
@@ -952,7 +941,7 @@ private struct IslandUsageLineChart: View {
   private func hoverText(for point: DailyUsagePoint) -> String {
     let date = point.date.usageDayLabel(.dateTime.month(.abbreviated).day())
     let tokens = Int64(point.tokens).formatted(.number.grouping(.automatic))
-    let text = RouterLanguage.isSimplifiedChinese ? "\(date) · \(tokens) token" : "\(date) · \(tokens) tok"
+    let text = routerMessage(.dateTokensCompact, ["date": "\(date)", "tokens": "\(tokens)"])
     guard point.isRouterFallback else { return text }
     return "\(text) · \(routerLocalized("local fallback"))"
   }
@@ -1255,9 +1244,7 @@ private struct IslandSessionList: View {
           .foregroundStyle(.white.opacity(0.94))
           .lineLimit(1)
         Text(
-          RouterLanguage.isSimplifiedChinese
-            ? "\(session.agents.count) 个代理"
-            : "\(session.agents.count) \(session.agents.count == 1 ? "agent" : "agents")"
+          routerMessage(session.agents.count == 1 ? .agentsOne : .agents, ["count": "\(session.agents.count)"])
         )
           .font(.system(size: 8.5, weight: .medium, design: .monospaced))
           .foregroundStyle(routerMuted)
@@ -1364,9 +1351,7 @@ private struct ActiveRequestList: View {
           .frame(maxWidth: .infinity)
           TimelineView(.periodic(from: .now, by: 1)) { context in
             let elapsed = elapsedLabel(for: request, now: context.date)
-            Text(RouterLanguage.isSimplifiedChinese
-              ? "思考中 · \(elapsed)"
-              : "Thinking · \(elapsed)")
+            Text(routerMessage(.thinkingElapsed, ["elapsed": "\(elapsed)"]))
               .font(.system(size: compact ? 8.5 : 9, weight: .medium, design: .rounded))
               .foregroundStyle(routerYellow.opacity(0.95))
               .monospacedDigit()
@@ -1382,9 +1367,7 @@ private struct ActiveRequestList: View {
         }
       }
       if store.activeRequests.count > limit {
-        Text(RouterLanguage.isSimplifiedChinese
-          ? "+\(store.activeRequests.count - limit) 个更多"
-          : "+\(store.activeRequests.count - limit) more")
+        Text(routerMessage(.moreRequests, ["count": "\(store.activeRequests.count - limit)"]))
           .font(.system(size: 9, weight: .medium, design: .rounded))
           .foregroundStyle(routerMuted)
           .frame(maxWidth: .infinity, alignment: .leading)
@@ -1976,7 +1959,7 @@ private struct DesktopPanelView: View {
   private var quotaSummary: String {
     let count = store.desktopQuotaRows.count
     if count == 0 { return routerLocalized("None") }
-    return RouterLanguage.isSimplifiedChinese ? "\(count) 个窗口" : "\(count) window\(count == 1 ? "" : "s")"
+    return routerMessage(count == 1 ? .quotaWindowsOne : .quotaWindows, ["count": "\(count)"])
   }
 
   private func sectionHeading(_ title: String, trailing: String) -> some View {

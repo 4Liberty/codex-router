@@ -1,7 +1,18 @@
 // UI language affects native menus only; it never changes router configuration.
 export function interfaceMenuTemplates(language, { showWindow, quit }) {
   const zh = language === "zh-CN";
-  const label = (english, chinese) => zh ? chinese : english;
+  const traditional = language === "zh-TW";
+  const labels = {
+    "Open Control Center": "開啟控制中心", "Quit Codex Router": "結束 Codex Router",
+    "About Codex Router": "關於 Codex Router", "Services": "服務", "Hide Codex Router": "隱藏 Codex Router",
+    "Hide Others": "隱藏其他應用程式", "Show All": "顯示全部", "File": "檔案", "Close Window": "關閉視窗",
+    "Edit": "編輯", "Undo": "復原", "Redo": "重做", "Cut": "剪下", "Copy": "複製", "Paste": "貼上",
+    "Select All": "全選", "View": "顯示方式", "Reload": "重新載入", "Force Reload": "強制重新載入",
+    "Toggle Developer Tools": "切換開發人員工具", "Actual Size": "實際大小", "Zoom In": "放大", "Zoom Out": "縮小",
+    "Toggle Full Screen": "切換全螢幕", "Window": "視窗", "Minimize": "最小化", "Zoom": "縮放",
+    "Bring All to Front": "將所有視窗移至最前方", "Help": "輔助說明",
+  };
+  const label = (english, chinese) => traditional ? labels[english] ?? english : zh ? chinese : english;
   const tray = [
     { label: label("Open Control Center", "打开控制中心"), click: showWindow },
     { type: "separator" },
@@ -54,5 +65,13 @@ export function interfaceMenuTemplates(language, { showWindow, quit }) {
 }
 
 export function isInterfaceLanguage(value) {
-  return ["en", "zh-CN", "ar", "hi", "ja", "ko", "es"].includes(value);
+  return ["en", "zh-CN", "zh-TW", "ar", "hi", "ja", "ko", "es"].includes(value);
+}
+
+export function initialInterfaceLanguage(locale) {
+  const parts = String(locale ?? "").toLowerCase().replaceAll("_", "-").split("-");
+  if (parts[0] !== "zh") return "en";
+  if (parts.includes("hant")) return "zh-TW";
+  if (parts.includes("hans")) return "zh-CN";
+  return parts.some((part) => ["tw", "hk", "mo"].includes(part)) ? "zh-TW" : "zh-CN";
 }

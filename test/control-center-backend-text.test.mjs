@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { backendText } from "../apps/control-center/src/backend-text.ts";
 import { storeLanguage } from "../apps/control-center/src/i18n.ts";
-import { backendTemplatesZh, backendZh } from "../apps/control-center/src/locales/backend.zh.ts";
+import { backendMessageKeys, backendMessagePatterns } from "../apps/control-center/src/backend-messages.ts";
+import { createTranslator, messageCatalogs } from "../apps/control-center/src/i18n.ts";
 
 function inChinese(assertions) {
   try {
@@ -90,21 +91,21 @@ test("English keeps every backend string exactly as it arrived", () => {
   }
 });
 
-test("backend dictionaries keep every template and translation shaped like its source", () => {
+test("backend display patterns preserve exactly their captured placeholders in both Chinese catalogs", () => {
   const tokens = (value) => [...value.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
-  for (const [source, translation] of Object.entries(backendZh)) {
-    assert.ok(translation.trim(), `empty translation: ${source}`);
-    assert.deepEqual(tokens(translation), tokens(source), `interpolation drift: ${source}`);
-    // A translation that is identical to its source would only hide the English
-    // string behind a dictionary entry.
-    assert.notEqual(translation, source, `untranslated entry: ${source}`);
-  }
-  // A template only ever receives the capture groups its own pattern matched,
-  // so it must account for exactly those placeholders.
-  for (const { pattern, template } of backendTemplatesZh) {
-    const named = [...pattern.source.matchAll(/\(\?<(\w+)>/g)].map((match) => match[1]).sort();
-    assert.ok(named.length, `template pattern captures nothing: ${pattern}`);
-    assert.deepEqual(tokens(template), named, `template placeholders drift from its pattern: ${template}`);
-    assert.notEqual(template, pattern.source, `template is not translated: ${template}`);
+  for (const language of ["zh-CN", "zh-TW"]) {
+    const t = createTranslator(language);
+    for (const key of Object.values(backendMessageKeys)) {
+      assert.ok(Object.hasOwn(messageCatalogs[language], key));
+      assert.deepEqual(tokens(t(key)), tokens(messageCatalogs.en[key]), `${language}:${key}`);
+    }
+    for (const { pattern, key } of backendMessagePatterns) {
+      const named = [...pattern.source.matchAll(/\(\?<([\w]+)>/g)].map((match) => match[1]).sort();
+      assert.ok(named.length);
+      assert.deepEqual(tokens(t(key)), named, `${language}:${key}`);
+    }
+    assert.notEqual(backendText("Listed routes match provider catalogs", t), "Listed routes match provider catalogs");
+    const warning = backendText("2 listed route(s) no longer advertised: vendor/x (vendor)", t);
+    assert.match(warning, /2/); assert.match(warning, /vendor\/x \(vendor\)/);
   }
 });

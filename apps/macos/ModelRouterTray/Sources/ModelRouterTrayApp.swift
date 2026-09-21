@@ -1665,9 +1665,7 @@ final class RouterStore: ObservableObject {
   var selectedUsageText: String? {
     if selectedUsageUsesChatGPT {
       guard let primary = accountUsage?.primary else { return nil }
-      return RouterLanguage.isSimplifiedChinese
-        ? "剩余 \(primary.remainingPercent)%"
-        : "\(primary.remainingPercent)% left"
+      return routerMessage(.remainingPercent, ["count": "\(primary.remainingPercent)"])
     }
     guard providerUsage != nil else { return nil }
     if let metric = selectedAccountMetric { return formattedAccountMetric(metric) }
@@ -1712,9 +1710,7 @@ final class RouterStore: ObservableObject {
 
   var activitySummaryLabel: String {
     if activityState == .generating, activeChatCount > 1 {
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(activeChatCount) 个会话"
-        : "\(activeChatCount) chats"
+      return routerMessage(.activeChats, ["count": "\(activeChatCount)"])
     }
     return activityState.label
   }
@@ -2490,7 +2486,7 @@ final class RouterStore: ObservableObject {
       return "\(compactTokenCount(totals.tokens)) tok"
     }
     if totals.requests > 0 {
-      return RouterLanguage.isSimplifiedChinese ? "\(totals.requests) 个请求" : "\(totals.requests) req"
+      return routerMessage(.requestsShort, ["count": "\(totals.requests)"])
     }
     return routerLocalized("No traffic")
   }
@@ -4544,12 +4540,12 @@ struct CodexRateLimitWindow: Decodable, Equatable {
       let days = minutes / 1_440
       if days == 1 { return routerLocalized("Daily limit") }
       if days == 7 { return routerLocalized("Weekly limit") }
-      return RouterLanguage.isSimplifiedChinese ? "\(days) 天限制" : "\(days)-day limit"
+      return routerMessage(.dayLimit, ["count": "\(days)"])
     }
     if minutes >= 60, minutes.isMultiple(of: 60) {
-      return RouterLanguage.isSimplifiedChinese ? "\(minutes / 60) 小时限制" : "\(minutes / 60)-hour limit"
+      return routerMessage(.hourLimit, ["count": "\(minutes / 60)"])
     }
-    return RouterLanguage.isSimplifiedChinese ? "\(minutes) 分钟限制" : "\(minutes)-minute limit"
+    return routerMessage(.minuteLimit, ["count": "\(minutes)"])
   }
 }
 
@@ -6466,10 +6462,10 @@ private struct TrayView: View {
     guard store.activeRequestCount > 0 else { return routerLocalized("No traffic right now") }
     let chats = store.activeChatCount
     let requests = store.activeRequestCount
-    if RouterLanguage.isSimplifiedChinese {
-      return "\(chats) 个会话 · \(requests) 个请求进行中"
-    }
-    return "\(chats) chat\(chats == 1 ? "" : "s") · \(requests) request\(requests == 1 ? "" : "s") in flight"
+    let key: RouterMessageKey = chats == 1
+      ? (requests == 1 ? .activityBothOne : .activityChatOne)
+      : (requests == 1 ? .activityRequestOne : .activityMany)
+    return routerMessage(key, ["chats": "\(chats)", "requests": "\(requests)"])
   }
 
   private var activeModelLabel: String {
@@ -6493,9 +6489,7 @@ private struct TrayView: View {
       .speedSampleCount ?? 0
     return sampleCount == 0
       ? routerLocalized("No samples")
-      : RouterLanguage.isSimplifiedChinese
-        ? "\(sampleCount) 条回复"
-        : "\(sampleCount) reply\(sampleCount == 1 ? "" : "s")"
+      : routerMessage(sampleCount == 1 ? .sampleRepliesOne : .sampleReplies, ["count": "\(sampleCount)"])
   }
 
   private var speedExplanation: String {
@@ -7271,10 +7265,7 @@ private struct TrayView: View {
         Button(routerLocalized("Cancel"), role: .cancel) { pendingOversizedInstall = nil }
       } message: { tag in
         Text(
-          RouterLanguage.isSimplifiedChinese
-            ? "\(tag) 对本机内存或可用磁盘空间来说过大。仍会下载，但可能无法加载或运行非常缓慢。"
-            : "\(tag) is rated too large for this machine's memory or free disk. "
-              + "It will download, but it may fail to load or run very slowly."
+          routerMessage(.oversizeWarning, ["tag": "\(tag)"])
         )
       }
     }
@@ -7660,9 +7651,7 @@ private struct TrayView: View {
           Button(
             quickPicksExpanded
               ? routerLocalized("Show fewer quick picks")
-              : (RouterLanguage.isSimplifiedChinese
-                  ? "再显示 \(quickPickRemainingCount) 个快速选项"
-                  : "Show \(quickPickRemainingCount) more quick picks")
+              : (routerMessage(.moreQuickPicks, ["count": "\(quickPickRemainingCount)"]))
           ) {
             withAnimation(.easeOut(duration: 0.15)) { quickPicksExpanded.toggle() }
           }
@@ -7682,18 +7671,15 @@ private struct TrayView: View {
         .count
       let showingAllCatalog = localCatalogFilter.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       let shownCloudCount = showingAllCatalog ? cloudCount : visibleCloudCount
-      let catalogDetail = RouterLanguage.isSimplifiedChinese
-        ? (showingAllCatalog
-            ? "\(localCatalogFamilies.count) 个系列 · \(explore.count) 个标签"
-            : "\(localCatalogFamilies.count) 个系列 · \(visibleTagCount) 个匹配")
-        : (showingAllCatalog
-            ? "\(localCatalogFamilies.count) families · \(explore.count) tags"
-            : "\(localCatalogFamilies.count) families · \(visibleTagCount) matches")
+      let catalogDetail = routerMessage(showingAllCatalog ? .catalogSummary : .catalogMatches, [
+        "families": "\(localCatalogFamilies.count)",
+        "count": "\(showingAllCatalog ? explore.count : visibleTagCount)",
+      ])
       downloadHeader(
         "DISCOVER OLLAMA",
         detail: catalogDetail +
           (shownCloudCount > 0
-            ? (RouterLanguage.isSimplifiedChinese ? " · \(shownCloudCount) 个仅云端" : " · \(shownCloudCount) cloud-only")
+            ? (routerMessage(.cloudCountSuffix, ["count": "\(shownCloudCount)"]))
             : "")
       )
       Button(routerLocalized(variantHelpExpanded ? "Hide tag guide" : "What do these tags mean?")) {
@@ -7722,9 +7708,7 @@ private struct TrayView: View {
       }
       if localCatalogFamilies.isEmpty {
         Text(
-          RouterLanguage.isSimplifiedChinese
-            ? "没有匹配“\(localCatalogFilter)”的 Ollama 标签。"
-            : "No Ollama tags match \"\(localCatalogFilter)\"."
+          routerMessage(.noOllamaMatches, ["query": "\(localCatalogFilter)"])
         )
           .font(.system(size: 9))
           .foregroundStyle(routerMutedStrong)
@@ -7878,14 +7862,12 @@ private struct TrayView: View {
         if let runtime = localModels?.runtime {
           let runtimeLabel = runtime.installed == true
             ? "Ollama \(runtime.version ?? routerLocalized("installed"))"
-            : (RouterLanguage.isSimplifiedChinese ? "Ollama 未安装" : "Ollama not installed")
+            : (routerMessage(.ollamaMissing))
           let serverState = runtime.running == true
             ? routerLocalized("managed")
             : routerLocalized("not started")
           Text(
-            RouterLanguage.isSimplifiedChinese
-              ? "\(runtimeLabel) · 后台服务器 \(serverState)"
-              : "\(runtimeLabel) · headless server \(serverState)"
+            routerMessage(.ollamaRuntime, ["runtime": "\(runtimeLabel)", "state": "\(serverState)"])
           )
             .font(.system(size: 8))
             .foregroundStyle(runtime.installed == true ? routerMint : routerYellow)
@@ -7906,17 +7888,13 @@ private struct TrayView: View {
         }
         if let families = localModels?.families, !families.isEmpty {
           Text(
-            RouterLanguage.isSimplifiedChinese
-              ? "上方已按系列归类 \(families.count) 个 Ollama 系列的具体标签。"
-              : "\(families.count) Ollama families; exact tags are grouped above."
+            routerMessage(.ollamaFamilySummary, ["count": "\(families.count)"])
           )
             .font(.system(size: 8))
             .foregroundStyle(routerMuted)
         }
         Text(
-          RouterLanguage.isSimplifiedChinese
-            ? "安装后会使用 Ollama 的评测计数器测量速度；未测量的模型不会显示臆造的数字。"
-            : "Speed is measured after install with Ollama's eval counters; unmeasured models show no invented number."
+          routerMessage(.benchmarkExplanation)
         )
           .font(.system(size: 8))
           .foregroundStyle(routerMuted)
@@ -8061,9 +8039,7 @@ private struct TrayView: View {
             .font(.system(size: 9, weight: .medium))
             .lineLimit(1)
           Text(
-            RouterLanguage.isSimplifiedChinese
-              ? "\(routerLocalized(model.accuracy)) · \(routerLocalized(model.fit))"
-              : "\(model.accuracy) · \(model.fit)"
+            routerMessage(.modelMetadata, ["accuracy": "\(routerLocalized(model.accuracy))", "fit": "\(routerLocalized(model.fit))"])
           )
             .font(.system(size: 8))
             .foregroundStyle(model.accuracy == "accurate" ? routerMint : routerMuted)
@@ -8341,7 +8317,7 @@ private struct TrayView: View {
         Text(localRoleLabel(model))
           .foregroundStyle(localRoleColor(model))
         if let accuracy = model.accuracy, model.vision {
-          Text("· \(RouterLanguage.isSimplifiedChinese ? routerLocalized(accuracy) : accuracy)")
+          Text("· \(routerLocalized(accuracy))")
             .foregroundStyle(accuracy == "accurate" ? routerMint : routerRed)
         }
         if let speed = model.tokensPerSecond {
@@ -8469,16 +8445,16 @@ private struct TrayView: View {
   private func localFamilySummary(_ family: LocalCatalogFamily) -> String {
     let fits = family.models.filter(localModelFits).count
     let cloud = family.models.filter { $0.downloadable == false }.count
-    var parts = [RouterLanguage.isSimplifiedChinese ? "\(family.models.count) 个标签" : "\(family.models.count) tags"]
+    var parts = [routerMessage(.tagCount, ["count": "\(family.models.count)"])]
     if fits > 0 {
-      parts.append(RouterLanguage.isSimplifiedChinese ? "\(fits) 个适配" : "\(fits) fit")
+      parts.append(routerMessage(.fitCount, ["count": "\(fits)"]))
     } else if cloud == family.models.count {
       parts.append(routerLocalized("cloud only"))
     } else {
       parts.append(routerLocalized("none fit"))
     }
     if cloud > 0 && cloud < family.models.count {
-      parts.append(RouterLanguage.isSimplifiedChinese ? "\(cloud) 个云端" : "\(cloud) cloud")
+      parts.append(routerMessage(.cloudCount, ["count": "\(cloud)"]))
     }
       return parts.joined(separator: " · ")
     }
@@ -8547,15 +8523,13 @@ private struct TrayView: View {
       guard let localModels, localModels.installed > 0 else {
         let available = localModels?.availableExplore?.count ?? 0
         return available > 0
-          ? (RouterLanguage.isSimplifiedChinese ? "尚未安装 · 有 \(available) 个可用" : "none installed · \(available) available")
+          ? (routerMessage(.availableNone, ["count": "\(available)"]))
           : routerLocalized("none installed")
       }
       let chat = localModels.usableAsChat ?? 0
       let available = localModels.availableExplore?.count ?? 0
-      let suffix = available > 0 ? " · \(available) available" : ""
-      return RouterLanguage.isSimplifiedChinese
-        ? "已安装 \(localModels.installed) 个 · \(chat) 个可用于 Codex · \(String(format: "%.1f", localModels.totalGb)) GB\(suffix.replacingOccurrences(of: " available", with: " 个可用"))"
-        : "\(localModels.installed) installed · \(chat) for Codex · \(String(format: "%.1f", localModels.totalGb)) GB\(suffix)"
+      let suffix = available > 0 ? routerMessage(.availableSuffix, ["count": "\(available)"]) : ""
+      return routerMessage(.installedSummary, ["count": "\(localModels.installed)", "chat": "\(chat)", "size": "\(String(format: "%.1f", localModels.totalGb))", "suffix": "\(suffix)"])
     }
 
     private var canInstall: Bool {
@@ -8586,7 +8560,7 @@ private struct TrayView: View {
         toggleRow(
           title: routerLocalized("Read images for text-only models"),
           detail: visionEnabled
-            ? (RouterLanguage.isSimplifiedChinese ? "读取引擎：\(currentEngineLabel)" : "Reading via \(currentEngineLabel)")
+            ? (routerMessage(.readerEngine, ["engine": "\(currentEngineLabel)"]))
             : routerLocalized("Off — text-only models refuse pasted images"),
           isOn: Binding(
             get: { store.visionBridgeEnabled(authoritative: vision?.enabled == true) },
@@ -8843,17 +8817,13 @@ private struct TrayView: View {
       let mode = store.subagentModeAll(authoritative: settings?.subagents.mode == "all")
         ? "all"
         : (settings?.subagents.mode ?? "proven")
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(count) 个已启用 · \(mode)"
-        : "\(count) enabled · \(mode)"
+      return routerMessage(.enabledSummary, ["count": "\(count)", "mode": "\(mode)"])
     }
 
     private var pickerSummary: String {
       let visible = enabledModels.filter { isPickerVisible($0) }.count
       let hidden = enabledModels.count - visible
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(visible) 个显示 · \(hidden) 个隐藏"
-        : "\(visible) visible · \(hidden) hidden"
+      return routerMessage(.visibilitySummary, ["visible": "\(visible)", "hidden": "\(hidden)"])
     }
 
     private func toggleRow(
@@ -9569,16 +9539,14 @@ private struct ProviderSetupRow: View {
         VStack(alignment: .leading, spacing: 5) {
           Text(
             setup?.configured == true
-              ? (RouterLanguage.isSimplifiedChinese ? "替换\(credentialLabel)" : "Replacement \(credentialLabel)")
+              ? (routerMessage(.credentialReplacement, ["credential": "\(credentialLabel)"]))
               : credentialLabel
           )
             .font(.system(size: 9, weight: .medium))
             .foregroundStyle(routerMuted)
           HStack(spacing: 7) {
             SecureField(
-              RouterLanguage.isSimplifiedChinese
-                ? "粘贴\(credentialLabel)"
-                : "Paste \(credentialLabel.lowercased())",
+              routerMessage(.credentialPaste, ["credential": "\(credentialLabel.lowercased())"]),
               text: $apiKey
             )
               .textFieldStyle(.plain)
@@ -9624,7 +9592,7 @@ private struct ProviderSetupRow: View {
     }
     if setup.configured {
       let visibility = provider.enabled ? routerLocalized("Available in Codex") : routerLocalized("Hidden from Codex")
-      return RouterLanguage.isSimplifiedChinese ? "就绪 · \(visibility)" : "Ready · \(visibility)"
+      return routerMessage(.readyVisibility, ["visibility": "\(visibility)"])
     }
     switch setup.action {
     case "install": return routerLocalized("Official CLI required")
@@ -9707,7 +9675,7 @@ private struct ProviderSetupRow: View {
           .help(
             showingKeyField
               ? routerLocalized("Cancel credential replacement")
-              : (RouterLanguage.isSimplifiedChinese ? "替换\(credentialLabel)" : "Replace \(credentialLabel)")
+              : (routerMessage(.credentialReplace, ["credential": "\(credentialLabel)"]))
           )
           .disabled(controlsDisabled)
 
@@ -9723,7 +9691,7 @@ private struct ProviderSetupRow: View {
           .help(
             removalArmed
               ? routerLocalized("Click again to delete the stored credential")
-              : (RouterLanguage.isSimplifiedChinese ? "移除已保存的\(credentialLabel)" : "Remove stored \(credentialLabel)")
+              : (routerMessage(.credentialRemove, ["credential": "\(credentialLabel)"]))
           )
           .disabled(controlsDisabled)
         }
@@ -9769,7 +9737,7 @@ private struct ProviderSetupRow: View {
       guard !showingKeyField else { return routerLocalized("Cancel") }
       return credentialLabel == routerLocalized("API key")
         ? routerLocalized("Add Key")
-        : (RouterLanguage.isSimplifiedChinese ? "添加\(credentialLabel)" : "Add \(credentialLabel)")
+        : (routerMessage(.credentialAdd, ["credential": "\(credentialLabel)"]))
     case "probe": return routerLocalized("Test & Enable")
     default: return routerLocalized("Checking…")
     }
@@ -9887,7 +9855,7 @@ private struct ProviderUsageSection: View {
         Spacer()
         if store.selectedUsageUsesChatGPT,
            let streak = store.accountUsage?.summary.currentStreakDays {
-          Text(RouterLanguage.isSimplifiedChinese ? "连续 \(streak) 天" : "\(streak)-day streak")
+          Text(routerMessage(.streakDays, ["count": "\(streak)"]))
         }
       }
       .font(.system(size: 9))
@@ -9933,7 +9901,7 @@ private struct ProviderUsageSection: View {
   private var primaryMetric: String {
     if store.selectedUsageUsesChatGPT {
       guard let value = store.accountUsage?.primary?.remainingPercent else { return "—" }
-      return RouterLanguage.isSimplifiedChinese ? "剩余 \(value)%" : "\(value)% left"
+      return routerMessage(.remainingPercent, ["count": "\(value)"])
     }
     guard store.providerUsage != nil else { return "—" }
     if let metric = store.selectedAccountMetric { return formattedAccountMetric(metric) }
@@ -9957,9 +9925,7 @@ private struct ProviderUsageSection: View {
         if let detail = metric.detail, !detail.isEmpty { return detail }
         return standardizedLimitLabel(metric.label)
       }
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(usage.credentialType.uppercased()) 流量 · \(routerLocalized("measured on this Mac"))"
-        : "\(usage.credentialType.uppercased()) traffic · measured on this Mac"
+      return routerMessage(.providerTraffic, ["provider": "\(usage.credentialType.uppercased())"])
     }
     return routerLocalized("Loading native Codex usage…")
   }
@@ -9969,13 +9935,9 @@ private struct ProviderUsageSection: View {
     let formattedTotal = self.tokenDisplayUnit.format(total)
     if !store.selectedUsageUsesChatGPT {
       let requests = store.localUsageTotals(days: range.rawValue).requests
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(formattedTotal) token · \(requests) 个请求 · 近 \(range.rawValue) 天"
-        : "\(formattedTotal) tokens · \(requests) requests over \(range.rawValue) days"
+      return routerMessage(.periodRequests, ["tokens": "\(formattedTotal)", "requests": "\(requests)", "days": "\(range.rawValue)"])
     }
-    let caption = RouterLanguage.isSimplifiedChinese
-      ? "\(formattedTotal) token · 近 \(range.rawValue) 天"
-      : "\(formattedTotal) tokens over \(range.rawValue) days"
+    let caption = routerMessage(.periodTokens, ["tokens": "\(formattedTotal)", "days": "\(range.rawValue)"])
     guard fallbackDays > 0 else { return caption }
     let suffix = fallbackDays == 1
       ? routerLocalized("1 local fallback date")
@@ -10098,9 +10060,7 @@ private struct CurrentUsageLimitCard: View {
   private var metricText: String {
     if let metric = card.metric { return formattedAccountMetric(metric) }
     guard let remaining = card.remainingPercent else { return "—" }
-    return RouterLanguage.isSimplifiedChinese
-      ? "剩余 \(Int(remaining.rounded()))%"
-      : "\(Int(remaining.rounded()))% left"
+    return routerMessage(.remainingPercent, ["count": "\(Int(remaining.rounded()))"])
   }
 
   private var resetText: String {
@@ -10168,9 +10128,7 @@ private struct ModelUsageBreakdown: View {
 
       if hiddenCount > 0 {
         Text(
-          RouterLanguage.isSimplifiedChinese
-            ? "还有 \(hiddenCount) 个模型"
-            : "+\(hiddenCount) more model\(hiddenCount == 1 ? "" : "s")"
+          routerMessage(hiddenCount == 1 ? .moreModelsOne : .moreModels, ["count": "\(hiddenCount)"])
         )
           .font(.system(size: 8.5))
           .foregroundStyle(routerMuted)
@@ -10185,26 +10143,20 @@ private struct ModelUsageBreakdown: View {
 
   private func primaryLabel(for row: ModelUsageRow) -> String {
     guard row.model.totalTokens > 0 else {
-      return RouterLanguage.isSimplifiedChinese ? "\(row.model.requests) 个请求" : "\(row.model.requests) req"
+      return routerMessage(.requestsShort, ["count": "\(row.model.requests)"])
     }
-    return RouterLanguage.isSimplifiedChinese
-      ? "\(compactTokenCount(Double(row.model.totalTokens))) token"
-      : "\(compactTokenCount(Double(row.model.totalTokens))) tok"
+    return routerMessage(.tokenCountCompact, ["tokens": "\(compactTokenCount(Double(row.model.totalTokens)))"])
   }
 
   private func detailLabel(for row: ModelUsageRow) -> String {
     // A model with traffic but no metered response carries no token counts;
     // say so rather than implying it burned nothing.
     guard row.model.totalTokens > 0 else {
-      return RouterLanguage.isSimplifiedChinese
-        ? "\(row.model.requests) 个请求 · 未计量"
-        : "\(row.model.requests) req · not metered"
+      return routerMessage(.requestsUnmetered, ["count": "\(row.model.requests)"])
     }
     let input = compactTokenCount(Double(row.model.inputTokens))
     let output = compactTokenCount(Double(row.model.outputTokens))
-    return RouterLanguage.isSimplifiedChinese
-      ? "输入 \(input) · 输出 \(output) · \(row.model.requests) 个请求"
-      : "\(input) in · \(output) out · \(row.model.requests) req"
+    return routerMessage(.inputOutputRequests, ["input": "\(input)", "output": "\(output)", "requests": "\(row.model.requests)"])
   }
 }
 
@@ -10283,14 +10235,10 @@ private struct AllProviderUsageCard: View {
     }
     .buttonStyle(.plain)
     .help(
-      RouterLanguage.isSimplifiedChinese
-        ? "显示 \(card.provider.displayName) 用量"
-        : "Show \(card.provider.displayName) usage"
+      routerMessage(.providerUsage, ["provider": "\(card.provider.displayName)"])
     )
     .accessibilityLabel(
-      RouterLanguage.isSimplifiedChinese
-        ? "显示 \(card.provider.displayName) 用量"
-        : "Show \(card.provider.displayName) usage"
+      routerMessage(.providerUsage, ["provider": "\(card.provider.displayName)"])
     )
   }
 
@@ -10311,9 +10259,7 @@ private struct AllProviderUsageCard: View {
     if oauthNeedsReconnect { return routerLocalized("Reconnect") }
     if let metric = card.metric { return formattedAccountMetric(metric) }
     if let remaining = card.remainingPercent {
-      return RouterLanguage.isSimplifiedChinese
-        ? "剩余 \(Int(remaining.rounded()))%"
-        : "\(Int(remaining.rounded()))% left"
+      return routerMessage(.remainingPercent, ["count": "\(Int(remaining.rounded()))"])
     }
     if card.providerID == "openai" { return "—" }
     return store.localUsageSummary(for: card.providerID, days: 7)
@@ -10329,14 +10275,12 @@ private struct AllProviderUsageCard: View {
     }
     if localTotals.requests > 0 || localTotals.tokens > 0 {
       if localTotals.tokens > 0, localTotals.requests > 0 {
-        return RouterLanguage.isSimplifiedChinese
-          ? "近 7 天本地 · \(localTotals.requests) 个请求"
-          : "7D local · \(localTotals.requests) requests"
+        return routerMessage(.recentLocalRequests, ["count": "\(localTotals.requests)"])
       }
       if localTotals.requests > 0 {
-        return RouterLanguage.isSimplifiedChinese ? "近 7 天本地 · 未报告 token" : "7D local · tokens not reported"
+        return routerMessage(.recentLocalUnreported)
       }
-      return RouterLanguage.isSimplifiedChinese ? "近 7 天本地流量" : "7D local traffic"
+      return routerMessage(.recentLocalTraffic)
     }
     if card.provider.isEnabled { return routerLocalized("No router traffic yet") }
     return routerLocalized("Configured · currently hidden")
@@ -10528,7 +10472,7 @@ struct UsageBarChart: View {
   private func hoverText(for point: DailyUsagePoint) -> String {
     let date = point.date.usageDayLabel(.dateTime.weekday(.abbreviated).month(.abbreviated).day())
     let tokens = self.tokenDisplayUnit.format(point.tokens)
-    let text = RouterLanguage.isSimplifiedChinese ? "\(date) · \(tokens) token" : "\(date) · \(tokens) tokens"
+    let text = routerMessage(.dateTokens, ["date": "\(date)", "tokens": "\(tokens)"])
     guard point.isRouterFallback else { return text }
     return "\(text) · \(routerLocalized("local fallback"))"
   }
@@ -10608,28 +10552,24 @@ func usageResetCaption(_ date: Date) -> String {
 
 // How long until a quota window reopens -- the number people actually scan
 // the reset list for. The absolute clock time is resetClockLabel's job.
-// `chinese` is a parameter (not read inline) so tests stay deterministic while
-// the Tray language suite mutates the process-wide selection in parallel.
+// Explicit language makes tests deterministic while other suites change the
+// process preference. The optional Bool preserves existing caller compatibility.
 func resetCountdownLabel(
   _ date: Date,
   now: Date = Date(),
-  chinese: Bool = RouterLanguage.isSimplifiedChinese
+  chinese: Bool? = nil,
+  language: ResolvedTrayLanguage = RouterLanguage.resolution
 ) -> String {
+  let resolved = chinese.map { $0 ? ResolvedTrayLanguage.chinese : .english } ?? language
   let seconds = date.timeIntervalSince(now)
-  if seconds <= 0 { return chinese ? "即将重置" : "resets soon" }
+  if seconds <= 0 { return routerMessage(.resetSoon, language: resolved) }
   let minutes = Int(seconds / 60)
-  if minutes < 60 {
-    return chinese ? "\(minutes) 分钟后" : "in \(minutes)m"
-  }
+  if minutes < 60 { return routerMessage(.resetMinutes, ["minutes": "\(minutes)"], language: resolved) }
   let hours = minutes / 60
   if hours < 24 {
-    return chinese
-      ? "\(hours) 小时 \(minutes % 60) 分后"
-      : "in \(hours)h \(minutes % 60)m"
+    return routerMessage(.resetHours, ["hours": "\(hours)", "minutes": "\(minutes % 60)"], language: resolved)
   }
-  return chinese
-    ? "\(hours / 24) 天 \(hours % 24) 小时后"
-    : "in \(hours / 24)d \(hours % 24)h"
+  return routerMessage(.resetDays, ["days": "\(hours / 24)", "hours": "\(hours % 24)"], language: resolved)
 }
 
 // Just enough calendar context for the countdown: time today, weekday inside

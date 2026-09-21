@@ -446,3 +446,23 @@ private extension RouterWidgetSnapshot {
     )
   }
 }
+
+final class TraditionalChineseWidgetTests: XCTestCase {
+  func testIdentifiersPreserveOldSnapshots() {
+    for tag in ["traditionalChinese", "zh-TW", "zh-Hant", "zh-HK", "zh_MO", "zh-Hant-CN"] {
+      XCTAssertEqual(RouterWidgetLanguage.resolve(tag), .traditionalChinese)
+    }
+    for tag in ["chinese", "zh-CN", "zh-Hans-TW", "zh"] {
+      XCTAssertEqual(RouterWidgetLanguage.resolve(tag), .chinese)
+    }
+    XCTAssertEqual(RouterWidgetLanguage.resolve("japanese"), .english)
+    XCTAssertEqual(RouterWidgetLanguage.publishedIdentifier(for: .traditionalChinese), "traditionalChinese")
+  }
+
+  func testCompleteCatalogsAndValues() {
+    XCTAssertEqual(Set(RouterWidgetChineseText.values.keys), Set(RouterWidgetTraditionalChineseText.values.keys))
+    XCTAssertEqual(RouterWidgetLanguage.traditionalChinese.text("Waiting for router data"), "正在等待路由資料")
+    XCTAssertEqual(RouterWidgetLanguage.traditionalChinese.format("%d percent left", 42), "剩餘 42%")
+    XCTAssertEqual(RouterWidgetLanguage.traditionalChinese.text("vendor/unknown-id"), "vendor/unknown-id")
+  }
+}

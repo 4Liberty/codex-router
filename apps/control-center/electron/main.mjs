@@ -24,7 +24,7 @@ import {
 } from "./lifecycle-state.mjs";
 import { controlCenterDestination, controlCenterNavigationURL } from "./navigation.mjs";
 
-import { interfaceMenuTemplates, isInterfaceLanguage } from "./interface-menu.mjs";
+import { interfaceMenuTemplates, isInterfaceLanguage, initialInterfaceLanguage } from "./interface-menu.mjs";
 
 let interfaceLanguage = "en";
 
@@ -341,7 +341,7 @@ if (primaryInstance && !quitForUpdateInvocation) {
   // lock. The ready bit is raised only after the full Electron boundary is set.
   publishLifecycleState();
   app.whenReady().then(() => {
-    interfaceLanguage = /^zh/i.test(app.getLocale()) ? "zh-CN" : "en";
+    interfaceLanguage = initialInterfaceLanguage(app.getLocale());
     updateInterfaceMenus();
     if (process.platform !== "darwin") {
       Menu.setApplicationMenu(null);

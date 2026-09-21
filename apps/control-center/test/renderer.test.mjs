@@ -1310,7 +1310,63 @@ test("health polling and core refresh share latest-wins ordering", { timeout: 12
   }
 });
 
-test("Chinese interface covers every page, dialogs and search, and survives language changes", { timeout: 120_000 }, async () => {
+for (const { language, copy } of [
+  {
+    "language": "zh-CN",
+    "copy": {
+      "settings": "设置",
+      "language": "界面语言",
+      "refresh": "刷新所有数据",
+      "addModels": "添加模型",
+      "closeDialog": "关闭对话框",
+      "repair": "运行诊断修复",
+      "repairTitle": "运行诊断修复？",
+      "cancel": "取消",
+      "search": "搜索控制中心",
+      "searchInput": "搜索控制中心页面",
+      "empty": "没有匹配的页面",
+      "effort": "高 (high)",
+      "nav": [
+        "总览",
+        "用量",
+        "状态",
+        "模型",
+        "本地",
+        "工具链",
+        "上下文管理",
+        "设置"
+      ]
+    }
+  },
+  {
+    "language": "zh-TW",
+    "copy": {
+      "settings": "設定",
+      "language": "介面語言",
+      "refresh": "重新整理所有資料",
+      "addModels": "加入模型",
+      "closeDialog": "關閉對話框",
+      "repair": "執行診斷修復",
+      "repairTitle": "執行診斷修復？",
+      "cancel": "取消",
+      "search": "搜尋控制中心",
+      "searchInput": "搜尋控制中心區段",
+      "empty": "找不到符合的區段",
+      "effort": "高 (high)",
+      "nav": [
+        "總覽",
+        "用量",
+        "狀態",
+        "模型",
+        "本機",
+        "工具鏈",
+        "Context 管理",
+        "設定"
+      ]
+    }
+  }
+]) {
+test(`${language} covers every page, dialogs, raw values, English round trips and persistence`, { timeout: 120_000 }, async () => {
   const { url, close } = await serveRenderer();
   const browser = await chromium.launch({
     executablePath: chromiumPath,
@@ -1326,10 +1382,10 @@ test("Chinese interface covers every page, dialogs and search, and survives lang
     page.on("pageerror", error => errors.push(error.message));
     await page.goto(url);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
-    await page.getByRole("combobox", { name: "Interface language" }).selectOption("zh-CN");
-    await page.getByRole("heading", { level: 1, name: "设置" }).waitFor();
+    await page.getByRole("combobox", { name: "Interface language" }).selectOption(language);
+    await page.getByRole("heading", { level: 1, name: copy.settings }).waitFor();
     const ids = ["dashboard", "usage", "status", "models", "local", "harness", "context", "settings"];
-    const names = ["总览", "用量", "状态", "模型", "本地", "工具链", "上下文管理", "设置"];
+    const names = copy.nav;
     for (const [index, id] of ids.entries()) {
       const nav = page.locator(".primary-nav button").nth(index);
       assert.match(await nav.innerText(), new RegExp(names[index]));
@@ -1341,46 +1397,48 @@ test("Chinese interface covers every page, dialogs and search, and survives lang
       assert.doesNotMatch(visibleText, /Rolling window|Monthly credits|Daily DIEM allowance/, `${id} has an untranslated account label`);
       assert.doesNotMatch(visibleText, /\{(?:count|name|label|title|period|hours)\}/, `${id} has an unexpanded translation`);
       assert.equal(await page.getByRole("button", { name: "Refresh all data", exact: true }).count(), 0);
-      assert.equal(await page.getByRole("button", { name: "刷新所有数据", exact: true }).count(), 1);
+      assert.equal(await page.getByRole("button", { name: copy.refresh, exact: true }).count(), 1);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `${id} overflows the window`);
       if (artifacts) {
-        await page.screenshot({ path: path.join(artifacts, `${id}-zh.png`) });
-        writeFileSync(path.join(artifacts, `${id}-zh.txt`), visibleText);
+        await page.screenshot({ path: path.join(artifacts, `${id}-${language}.png`) });
+        writeFileSync(path.join(artifacts, `${id}-${language}.txt`), visibleText);
       }
     }
     await page.locator(".primary-nav button").nth(3).click();
     const family = page.locator(".pm-family-row").filter({ hasText: "DeepSeek Chat" });
     await family.locator(".pm-family-open").click();
     await family.locator(".pm-effort-trigger").click();
-    await family.getByRole("menuitemradio", { name: "高 (high)", exact: true }).click();
+    await family.getByRole("menuitemradio", { name: copy.effort, exact: true }).click();
     await page.waitForFunction(() => window.routerControlTest.calls().some(call => call.name === "setSubagentEffort" && call.args[1] === "high"));
-    await page.getByRole("button", { name: "添加模型", exact: true }).click();
-    const addDialog = page.getByRole("dialog", { name: "添加模型", exact: true });
+    await page.getByRole("button", { name: copy.addModels, exact: true }).click();
+    const addDialog = page.getByRole("dialog", { name: copy.addModels, exact: true });
     await addDialog.waitFor();
-    await addDialog.getByRole("button", { name: "关闭对话框", exact: true }).click();
+    await addDialog.getByRole("button", { name: copy.closeDialog, exact: true }).click();
     await page.locator(".primary-nav button").nth(7).click();
-    await page.getByRole("button", { name: "运行诊断修复", exact: true }).click();
-    await page.getByRole("dialog", { name: "运行诊断修复？", exact: true }).waitFor();
-    await page.getByRole("button", { name: "取消", exact: true }).click();
+    await page.getByRole("button", { name: copy.repair, exact: true }).click();
+    await page.getByRole("dialog", { name: copy.repairTitle, exact: true }).waitFor();
+    await page.getByRole("button", { name: copy.cancel, exact: true }).click();
     assert.equal(await page.evaluate(() => window.routerControlTest.calls().filter(call => call.name === "repairInstall").length), 0, "canceling the localized dialog must not perform maintenance");
-    await page.getByRole("button", { name: "搜索控制中心", exact: true }).click();
-    const search = page.getByRole("searchbox", { name: "搜索控制中心页面" });
+    await page.getByRole("button", { name: copy.search, exact: true }).click();
+    const search = page.getByRole("searchbox", { name: copy.searchInput });
     await search.fill("模型");
-    await page.getByRole("dialog", { name: "搜索控制中心" }).getByRole("option", { name: /模型/ }).first().waitFor();
+    await page.getByRole("dialog", { name: copy.search }).getByRole("option", { name: /模型/ }).first().waitFor();
     await search.fill("不存在的页面xyz");
-    await page.getByText("没有匹配的页面", { exact: true }).waitFor();
+    await page.getByText(copy.empty, { exact: true }).waitFor();
     await search.press("Escape");
-    await page.getByRole("combobox", { name: "界面语言" }).selectOption("en");
+    await page.getByRole("combobox", { name: copy.language }).selectOption("en");
     await page.getByRole("heading", { level: 1, name: "Settings" }).waitFor();
     await page.getByText("Router online", { exact: true }).waitFor();
-    await page.getByRole("combobox", { name: "Interface language" }).selectOption("zh-CN");
+    await page.getByRole("combobox", { name: "Interface language" }).selectOption(language);
     await page.reload();
-    await page.getByRole("heading", { level: 1, name: "设置" }).waitFor();
-    assert.equal(await page.locator("html").getAttribute("lang"), "zh-CN");
-    assert.equal(await page.getByRole("combobox", { name: "界面语言" }).inputValue(), "zh-CN");
+    await page.getByRole("heading", { level: 1, name: copy.settings }).waitFor();
+    assert.equal(await page.locator("html").getAttribute("lang"), language);
+    assert.equal(await page.getByRole("combobox", { name: copy.language }).inputValue(), language);
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
     await close();
   }
 });
+
+}

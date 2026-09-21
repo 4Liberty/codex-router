@@ -4,14 +4,15 @@ import { uiText, effortLabel } from "../apps/control-center/src/ui-text.ts";
 import { storeLanguage, detectLanguage } from "../apps/control-center/src/i18n.ts";
 import { formatDateTime, metricValue } from "../apps/control-center/src/lib.ts";
 import { serviceHealthRows } from "../apps/control-center/src/service-health.ts";
-import { analyticsZh } from "../apps/control-center/src/locales/analytics.zh.ts";
-import { catalogZh } from "../apps/control-center/src/locales/catalog.zh.ts";
-import { commonZh } from "../apps/control-center/src/locales/common.zh.ts";
+import { messageCatalogs } from "../apps/control-center/src/i18n.ts";
 
 test("Chinese translation templates preserve every interpolation", () => {
   const tokens = value => [...value.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
-  for (const dictionary of [analyticsZh, catalogZh, commonZh]) {
-    for (const [source, translation] of Object.entries(dictionary)) {
+  for (const language of ["zh-CN", "zh-TW"]) {
+    const dictionary = messageCatalogs[language];
+    assert.deepEqual(Object.keys(dictionary).sort(), Object.keys(messageCatalogs.en).sort());
+    for (const [key, translation] of Object.entries(dictionary)) {
+      const source = messageCatalogs.en[key];
       assert.ok(translation.trim(), `empty translation: ${source}`);
       assert.deepEqual(tokens(translation), tokens(source), `interpolation drift: ${source}`);
     }

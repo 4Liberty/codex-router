@@ -1,3 +1,4 @@
+import { backendText } from "../backend-text";
 import { useMemo, useState } from "react";
 import {
   Activity,
@@ -13,8 +14,7 @@ import { Badge, Button, EmptyState, InlineNotice, PageHeader, PanelSkeleton, Sec
 import { ProviderLogo } from "../provider-branding";
 import { ServiceHealthPanel } from "../ServiceHealth";
 import { useOptimisticValues, type RunAction } from "../useOptimisticValues";
-import { detectLanguage } from "../i18n";
-import { uiLocale, uiText } from "../ui-text";
+import { useI18n, type Translate } from "../i18n";
 import {
   classNames,
   compactNumber,
@@ -163,11 +163,11 @@ export function DashboardPage({
   const accountPending = !dataReady.accountUsage && !account;
   const providerUsagePending = !dataReady.providerUsage && !providerUsage;
   const quotaPending = !account && !providerUsage && (accountPending || providerUsagePending);
+  const t = useI18n();
   // Every prop can be undefined on first paint and after a failed refresh, so
   // each tile below separates three cases: still loading, reported-but-absent,
   // and a genuine zero. A missing field must never render as 0.
-  const language = detectLanguage();
-  const pending = refreshing ? uiText("Checking") : uiText("Unavailable");
+  const pending = refreshing ? t("status.summary.checking") : t("status.summary.unavailable");
 
   const activity = health?.activity;
   const active: ActiveRequest[] = activity?.active ?? [];
@@ -216,7 +216,7 @@ export function DashboardPage({
   const requests24h = reportedRequests24h ?? rollupRequests24h ?? eventRequests24h;
   const usageMeasured = Boolean(providerUsage || target?.usageEvents || eventHours?.length);
 
-  const metrics = useMemo(() => collectMetrics(account, providerUsage), [account, providerUsage, language]);
+  const metrics = useMemo(() => collectMetrics(t, account, providerUsage), [account, providerUsage, t]);
   const quotaLoaded = Boolean(account || providerUsage);
   const nextReset = useMemo(() => {
     const now = Date.now();
@@ -253,95 +253,78 @@ export function DashboardPage({
   const tiles: SummaryTile[] = [
     {
       id: "router",
-      label: uiText("Router state"),
+      label: t("dashboard.tile.routerState"),
       icon: Activity,
-      value: health ? health.ok ? uiText("Online") : uiText("Offline") : pending,
+      value: health ? health.ok ? t("status.summary.online") : t("status.summary.offline") : pending,
       detail: health
         ? health.ok
-          ? health.version
-            ? uiText("{state} · version {version}", { state: activityLabel(routerState), version: health.version })
-            : activityLabel(routerState)
-          : health.error || uiText("The local health endpoint did not answer")
-        : refreshing ? uiText("Contacting the local health endpoint") : uiText("Router health has not been read"),
+          ? `${activityLabel(routerState, t)}${health.version ? t("dashboard.tile.version", { version: health.version }) : ""}`
+          : health.error || t("dashboard.tile.healthNoAnswer")
+        : refreshing ? t("dashboard.tile.contacting") : t("dashboard.tile.healthUnread"),
       tone: health ? health.ok ? "success" : "danger" : undefined,
       view: "status",
-      viewLabel: uiText("Status"),
+      viewLabel: t("dashboard.view.status"),
       pending: healthPending,
     },
     {
       id: "live",
-      label: uiText("Live now"),
+      label: t("dashboard.tile.liveNow"),
       icon: Waypoints,
-      value: !health ? pending : activityMeasured ? exactNumber(liveCount) : uiText("Not measured"),
+      value: !health ? pending : activityMeasured ? exactNumber(liveCount) : t("dashboard.tile.notMeasured"),
       detail: !health
-        ? uiText("Waiting for the first health response")
+        ? t("dashboard.tile.waitingHealth")
         : activityMeasured
-          ? uiText("{chats} · {agents}", {
-              chats: countPhrase(chatCount, "1 chat", "{count} chats"),
-              agents: countPhrase(subagents.length, "1 subagent", "{count} subagents"),
-            })
-          : uiText("This router build does not report live activity"),
+          ? `${exactNumber(chatCount)} ${t(chatCount === 1 ? "dashboard.word.chat" : "dashboard.word.chats")} · ${exactNumber(subagents.length)} ${t(subagents.length === 1 ? "dashboard.word.subagent" : "dashboard.word.subagents")}`
+          : t("dashboard.tile.liveUnreported"),
       tone: activityMeasured && (liveCount || 0) > 0 ? "accent" : undefined,
       view: "status",
-      viewLabel: uiText("Status"),
+      viewLabel: t("dashboard.view.status"),
       pending: healthPending,
     },
     {
       id: "tokens",
-      label: uiText("Tokens, last 24h"),
+      label: t("dashboard.tile.tokensLabel"),
       icon: CircleGauge,
-      value: !usageMeasured ? pending : tokens24h === null ? uiText("Not measured") : compactNumber(tokens24h),
+      value: !usageMeasured ? pending : tokens24h === null ? t("dashboard.tile.notMeasured") : compactNumber(tokens24h),
       detail: !usageMeasured
-        ? uiText("Waiting for router usage telemetry")
+        ? t("dashboard.tile.waitingTelemetry")
         : tokens24h === null
-          ? uiText("No provider or event reports a rolling 24-hour window")
-          : uiText("{tokens} router tokens{requests} · {source}", {
-              tokens: exactNumber(tokens24h),
-              requests: requests24h === null ? "" : ` · ${countPhrase(requests24h, "1 request", "{count} requests")}`,
-              source: uiText(reportedTokens24h !== null ? "sum of provider rows" : rollupTokens24h !== null ? "sum of the router's hourly rollup" : "sum of recent event details"),
-            }),
+          ? t("dashboard.tile.noRollingWindow")
+          : `${t("dashboard.tile.routerTokens", { count: exactNumber(tokens24h) })}${requests24h === null ? "" : t("dashboard.tile.requestsSuffix", { count: exactNumber(requests24h), word: t(requests24h === 1 ? "dashboard.word.request" : "dashboard.word.requests") })} · ${reportedTokens24h !== null ? t("dashboard.tile.source.providerRows") : rollupTokens24h !== null ? t("dashboard.tile.source.hourlyRollup") : t("dashboard.tile.source.eventDetails")}`,
       view: "usage",
-      viewLabel: uiText("Usage"),
+      viewLabel: t("dashboard.view.usage"),
       pending: snapshotPending && !providerUsage,
     },
     {
       id: "reset",
-      label: uiText("Next quota reset"),
+      label: t("dashboard.tile.nextReset"),
       icon: Clock3,
-      value: !quotaLoaded ? pending : nextReset ? resetCountdown(nextReset.resetAt) : uiText("Not reported"),
+      value: !quotaLoaded ? pending : nextReset ? resetCountdown(nextReset.resetAt, t) : t("dashboard.tile.notReported"),
       detail: !quotaLoaded
-        ? uiText("Waiting for account and provider usage")
+        ? t("dashboard.tile.waitingUsage")
         : nextReset
-          ? uiText("{provider}, {label} · {time}", {
-              provider: nextReset.entry.provider,
-              label: nextReset.entry.label,
-              time: formatDateTime(nextReset.resetAt),
-            })
-          : uiText("No connected account exposed a reset timestamp"),
+          ? `${nextReset.entry.provider}, ${nextReset.entry.label} · ${formatDateTime(nextReset.resetAt, t)}`
+          : t("dashboard.tile.noResetTimestamp"),
       view: "usage",
-      viewLabel: uiText("Usage"),
+      viewLabel: t("dashboard.view.usage"),
       pending: quotaPending,
     },
     {
       id: "allowance",
-      label: uiText("Lowest allowance"),
+      label: t("dashboard.tile.lowestAllowance"),
       icon: Gauge,
       value: !quotaLoaded
         ? pending
-        : lowestAllowance ? uiText("{percent}% left", { percent: Math.round(lowestAllowance.percent) }) : uiText("Not measured"),
+        : lowestAllowance ? t("dashboard.tile.percentLeft", { percent: Math.round(lowestAllowance.percent) }) : t("dashboard.tile.notMeasured"),
       detail: !quotaLoaded
-        ? uiText("Waiting for account and provider usage")
+        ? t("dashboard.tile.waitingUsage")
         : lowestAllowance
-          ? uiText("{provider}, {label}{plan}", {
-              provider: lowestAllowance.entry.provider,
-              label: lowestAllowance.entry.label,
-              plan: account?.planType ? uiText(" · {plan} plan", { plan: friendlyPlanName(account.planType) }) : "",
-            })
-          : uiText("No connected account reports a remaining share"),
+          ? `${lowestAllowance.entry.provider}, ${lowestAllowance.entry.label}${account?.planType ? t("dashboard.tile.plan", { plan: friendlyPlanName(account.planType) }) : ""}`
+          : t("dashboard.tile.noRemainingShare"),
       tone: allowanceTone,
       meter: lowestAllowance ? lowestAllowance.percent : undefined,
       view: "usage",
-      viewLabel: uiText("Usage"),
+      viewLabel: t("dashboard.view.usage"),
       pending: quotaPending,
     },
   ];
@@ -349,22 +332,22 @@ export function DashboardPage({
   return (
     <div className="dashboard-page page-stack">
       <PageHeader
-        eyebrow={uiText("At a glance")}
-        title={uiText("Dashboard")}
-        description={uiText("Router health, live work, recent traffic, and the accounts closest to running out. Every tile opens the page that owns the detail.")}
+        eyebrow={t("dashboard.eyebrow")}
+        title={t("dashboard.title")}
+        description={t("dashboard.description")}
         onRefresh={onRefresh}
         refreshing={refreshing}
       />
 
       {!api ? (
-        <InlineNotice tone="warning" title={uiText("Desktop bridge unavailable")}>
-          {uiText("Open this window through the Codex Router desktop app to read live router data.")}
+        <InlineNotice tone="warning" title={t("dashboard.bridge.title")}>
+          {t("dashboard.bridge.body")}
         </InlineNotice>
       ) : health && !health.ok && health.error ? (
-        <InlineNotice tone="danger" title={uiText("Router health check failed")}>{health.error}</InlineNotice>
+        <InlineNotice tone="danger" title={t("dashboard.healthFailed.title")}>{health.error}</InlineNotice>
       ) : null}
 
-      <div className="db-summary-grid" role="list" aria-label={uiText("Router summary")}>
+      <div className="db-summary-grid" role="list" aria-label={t("dashboard.summaryAria")}>
         {tiles.map((tile) => {
           const Icon = tile.icon;
           return (
@@ -373,12 +356,7 @@ export function DashboardPage({
               type="button"
               role="listitem"
               className={classNames("db-summary-cell", tile.tone && `tone-${tile.tone}`)}
-              aria-label={uiText("{label}: {value}. {detail}. Open {view}.", {
-                label: tile.label,
-                value: tile.value,
-                detail: tile.detail,
-                view: tile.viewLabel,
-              })}
+              aria-label={`${tile.label}: ${tile.value}. ${tile.detail}. ${t("dashboard.tile.open", { view: tile.viewLabel })}`}
               onClick={() => onNavigate(tile.view)}
             >
               <span className="db-summary-label">
@@ -397,7 +375,7 @@ export function DashboardPage({
                 <SkeletonBlock className="db-skeleton-summary-detail" />
               ) : <small className="db-summary-detail">{tile.detail}</small>}
               <span className="db-summary-link" aria-hidden="true">
-                {uiText("View {view}", { view: tile.viewLabel })}
+                {t("dashboard.tile.viewLink", { view: tile.viewLabel })}
                 <ArrowUpRight aria-hidden size={11} strokeWidth={1.9} />
               </span>
             </button>
@@ -408,56 +386,42 @@ export function DashboardPage({
       <div className="db-traffic-grid">
         <section className="panel-section db-traffic-panel">
           <SectionHeading
-            title={uiText("Traffic, {range}", { range: trafficRangeLabel(trafficRange) })}
-            description={trafficDescription(trafficRange)}
+            title={t("dashboard.traffic.title", { range: trafficRangeLabel(trafficRange, t) })}
+            description={trafficDescription(trafficRange, t)}
             action={(
               <div className="db-traffic-actions">
                 <TrafficRangePicker value={trafficRange} onChange={setTrafficRange} />
-                <Button variant="ghost" aria-label={uiText("Open Usage")} onClick={() => onNavigate("usage")}>
+                <Button variant="ghost" aria-label={t("dashboard.openUsage")} onClick={() => onNavigate("usage")}>
                   <BarChart3 aria-hidden size={13} strokeWidth={1.7} />
-                  {uiText("Usage")}
+                  {t("dashboard.usage")}
                 </Button>
               </div>
             )}
           />
           {snapshotPending ? (
-            <PanelSkeleton label={uiText("Loading router traffic")} count={4} />
+            <PanelSkeleton label={t("dashboard.loading.traffic")} count={4} />
           ) : !events ? (
             <EmptyState
               icon={<BarChart3 size={20} />}
-              title={refreshing ? uiText("Reading router telemetry") : uiText("Router telemetry unavailable")}
-              body={uiText("Traffic appears once the router snapshot loads.")}
+              title={refreshing ? t("dashboard.traffic.reading") : t("dashboard.traffic.unavailable")}
+              body={t("dashboard.traffic.emptyBody")}
             />
           ) : trafficHasRequests ? (
             <TrafficTrend buckets={trafficBuckets} hasTokens={trafficHasTokens} range={trafficRange} />
           ) : (
             <EmptyState
               icon={<BarChart3 size={20} />}
-              title={uiText("No requests in {range}", { range: trafficRangeLabel(trafficRange) })}
-              body={uiText("The chart will fill as a request passes through the local router.")}
+              title={t("dashboard.traffic.noRequests", { range: trafficRangeLabel(trafficRange, t) })}
+              body={t("dashboard.traffic.chartFill")}
             />
           )}
           {events ? (
             <p className="db-panel-note db-traffic-note">
               {trafficHasTokens
-                ? uiText("{tokens} measured tokens across {requests} requests in {range}. {source}", {
-                    tokens: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.tokens, 0)),
-                    requests: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.requests, 0)),
-                    range: trafficRangeLabel(trafficRange),
-                    source: trafficRange === 24
-                      ? eventHours?.length
-                        ? uiText("Hourly bars use the router's full 24-hour rollup.")
-                        : uiText("Hourly bars use the latest 1,000 event details; this router does not publish an hourly rollup.")
-                      : uiText("Daily bars use the retained provider ledger when available."),
-                  })
+                ? `${t("dashboard.traffic.measured", { tokens: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.tokens, 0)), requests: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.requests, 0)), range: trafficRangeLabel(trafficRange, t) })} ${trafficRange === 24 ? eventHours?.length ? t("dashboard.traffic.hourlyRollup") : t("dashboard.traffic.hourlyEvents") : t("dashboard.traffic.dailyLedger")}`
                 : trafficHasRequests
-                  ? uiText("{requests} requests observed in {range}, but token counts were not reported by the upstream responses.", {
-                      requests: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.requests, 0)),
-                      range: trafficRangeLabel(trafficRange),
-                    })
-                  : uiText("The router returned an empty {range} telemetry window; this is different from a failed health check.", {
-                      range: trafficRangeLabel(trafficRange),
-                    })}
+                  ? t("dashboard.traffic.requestsObserved", { requests: exactNumber(trafficBuckets.reduce((sum, bucket) => sum + bucket.requests, 0)), range: trafficRangeLabel(trafficRange, t) })
+                  : t("dashboard.traffic.emptyWindow", { range: trafficRangeLabel(trafficRange, t) })}
             </p>
           ) : null}
         </section>
@@ -474,33 +438,29 @@ export function DashboardPage({
       <div className="db-panel-grid db-dashboard-details">
         <section className="panel-section db-breakdown-panel">
           <SectionHeading
-            title={uiText("Provider and model mix")}
-            description={providerUsage
-              ? uiText("Rolling provider totals and the busiest models on this router; model rows include 24-hour input, cache, output, and speed.")
-              : uiText("Breakdowns appear with the provider usage snapshot.")}
+            title={t("dashboard.mix.title")}
+            description={providerUsage ? t("dashboard.mix.description") : t("dashboard.mix.pending")}
             action={(
-              <Button variant="ghost" aria-label={uiText("Open Status")} onClick={() => onNavigate("status")}>
+              <Button variant="ghost" aria-label={t("dashboard.openStatus")} onClick={() => onNavigate("status")}>
                 <Activity aria-hidden size={13} strokeWidth={1.7} />
-                {uiText("Details")}
+                {t("dashboard.details")}
               </Button>
             )}
           />
           {providerUsagePending ? (
-            <PanelSkeleton label={uiText("Loading provider and model usage")} count={4} />
+            <PanelSkeleton label={t("dashboard.loading.mix")} count={4} />
           ) : <div className="db-breakdown-stack">
             <BreakdownGroup
-              title={uiText("Providers")}
-              emptyTitle={providerUsage ? uiText("No metered provider traffic") : refreshing ? uiText("Reading providers") : uiText("Provider usage unavailable")}
-              emptyBody={providerUsage
-                ? uiText("Connected providers have not served a metered request in the rolling window.")
-                : uiText("Refresh after the provider usage snapshot becomes available.")}
+              title={t("dashboard.mix.providers")}
+              emptyTitle={providerUsage ? t("dashboard.mix.noProviderTraffic") : refreshing ? t("dashboard.mix.readingProviders") : t("dashboard.mix.providerUnavailable")}
+              emptyBody={providerUsage ? t("dashboard.mix.providerEmpty") : t("dashboard.mix.providerEmptyPending")}
               rows={providerBreakdown}
               providerRows
             />
             <BreakdownGroup
-              title={modelBreakdownScopeTitle(modelBreakdown)}
-              emptyTitle={events === undefined && providerUsage === undefined ? uiText("No model usage yet") : uiText("No model traffic")}
-              emptyBody={modelBreakdown.length ? "" : uiText("A model appears after it serves a request with usage metadata.")}
+              title={modelBreakdownScopeTitle(modelBreakdown, t)}
+              emptyTitle={events === undefined && providerUsage === undefined ? t("dashboard.mix.noModelUsage") : t("dashboard.mix.noModelTraffic")}
+              emptyBody={modelBreakdown.length ? "" : t("dashboard.mix.modelEmpty")}
               rows={modelBreakdown}
             />
           </div>}
@@ -509,17 +469,17 @@ export function DashboardPage({
 
       <section className="panel-section db-events-panel">
         <SectionHeading
-          title={uiText("Recent activity")}
-          description={uiText("The last few routed requests from the rolling 24-hour telemetry window, with output speed and token mix when reported.")}
+          title={t("dashboard.recent.title")}
+          description={t("dashboard.recent.description")}
           action={(
-            <Button variant="ghost" aria-label={uiText("Open Status")} onClick={() => onNavigate("status")}>
+            <Button variant="ghost" aria-label={t("dashboard.openStatus")} onClick={() => onNavigate("status")}>
               <Activity aria-hidden size={13} strokeWidth={1.7} />
-              {uiText("Status")}
+              {t("dashboard.status")}
             </Button>
           )}
         />
         {snapshotPending ? (
-          <PanelSkeleton label={uiText("Loading recent router activity")} count={5} />
+          <PanelSkeleton label={t("dashboard.loading.recent")} count={5} />
         ) : recentEvents.length ? (
           <div className="db-event-list">
             {recentEvents.map((event, index) => (
@@ -529,10 +489,10 @@ export function DashboardPage({
         ) : (
           <EmptyState
             icon={<Server size={20} />}
-            title={events ? uiText("No recent router traffic") : refreshing ? uiText("Reading router telemetry") : uiText("Router telemetry unavailable")}
+            title={events ? t("dashboard.recent.noTraffic") : refreshing ? t("dashboard.traffic.reading") : t("dashboard.traffic.unavailable")}
             body={events
-              ? uiText("This list fills after a request passes through the local router.")
-              : uiText("Recent requests appear once the router snapshot loads.")}
+              ? t("dashboard.recent.fill")
+              : t("dashboard.recent.pending")}
           />
         )}
       </section>
@@ -570,20 +530,21 @@ function RouteDashboardPanel({
   onNavigate: (view: ViewId, modelFocus?: ModelViewFocus) => void;
   loading: boolean;
 }) {
+  const t = useI18n();
   const visible = providers.filter((provider) => provider.kind !== "per-model");
   return (
     <section className="db-route-dashboard" aria-labelledby="db-route-dashboard-title">
       <SectionHeading
-        title={uiText("Provider routes")}
-        description={uiText("Enable or disable validated provider routes. Changes are saved atomically and shared with the tray.")}
-        action={<Button variant="ghost" onClick={() => onNavigate("models")}>{uiText("Manage models")}</Button>}
+        title={t("dashboard.routes.title")}
+        description={t("dashboard.routes.description")}
+        action={<Button variant="ghost" onClick={() => onNavigate("models")}>{t("dashboard.routes.manage")}</Button>}
       />
       {loading ? (
-        <PanelSkeleton label={uiText("Loading provider routes")} count={3} />
+        <PanelSkeleton label={t("dashboard.loading.routes")} count={3} />
       ) : visible.length === 0 ? (
-        <EmptyState title={uiText("No provider routes")} body={uiText("Connect a provider to make a route available here.")} />
+        <EmptyState title={t("dashboard.routes.empty")} body={t("dashboard.routes.emptyBody")} />
       ) : (
-        <div className="db-route-list" role="list" aria-label={uiText("Provider routes")}>
+        <div className="db-route-list" role="list" aria-label={t("dashboard.routes.aria")}>
           {visible.map((provider) => {
             const enabled = routeMutations.value(provider.id, provider.enabled);
             return (
@@ -591,33 +552,27 @@ function RouteDashboardPanel({
                 <ProviderLogo providerId={provider.id} displayName={provider.displayName} size="small" />
                 <div className="db-route-copy">
                   <strong>{provider.displayName}</strong>
-                  <small>{enabled ? uiText("Route enabled") : uiText("Route disabled")}</small>
+                  <small>{enabled ? t("dashboard.routes.enabled") : t("dashboard.routes.disabled")}</small>
                 </div>
-                <Badge tone={enabled ? "success" : "neutral"}>{enabled ? uiText("Enabled") : uiText("Disabled")}</Badge>
+                <Badge tone={enabled ? "success" : "neutral"}>{enabled ? t("dashboard.routes.enabledBadge") : t("dashboard.routes.disabledBadge")}</Badge>
                 <Button
                   variant={enabled ? "secondary" : "primary"}
                   type="button"
                   disabled={!api}
                   aria-pressed={enabled}
-                  aria-label={uiText("{action} {name}", {
-                    action: enabled ? uiText("Disable") : uiText("Enable"),
-                    name: provider.displayName,
-                  })}
+                  aria-label={`${enabled ? t("dashboard.routes.disable") : t("dashboard.routes.enable")} ${provider.displayName}`}
                   onClick={() => {
                     if (!api) return;
                     const next = !enabled;
                     void routeMutations.mutate(
                       provider.id,
                       next,
-                      uiText("{action} {name}", {
-                        action: next ? uiText("Enable") : uiText("Disable"),
-                        name: provider.displayName,
-                      }),
+                      `${next ? t("dashboard.routes.enable") : t("dashboard.routes.disable")} ${provider.displayName}`,
                       () => api.setProviderEnabled(provider.id, next),
                     );
                   }}
                 >
-                  {enabled ? uiText("Disable") : uiText("Enable")}
+                  {enabled ? t("dashboard.routes.disable") : t("dashboard.routes.enable")}
                 </Button>
               </div>
             );
@@ -639,15 +594,15 @@ function TokenActivity({
   refreshing: boolean;
   loading: boolean;
 }) {
+  const t = useI18n();
   const [mode, setMode] = useState<TokenActivityMode>("daily");
-  const language = detectLanguage();
   const activity = useMemo(
     () => buildTokenActivity(events, providerUsage, Date.now()),
-    [events, providerUsage, language],
+    [events, providerUsage],
   );
   const viewDays = useMemo(
-    () => tokenActivityForMode(activity.days, mode),
-    [activity.days, mode, language],
+    () => tokenActivityForMode(activity.days, mode, t),
+    [activity.days, mode, t],
   );
   const levels = useMemo(
     () => tokenActivityLevels(viewDays.map((day) => day.displayTokens)),
@@ -660,18 +615,18 @@ function TokenActivity({
     <section className="panel-section db-token-activity">
       <div className="db-token-activity-heading">
         <div>
-          <h2>{uiText("Token activity")}</h2>
+          <h2>{t("dashboard.activity.title")}</h2>
           <p>
             {providerUsage
-              ? uiText("{tokens} measured tokens across the last year", { tokens: exactNumber(total) })
+              ? t("dashboard.activity.lastYear", { count: exactNumber(total) })
               : refreshing
-                ? uiText("Reading the retained router ledger")
+                ? t("dashboard.activity.reading")
                 : events
-                  ? uiText("Recent event telemetry; retained daily totals are unavailable")
-                  : uiText("Token history appears after the router reports usage")}
+                  ? t("dashboard.activity.eventsOnly")
+                  : t("dashboard.activity.pending")}
           </p>
         </div>
-        <div className="db-token-mode" role="radiogroup" aria-label={uiText("Token activity display")}>
+        <div className="db-token-mode" role="radiogroup" aria-label={t("dashboard.activity.modeAria")}>
           {(["daily", "weekly", "cumulative"] as const).map((option) => (
             <button
               key={option}
@@ -681,17 +636,17 @@ function TokenActivity({
               className={mode === option ? "is-active" : ""}
               onClick={() => setMode(option)}
             >
-              {tokenActivityModeLabel(option)}
+              {t(option === "daily" ? "dashboard.mode.daily" : option === "weekly" ? "dashboard.mode.weekly" : "dashboard.mode.cumulative")}
             </button>
           ))}
         </div>
       </div>
 
       {loading ? (
-        <PanelSkeleton label={uiText("Loading retained token activity")} count={2} />
+        <PanelSkeleton label={t("dashboard.loading.activity")} count={2} />
       ) : <><div className="db-token-calendar-scroll">
         <div className="db-token-calendar">
-          <div className="db-token-cells" role="grid" aria-label={uiText("{mode} token activity for the last year", { mode: tokenActivityModeLabel(mode) })}>
+          <div className="db-token-cells" role="grid" aria-label={t("dashboard.activity.gridAria", { mode: t(mode === "daily" ? "dashboard.mode.daily" : mode === "weekly" ? "dashboard.mode.weekly" : "dashboard.mode.cumulative") })}>
             {viewDays.map((day) => {
               const level = levelForTokenActivity(day.displayTokens, levels);
               const isFuture = day.date.getTime() > activity.today;
@@ -732,11 +687,11 @@ function TokenActivity({
       </div>
 
       <div className="db-token-activity-footer">
-        <span>{activeDays ? countPhrase(activeDays, "1 active day", "{count} active days") : uiText("No measured activity yet")}</span>
-        <span className="db-token-scale" aria-label={uiText("Token activity intensity from less to more")}>
-          {uiText("Less")}
+        <span>{activeDays ? t(activeDays === 1 ? "dashboard.activity.activeDay" : "dashboard.activity.activeDays", { count: exactNumber(activeDays) }) : t("dashboard.activity.noActivity")}</span>
+        <span className="db-token-scale" aria-label={t("dashboard.activity.scaleAria")}>
+          {t("dashboard.activity.less")}
           {[0, 1, 2, 3, 4].map((level) => <i key={level} className={`level-${level}`} />)}
-          {uiText("More")}
+          {t("dashboard.activity.more")}
         </span>
       </div></>}
     </section>
@@ -747,8 +702,9 @@ function TrafficRangePicker({ value, onChange }: {
   value: TrafficRange;
   onChange: (value: TrafficRange) => void;
 }) {
+  const t = useI18n();
   return (
-    <div className="db-range-picker" role="radiogroup" aria-label={uiText("Dashboard traffic range")}>
+    <div className="db-range-picker" role="radiogroup" aria-label={t("dashboard.rangeAria")}>
       {([24, 7, 30] as const).map((range) => (
         <button
           type="button"
@@ -758,7 +714,7 @@ function TrafficRangePicker({ value, onChange }: {
           className={value === range ? "is-active" : ""}
           onClick={() => onChange(range)}
         >
-          {range === 24 ? uiText("24h") : uiText("{days}d", { days: range })}
+          {range === 24 ? "24h" : `${range}d`}
         </button>
       ))}
     </div>
@@ -766,22 +722,19 @@ function TrafficRangePicker({ value, onChange }: {
 }
 
 function TrafficTrend({ buckets, hasTokens, range }: { buckets: TrafficBucket[]; hasTokens: boolean; range: TrafficRange }) {
+  const t = useI18n();
   const maxTokens = Math.max(...buckets.map((bucket) => bucket.tokens), 1);
   const maxRequests = Math.max(...buckets.map((bucket) => bucket.requests), 1);
   const hasBreakdown = buckets.some((bucket) => bucket.measuredBreakdown);
+  const bucketLabel = range === 24 ? t("dashboard.trend.hourly") : t("dashboard.trend.daily");
+  const breakdownLabel = hasTokens
+    ? hasBreakdown ? t("dashboard.trend.split") : t("dashboard.trend.byTokens")
+    : t("dashboard.trend.byRequests");
   return (
     <div
       className="db-trend"
       role="img"
-      aria-label={uiText("{scope} router traffic for {range}{breakdown}", {
-        scope: uiText(range === 24 ? "Hourly" : "Daily"),
-        range: trafficRangeLabel(range),
-        breakdown: hasTokens
-          ? hasBreakdown
-            ? uiText(" split into regular input, cached input, and output")
-            : uiText(" by tokens")
-          : uiText(" by requests"),
-      })}
+      aria-label={t("dashboard.trend.aria", { bucket: bucketLabel, range: trafficRangeLabel(range, t), breakdown: breakdownLabel })}
     >
       <div className="db-trend-scale" aria-hidden="true">
         <span>{hasTokens ? compactNumber(maxTokens) : exactNumber(maxRequests)}</span>
@@ -796,15 +749,15 @@ function TrafficTrend({ buckets, hasTokens, range }: { buckets: TrafficBucket[];
             ? bucket.tokens / maxTokens
             : bucket.requests / maxRequests;
           const height = ratio > 0 ? Math.max(4, ratio * 100) : 0;
-          const parts = trafficParts(bucket);
+          const parts = trafficParts(bucket, t);
           const breakdown = bucket.measuredBreakdown
-            ? parts.filter((part) => part.tokens > 0).map((part) => `${part.label}: ${exactNumber(part.tokens)}`)
+            ? parts.filter((part) => part.tokens > 0).map((part) => t("dashboard.trend.partValue", { label: part.label, count: exactNumber(part.tokens) }))
             : [];
           const label = [
             `${bucket.fullLabel}.`,
-            bucket.measuredTokens ? uiText("Total: {count} tokens.", { count: exactNumber(bucket.tokens) }) : uiText("Token count not reported."),
+            bucket.measuredTokens ? t("dashboard.trend.total", { count: exactNumber(bucket.tokens) }) : t("dashboard.trend.noTokens"),
             ...breakdown.map((item) => `${item}.`),
-            uiText("Requests: {count}.", { count: exactNumber(bucket.requests) }),
+            t("dashboard.trend.requestsCount", { count: exactNumber(bucket.requests) }),
           ].join(" ");
           const edge = index === 0 ? "start" : index === buckets.length - 1 ? "end" : undefined;
           return (
@@ -818,7 +771,7 @@ function TrafficTrend({ buckets, hasTokens, range }: { buckets: TrafficBucket[];
             >
               {hasBreakdown ? (
                 <span className="db-trend-stack" style={{ height: `${height}%` }}>
-                  {trafficParts(bucket).map((part) => (
+                  {trafficParts(bucket, t).map((part) => (
                     <i
                       key={part.tone}
                       className={part.tone}
@@ -840,29 +793,30 @@ function TrafficTrend({ buckets, hasTokens, range }: { buckets: TrafficBucket[];
       <div className="db-trend-legend" aria-hidden="true">
         {hasBreakdown ? (
           <>
-            <span className="is-regular">{uiText("Regular input")}</span>
-            <span className="is-cached">{uiText("Cached input")}</span>
-            <span className="is-output">{uiText("Output")}</span>
+            <span className="is-regular">{t("dashboard.trend.regular")}</span>
+            <span className="is-cached">{t("dashboard.trend.cached")}</span>
+            <span className="is-output">{t("dashboard.trend.output")}</span>
           </>
-        ) : <span className="is-token">{hasTokens ? uiText("Tokens") : uiText("Requests")}</span>}
-        <span className="is-request">{uiText("Request volume")}</span>
+        ) : <span className="is-token">{hasTokens ? t("dashboard.trend.tokens") : t("dashboard.trend.requests")}</span>}
+        <span className="is-request">{t("dashboard.trend.requestVolume")}</span>
       </div>
     </div>
   );
 }
 
 function TrafficTooltip({ bucket, parts }: { bucket: TrafficBucket; parts: TrafficPart[] }) {
+  const t = useI18n();
   const visibleParts = bucket.measuredBreakdown ? parts.filter((part) => part.tokens > 0) : [];
   return (
     <span className="db-trend-tooltip" aria-hidden="true">
       <span className="db-trend-tooltip-date">{bucket.fullLabel}</span>
       {bucket.measuredTokens ? (
         <>
-          <strong className="db-trend-tooltip-total">{uiText("{count} tokens", { count: compactNumber(bucket.tokens).toUpperCase() })}</strong>
-          <span className="db-trend-tooltip-exact">{uiText("{count} total tokens", { count: exactNumber(bucket.tokens) })}</span>
+          <strong className="db-trend-tooltip-total">{t("dashboard.tooltip.tokens", { count: compactNumber(bucket.tokens).toUpperCase() })}</strong>
+          <span className="db-trend-tooltip-exact">{t("dashboard.tooltip.totalTokens", { count: exactNumber(bucket.tokens) })}</span>
         </>
       ) : (
-        <strong className="db-trend-tooltip-total">{uiText("Token count not reported")}</strong>
+        <strong className="db-trend-tooltip-total">{t("dashboard.tooltip.noTokens")}</strong>
       )}
       <span className="db-trend-tooltip-rows">
         {visibleParts.map((part) => (
@@ -874,14 +828,14 @@ function TrafficTooltip({ bucket, parts }: { bucket: TrafficBucket; parts: Traff
         ))}
         <span className="db-trend-tooltip-row is-requests">
           <i aria-hidden="true" />
-          <span>{uiText("Requests")}</span>
+          <span>{t("dashboard.tooltip.requests")}</span>
           <strong>{exactNumber(bucket.requests)}</strong>
         </span>
       </span>
       {!bucket.measuredTokens ? (
-        <span className="db-trend-tooltip-note">{uiText("The upstream response did not include token counts.")}</span>
+        <span className="db-trend-tooltip-note">{t("dashboard.tooltip.noUpstreamTokens")}</span>
       ) : !bucket.measuredBreakdown ? (
-        <span className="db-trend-tooltip-note">{uiText("Input and output details were not reported for this hour.")}</span>
+        <span className="db-trend-tooltip-note">{t("dashboard.tooltip.noBreakdown")}</span>
       ) : null}
     </span>
   );
@@ -900,18 +854,17 @@ function BreakdownGroup({
   emptyTitle: string;
   emptyBody: string;
 }) {
+  const t = useI18n();
   const visibleRows = rows.slice(0, 5);
   const max = Math.max(...visibleRows.map((row) => row.tokens), 1);
   return (
     <div className="db-breakdown-group">
       <div className="db-breakdown-heading">
         <h3>{title}</h3>
-        {rows.length > visibleRows.length
-          ? <small>{uiText("Top {shown} of {total}", { shown: visibleRows.length, total: rows.length })}</small>
-          : null}
+        {rows.length > visibleRows.length ? <small>{t("dashboard.breakdown.top", { shown: visibleRows.length, total: rows.length })}</small> : null}
       </div>
       {visibleRows.length ? (
-        <div className="db-breakdown-list" role="list" aria-label={uiText("{title} usage breakdown", { title })}>
+        <div className="db-breakdown-list" role="list" aria-label={t("dashboard.breakdown.aria", { title })}>
           {visibleRows.map((row) => (
             <div className="db-breakdown-row" role="listitem" key={row.id}>
               <ProviderLogo
@@ -922,13 +875,7 @@ function BreakdownGroup({
               />
               <div className="db-breakdown-label">
                 <strong title={row.label}>{row.label}</strong>
-                <small>{uiText("{provider}{requests}{tokens}", {
-                  provider: row.provider ? `${row.provider} · ` : "",
-                  requests: countPhrase(row.requests, "1 request", "{count} requests"),
-                  tokens: row.measuredTokens
-                    ? uiText(" · {tokens} tok", { tokens: compactNumber(row.tokens) })
-                    : uiText(" · tokens not reported"),
-                })}</small>
+                <small>{row.provider ? `${row.provider} · ` : ""}{exactNumber(row.requests)} {t(row.requests === 1 ? "dashboard.word.request" : "dashboard.word.requests")}{row.measuredTokens ? ` · ${compactNumber(row.tokens)} tok` : t("dashboard.breakdown.tokensNotReported")}</small>
                 {!providerRows ? <ModelBreakdownFacts row={row} /> : null}
                 <span className="db-breakdown-meter" aria-hidden="true"><i style={{ width: `${row.tokens > 0 ? Math.max(2, (row.tokens / max) * 100) : 0}%` }} /></span>
               </div>
@@ -947,10 +894,11 @@ function BreakdownGroup({
 }
 
 function ModelBreakdownFacts({ row }: { row: TrafficBreakdownRow }) {
+  const t = useI18n();
   const facts: Array<{ label: string; tone: "input" | "cached" | "output" | "speed" }> = [];
-  if (row.inputTokens != null) facts.push({ label: uiText("{count} input", { count: compactNumber(row.inputTokens) }), tone: "input" });
-  if (row.cachedInputTokens != null) facts.push({ label: uiText("{count} cache", { count: compactNumber(row.cachedInputTokens) }), tone: "cached" });
-  if (row.outputTokens != null) facts.push({ label: uiText("{count} output", { count: compactNumber(row.outputTokens) }), tone: "output" });
+  if (row.inputTokens != null) facts.push({ label: t("dashboard.facts.input", { count: compactNumber(row.inputTokens) }), tone: "input" });
+  if (row.cachedInputTokens != null) facts.push({ label: t("dashboard.facts.cache", { count: compactNumber(row.cachedInputTokens) }), tone: "cached" });
+  if (row.outputTokens != null) facts.push({ label: t("dashboard.facts.output", { count: compactNumber(row.outputTokens) }), tone: "output" });
   if (row.tokensPerSecond != null) facts.push({ label: formatTokensPerSecond(row.tokensPerSecond), tone: "speed" });
   if (!facts.length) return null;
   return (
@@ -964,6 +912,7 @@ function ModelBreakdownFacts({ row }: { row: TrafficBreakdownRow }) {
 }
 
 function DashboardEventRow({ event }: { event: UsageEvent }) {
+  const t = useI18n();
   const status = event.status;
   const tone: Tone | "neutral" = status === undefined
     ? "neutral"
@@ -971,30 +920,30 @@ function DashboardEventRow({ event }: { event: UsageEvent }) {
   const total = tokenCountFromEvent(event);
   const speed = tokensPerSecondFromEvent(event);
   const breakdown = tokenBreakdownFromEvent(event);
-  const tokenFacts = formatEventTokenFacts(total, breakdown);
+  const tokenFacts = formatEventTokenFacts(total, breakdown, t);
   return (
     <article>
       <ProviderLogo
-        providerId={event.provider || "router"}
+        providerId={event.provider || t("dashboard.event.router")}
         displayName={event.provider}
         size="small"
         className="db-event-logo"
       />
       <span className="db-event-model">
-        <strong>{shortModelName(event.model || uiText("Unknown model"))}</strong>
-        <small>{event.provider || uiText("router")}</small>
+        <strong>{shortModelName(event.model || t("dashboard.event.unknownModel"))}</strong>
+        <small>{event.provider || t("dashboard.event.router")}</small>
       </span>
       <span className="db-event-metering">
-        <strong>{speed == null ? uiText("Speed unmeasured") : formatTokensPerSecond(speed)}</strong>
+        <strong>{speed == null ? t("dashboard.event.speedUnmeasured") : formatTokensPerSecond(speed)}</strong>
         <small title={tokenFacts}>{tokenFacts}</small>
       </span>
       <span className="db-event-duration">
-        <strong>{event.durationMs === undefined ? uiText("No duration") : formatDuration(event.durationMs)}</strong>
-        <small>{formatDateTime(event.at)}</small>
+        <strong>{event.durationMs === undefined ? t("dashboard.event.noDuration") : formatDuration(event.durationMs)}</strong>
+        <small>{formatDateTime(event.at, t)}</small>
       </span>
       <span className="db-event-status">
         <Badge tone={tone === "neutral" ? "neutral" : tone}>
-          {status === undefined ? uiText("no status") : String(status)}
+          {status === undefined ? t("dashboard.event.noStatus") : String(status)}
         </Badge>
       </span>
     </article>
@@ -1002,6 +951,7 @@ function DashboardEventRow({ event }: { event: UsageEvent }) {
 }
 
 function collectMetrics(
+  t: Translate,
   account?: AccountUsage,
   providerUsage?: ProviderUsageSnapshot,
 ): MetricEntry[] {
@@ -1010,7 +960,7 @@ function collectMetrics(
     if (!metric) continue;
     entries.push({
       provider: "ChatGPT",
-      label: limitWindowLabel(metric.windowDurationMins, index),
+      label: limitWindowLabel(metric.windowDurationMins, index, t),
       metric,
     });
   }
@@ -1018,7 +968,7 @@ function collectMetrics(
     for (const metric of provider.account?.metrics ?? []) {
       entries.push({
         provider: provider.displayName,
-        label: metric.label ? uiText(metric.label) : uiText("Usage limit"),
+        label: backendText(metric.label, t) || t("status.usageLimit"),
         metric,
       });
     }
@@ -1083,7 +1033,7 @@ function buildTokenActivity(
     };
   });
 
-  const monthFormatter = new Intl.DateTimeFormat(uiLocale(), { month: "short", timeZone: "UTC" });
+  const monthFormatter = new Intl.DateTimeFormat("en-US", { month: "short", timeZone: "UTC" });
   const months: TokenActivityMonth[] = [];
   let previousMonth = -1;
   for (const day of days) {
@@ -1100,8 +1050,9 @@ function buildTokenActivity(
 function tokenActivityForMode(
   days: TokenActivityDay[],
   mode: TokenActivityMode,
+  t: Translate,
 ): TokenActivityViewDay[] {
-  const dateFormatter = new Intl.DateTimeFormat(uiLocale(), {
+  const dateFormatter = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -1122,30 +1073,20 @@ function tokenActivityForMode(
       return {
         ...day,
         displayTokens,
-        tooltip: uiText("{count} tokens from {start} to {end}", {
-          count: exactNumber(displayTokens),
-          start: dateFormatter.format(weekStart),
-          end: dateFormatter.format(weekEnd),
-        }),
+        tooltip: t("dashboard.activity.weeklyTooltip", { count: exactNumber(displayTokens), start: dateFormatter.format(weekStart), end: dateFormatter.format(weekEnd) }),
       };
     }
     if (mode === "cumulative") {
       return {
         ...day,
         displayTokens: cumulative,
-        tooltip: uiText("{count} cumulative tokens through {date}", {
-          count: exactNumber(cumulative),
-          date: dateFormatter.format(day.date),
-        }),
+        tooltip: t("dashboard.activity.cumulativeTooltip", { count: exactNumber(cumulative), date: dateFormatter.format(day.date) }),
       };
     }
     return {
       ...day,
       displayTokens: day.tokens,
-      tooltip: uiText("{count} tokens on {date}", {
-        count: exactNumber(day.tokens),
-        date: dateFormatter.format(day.date),
-      }),
+      tooltip: t("dashboard.activity.dailyTooltip", { count: exactNumber(day.tokens), date: dateFormatter.format(day.date) }),
     };
   });
 }
@@ -1174,14 +1115,18 @@ function usageDateKey(date: Date): string {
   return `${year}-${month}-${day}`;
 }
 
-function trafficRangeLabel(range: TrafficRange): string {
-  return range === 24 ? uiText("the last 24 hours") : uiText("the last {days} days", { days: range });
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
-function trafficDescription(range: TrafficRange): string {
+function trafficRangeLabel(range: TrafficRange, t: Translate): string {
+  return range === 24 ? t("dashboard.range.last24h") : t("dashboard.range.lastDays", { range });
+}
+
+function trafficDescription(range: TrafficRange, t: Translate): string {
   return range === 24
-    ? uiText("Hourly local buckets from router request telemetry. This is observed traffic, not provider billing.")
-    : uiText("Daily local buckets from the retained router ledger. This is observed traffic, not provider billing.");
+    ? t("dashboard.traffic.hourly")
+    : t("dashboard.traffic.daily");
 }
 
 function buildTrafficBuckets(
@@ -1196,15 +1141,12 @@ function buildTrafficBuckets(
     : buildDailyTrafficBuckets(events, providerUsage, range, now);
 }
 
-// Built per render rather than at module scope: a module-level formatter froze
-// the locale that was active at import time and kept it after a language change.
-function hourlyTrafficFormatters(): { label: Intl.DateTimeFormat; full: Intl.DateTimeFormat } {
-  const locale = uiLocale();
-  return {
-    label: new Intl.DateTimeFormat(locale, { hour: "numeric" }),
-    full: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric", hour: "numeric" }),
-  };
-}
+const HOUR_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
+const HOUR_FULL_LABEL_FORMATTER = new Intl.DateTimeFormat("en-US", {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+});
 
 // `events` is a bounded sample -- the router caps it at 1,000 rows -- so on a
 // busy day it covers a couple of hours, not twenty-four. Summing it drew most
@@ -1217,13 +1159,12 @@ function hourlyBucketsFromRollup(hours: UsageEventHour[]): TrafficBucket[] {
   // a grid anchored on the renderer's clock. The two agree until the hour turns
   // over between the snapshot and the render, and then this keeps the newest
   // measured hour on the chart instead of blanking it until the next poll.
-  const formatter = hourlyTrafficFormatters();
   return hours.map((hour) => {
     const start = new Date(hour.startedAt);
     return {
       key: hour.startedAt,
-      label: formatter.label.format(start),
-      fullLabel: formatter.full.format(start),
+      label: HOUR_LABEL_FORMATTER.format(start),
+      fullLabel: HOUR_FULL_LABEL_FORMATTER.format(start),
       tokens: hour.tokens,
       requests: hour.requests,
       measuredTokens: hour.measuredTokens,
@@ -1250,13 +1191,18 @@ function buildHourlyTrafficBuckets(
   const lastHour = lastAnchor.getTime();
   const lastBucket = now === lastHour ? lastHour - HOUR_MS : lastHour;
   const bucketCount = Math.floor((lastBucket - first) / HOUR_MS) + 1;
-  const formatter = hourlyTrafficFormatters();
+  const formatter = new Intl.DateTimeFormat("en-US", { hour: "numeric" });
+  const fullFormatter = new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+  });
   const buckets = Array.from({ length: bucketCount }, (_, index) => {
     const start = new Date(first + index * HOUR_MS);
     return {
       key: start.toISOString(),
-      label: formatter.label.format(start),
-      fullLabel: formatter.full.format(start),
+      label: formatter.format(start),
+      fullLabel: fullFormatter.format(start),
       tokens: 0,
       requests: 0,
       measuredTokens: false,
@@ -1304,12 +1250,12 @@ function buildDailyTrafficBuckets(
   const anchor = new Date(now);
   anchor.setUTCHours(0, 0, 0, 0);
   const first = anchor.getTime() - (range - 1) * DAY_MS;
-  const labelFormatter = new Intl.DateTimeFormat(uiLocale(), {
+  const labelFormatter = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     timeZone: "UTC",
   });
-  const fullFormatter = new Intl.DateTimeFormat(uiLocale(), {
+  const fullFormatter = new Intl.DateTimeFormat("en-US", {
     month: "short",
     day: "numeric",
     year: range === 30 ? "numeric" : undefined,
@@ -1419,13 +1365,13 @@ type TrafficPart = {
   tokens: number;
 };
 
-function trafficParts(bucket: TrafficBucket): TrafficPart[] {
+function trafficParts(bucket: TrafficBucket, t: Translate): TrafficPart[] {
   const known = bucket.regularInputTokens + bucket.cachedInputTokens + bucket.outputTokens;
   return [
-    { tone: "regular-input", label: "regular input", tokens: bucket.regularInputTokens },
-    { tone: "cached-input", label: "cached input", tokens: bucket.cachedInputTokens },
-    { tone: "output", label: "output", tokens: bucket.outputTokens },
-    { tone: "other", label: "unattributed tokens", tokens: Math.max(0, bucket.tokens - known) },
+    { tone: "regular-input", label: t("usage.token.regularInput"), tokens: bucket.regularInputTokens },
+    { tone: "cached-input", label: t("usage.token.cachedInput"), tokens: bucket.cachedInputTokens },
+    { tone: "output", label: t("usage.token.output"), tokens: bucket.outputTokens },
+    { tone: "other", label: t("usage.token.other"), tokens: Math.max(0, bucket.tokens - known) },
   ];
 }
 
@@ -1488,7 +1434,7 @@ function buildProviderBreakdown(
     if (rows.has(providerId) || (eventRow.requests <= 0 && !eventRow.measuredTokens)) continue;
     rows.set(providerId, {
       id: `provider:${providerId}`,
-      label: names.get(providerId) || (providerId === "unknown" ? uiText("unknown") : providerId),
+      label: names.get(providerId) || providerId,
       providerId,
       tokens: eventRow.tokens,
       requests: eventRow.requests,
@@ -1513,9 +1459,9 @@ function buildModelBreakdown(
     const id = `${provider}:${model}`;
     const previous = eventRows.get(id) ?? {
       id,
-      label: shortModelName(event.model || uiText("unknown")),
+      label: shortModelName(model),
       providerId: provider,
-      provider: names.get(provider) || (provider === "unknown" ? uiText("unknown") : provider),
+      provider: names.get(provider) || provider,
       tokens: 0,
       requests: 0,
       measuredTokens: false,
@@ -1572,7 +1518,7 @@ function buildModelBreakdown(
       .filter((model) => (model.requests || 0) > 0 || (model.totalTokens || 0) > 0)
       .map((model) => ({
         id: `${provider.id}:${model.slug || model.displayName || "unknown"}`,
-        label: model.displayName || shortModelName(model.slug || uiText("unknown")),
+        label: model.displayName || shortModelName(model.slug || "unknown"),
         providerId: provider.id,
         provider: provider.displayName,
         tokens: Number(model.totalTokens) || 0,
@@ -1592,10 +1538,8 @@ function buildModelBreakdown(
   return withBreakdownShares(fallback);
 }
 
-function modelBreakdownScopeTitle(rows: TrafficBreakdownRow[]): string {
-  return rows[0]?.scope === "90-day ledger"
-    ? uiText("Models, 90-day ledger")
-    : uiText("Models, last 24 hours");
+function modelBreakdownScopeTitle(rows: TrafficBreakdownRow[], t: Translate): string {
+  return rows[0]?.scope === "90-day ledger" ? t("dashboard.mix.modelsLedger") : t("dashboard.mix.models24h");
 }
 
 function recentWindowEvents(events: UsageEvent[] | undefined, now: number): UsageEvent[] {
@@ -1672,13 +1616,13 @@ function formatTokensPerSecond(value: number): string {
   return `${value.toFixed(1)} tok/s`;
 }
 
-function formatEventTokenFacts(total: number | null, breakdown: EventTokenBreakdown): string {
+function formatEventTokenFacts(total: number | null, breakdown: EventTokenBreakdown, t: Translate): string {
   const facts: string[] = [];
-  if (total !== null) facts.push(`${compactNumber(total)} tok`);
-  if (breakdown.inputTokens !== null) facts.push(uiText("{count} input", { count: compactNumber(breakdown.inputTokens) }));
-  if (breakdown.cachedInputTokens !== null) facts.push(uiText("{count} cache", { count: compactNumber(breakdown.cachedInputTokens) }));
-  if (breakdown.outputTokens !== null) facts.push(uiText("{count} output", { count: compactNumber(breakdown.outputTokens) }));
-  return facts.length ? facts.join(" · ") : uiText("No token usage reported");
+  if (total !== null) facts.push(t("dashboard.facts.tok", { count: compactNumber(total) }));
+  if (breakdown.inputTokens !== null) facts.push(t("dashboard.facts.input", { count: compactNumber(breakdown.inputTokens) }));
+  if (breakdown.cachedInputTokens !== null) facts.push(t("dashboard.facts.cache", { count: compactNumber(breakdown.cachedInputTokens) }));
+  if (breakdown.outputTokens !== null) facts.push(t("dashboard.facts.output", { count: compactNumber(breakdown.outputTokens) }));
+  return facts.length ? facts.join(" · ") : t("dashboard.facts.none");
 }
 
 function optionalNumber(value: number | string | null | undefined): number | null {
@@ -1735,12 +1679,16 @@ function uniqueCount(values: Array<string | undefined>): number {
   return new Set(values.map((value, index) => value || `unknown-${index}`)).size;
 }
 
-function activityLabel(state: string): string {
-  if (state === "generating") return uiText("Thinking");
-  if (state === "starting") return uiText("Starting");
-  if (state === "error") return uiText("Error");
-  if (state === "offline") return uiText("Offline");
-  return uiText("Idle");
+function plural(count: number, word: string): string {
+  return count === 1 ? word : `${word}s`;
+}
+
+function activityLabel(state: string, t: Translate): string {
+  if (state === "generating") return t("status.activity.thinking");
+  if (state === "starting") return t("status.activity.starting");
+  if (state === "error") return t("status.activity.error");
+  if (state === "offline") return t("status.activity.offline");
+  return t("status.activity.idle");
 }
 
 function shortModelName(model: string): string {
@@ -1753,17 +1701,17 @@ function friendlyPlanName(value: string): string {
     .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
-function limitWindowLabel(minutes: number | undefined, index: number): string {
-  if (!Number.isFinite(Number(minutes))) return index === 0 ? uiText("primary limit") : uiText("secondary limit");
+function limitWindowLabel(minutes: number | undefined, index: number, t: Translate): string {
+  if (!Number.isFinite(Number(minutes))) return index === 0 ? t("status.limit.primary") : t("status.limit.secondary");
   const value = Number(minutes);
   if (value >= 1_440 && value % 1_440 === 0) {
     const days = value / 1_440;
-    if (days === 1) return uiText("daily limit");
-    if (days === 7) return uiText("weekly limit");
-    return uiText("{days}-day limit", { days });
+    if (days === 1) return t("status.limit.daily");
+    if (days === 7) return t("status.limit.weekly");
+    return t("status.limit.days", { days });
   }
-  if (value >= 60 && value % 60 === 0) return uiText("{hours}-hour limit", { hours: value / 60 });
-  return uiText("{minutes}-minute limit", { minutes: value });
+  if (value >= 60 && value % 60 === 0) return t("status.limit.hours", { hours: value / 60 });
+  return t("status.limit.minutes", { minutes: value });
 }
 
 function timestampFor(value: number | string): number {
@@ -1773,26 +1721,14 @@ function timestampFor(value: number | string): number {
     : new Date(value).getTime();
 }
 
-function resetCountdown(value: number | string): string {
+function resetCountdown(value: number | string, t: Translate): string {
   const remaining = timestampFor(value) - Date.now();
-  if (!Number.isFinite(remaining)) return uiText("Time unavailable");
-  if (remaining <= 0) return uiText("Refresh due");
+  if (!Number.isFinite(remaining)) return t("status.countdown.unavailable");
+  if (remaining <= 0) return t("status.countdown.refreshDue");
   const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return uiText("{minutes}m", { minutes });
+  if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return uiText("{hours}h {minutes}m", { hours, minutes: minutes % 60 });
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
   const days = Math.floor(hours / 24);
-  return uiText("{days}d {hours}h", { days, hours: hours % 24 });
-}
-
-// Plurality belongs to the English source string, so each locale supplies its
-// own counter word instead of inheriting an English "s".
-function countPhrase(count: number, singular: string, pluralTemplate: string): string {
-  return uiText(count === 1 ? singular : pluralTemplate, { count: exactNumber(count) });
-}
-
-function tokenActivityModeLabel(mode: TokenActivityMode): string {
-  if (mode === "weekly") return uiText("Weekly");
-  if (mode === "cumulative") return uiText("Cumulative");
-  return uiText("Daily");
+  return `${days}d ${hours % 24}h`;
 }

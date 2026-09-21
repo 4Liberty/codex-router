@@ -1,7 +1,7 @@
-import { uiText } from "./ui-text";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Search, type LucideIcon } from "lucide-react";
 import type { ViewId } from "./types";
+import { useI18n } from "./i18n";
 import "./search-dialog.css";
 
 export interface SearchDialogItem {
@@ -19,6 +19,7 @@ interface SearchDialogProps {
 }
 
 export function SearchDialog({ activeView, items, onClose, onNavigate }: SearchDialogProps) {
+  const t = useI18n();
   const [query, setQuery] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -109,7 +110,7 @@ export function SearchDialog({ activeView, items, onClose, onNavigate }: SearchD
         className="search-dialog"
         role="dialog"
         aria-modal="true"
-        aria-label={uiText("Search control center")}
+        aria-label={t("app.search.aria")}
       >
         <div className="search-dialog-input-row">
           <Search aria-hidden size={19} strokeWidth={1.65} />
@@ -117,8 +118,8 @@ export function SearchDialog({ activeView, items, onClose, onNavigate }: SearchD
             ref={inputRef}
             type="search"
             value={query}
-            placeholder={uiText("Search sections")}
-            aria-label={uiText("Search control center sections")}
+            placeholder={t("searchDialog.placeholder")}
+            aria-label={t("searchDialog.inputAria")}
             aria-controls="control-center-search-results"
             aria-activedescendant={results[selectedIndex]
               ? `control-center-search-${results[selectedIndex].id}`
@@ -133,8 +134,8 @@ export function SearchDialog({ activeView, items, onClose, onNavigate }: SearchD
         </div>
 
         <div className="search-dialog-section-label" id="control-center-search-label">
-          {uiText("Sections")}
-          <span aria-live="polite">{uiText(results.length === 1 ? "{count} result" : "{count} results", { count: results.length })}</span>
+          {t("searchDialog.sections")}
+          <span aria-live="polite">{results.length === 1 ? t("searchDialog.resultCountOne", { count: results.length }) : t("searchDialog.resultCount", { count: results.length })}</span>
         </div>
 
         <div
@@ -163,23 +164,23 @@ export function SearchDialog({ activeView, items, onClose, onNavigate }: SearchD
                   <strong>{item.label}</strong>
                   <small>{item.description}</small>
                 </span>
-                {active ? <span className="search-dialog-current">{uiText("Current")}</span> : null}
+                {active ? <span className="search-dialog-current">{t("searchDialog.current")}</span> : null}
               </button>
             );
           })}
 
           {!results.length ? (
             <div className="search-dialog-empty" role="status">
-              <strong>{uiText("No matching sections")}</strong>
-              <span>{uiText("Try a section name or what you want to manage.")}</span>
+              <strong>{t("searchDialog.emptyTitle")}</strong>
+              <span>{t("searchDialog.emptyBody")}</span>
             </div>
           ) : null}
         </div>
 
         <footer className="search-dialog-hints" aria-hidden="true">
-          <span><kbd>↑</kbd><kbd>↓</kbd> {uiText("Navigate")}</span>
-          <span><kbd>↵</kbd> {uiText("Open")}</span>
-          <span><kbd>esc</kbd> {uiText("Close")}</span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> {t("searchDialog.hintNavigate")}</span>
+          <span><kbd>↵</kbd> {t("searchDialog.hintOpen")}</span>
+          <span><kbd>esc</kbd> {t("searchDialog.hintClose")}</span>
         </footer>
       </div>
     </div>

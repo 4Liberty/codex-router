@@ -1,8 +1,8 @@
-import { uiText } from "./ui-text";
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, CheckCircle2, ChevronDown, CircleAlert, CircleDashed, CircleOff } from "lucide-react";
 import { Badge, Button } from "./components";
 import { serviceHealthRows, type ServiceHealthRow } from "./service-health";
+import { useI18n } from "./i18n";
 import type { RouterHealth } from "./types";
 
 export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, repairing = false }: {
@@ -12,9 +12,10 @@ export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, 
   onRepair?: () => void;
   repairing?: boolean;
 }) {
-  const rows = serviceHealthRows(health);
+  const t = useI18n();
+  const rows = serviceHealthRows(health, t);
   const attention = rows.filter((row) => row.state === "offline" || row.state === "degraded").length;
-  const summary = attention ? uiText("{count} needs attention", { count: attention }) : rows.every((row) => row.state === "ready" || row.state === "standby") ? uiText("All clear") : uiText("Checking");
+  const summary = attention ? t("serviceHealth.needsAttention", { count: attention }) : rows.every((row) => row.state === "ready" || row.state === "standby") ? t("serviceHealth.allClear") : t("serviceHealth.checking");
   const [detailsOpen, setDetailsOpen] = useState(attention > 0);
   const previousAttention = useRef(attention);
 
@@ -26,11 +27,11 @@ export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, 
   }, [attention]);
 
   return compact ? (
-    <section className="service-health-strip" aria-label={uiText("Service health")}>
+    <section className="service-health-strip" aria-label={t("serviceHealth.aria")}>
       <div className="service-health-strip-heading">
-        <span className="service-health-kicker">{uiText("Service health")}</span>
+        <span className="service-health-kicker">{t("serviceHealth.title")}</span>
         <Badge tone={attention ? "warning" : health ? "success" : "neutral"}>{summary}</Badge>
-        {onOpen ? <button type="button" className="service-health-open" onClick={onOpen}>{uiText("Details")} <ArrowUpRight aria-hidden size={11} strokeWidth={1.8} /></button> : null}
+        {onOpen ? <button type="button" className="service-health-open" onClick={onOpen}>{t("serviceHealth.details")} <ArrowUpRight aria-hidden size={11} strokeWidth={1.8} /></button> : null}
       </div>
       <div className="service-health-chip-list">
         {rows.map((row) => <ServiceHealthChip key={row.id} row={row} />)}
@@ -48,8 +49,8 @@ export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, 
             onClick={() => setDetailsOpen((open) => !open)}
           >
             <span className="service-health-summary-copy">
-              <strong>{uiText("Service health")}</strong>
-              <small>{attention ? uiText("A local dependency needs attention.") : uiText("Router and local dependencies.")}</small>
+              <strong>{t("serviceHealth.title")}</strong>
+              <small>{attention ? t("serviceHealth.attentionDetail") : t("serviceHealth.normalDetail")}</small>
             </span>
             <ChevronDown className={detailsOpen ? "is-open" : undefined} aria-hidden size={15} strokeWidth={1.7} />
           </button>
@@ -57,7 +58,7 @@ export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, 
             <Badge tone={attention ? "warning" : health ? "success" : "neutral"}>{summary}</Badge>
             {onRepair && attention ? (
               <Button variant="secondary" disabled={repairing} onClick={onRepair}>
-                {repairing ? uiText("Repairing…") : uiText("Fix")}
+                {repairing ? t("serviceHealth.repairing") : t("serviceHealth.fix")}
               </Button>
             ) : null}
           </div>
@@ -66,7 +67,7 @@ export function ServiceHealthPanel({ health, compact = false, onOpen, onRepair, 
             aria-controls has to resolve to a real element in both states, and
             `hidden` is what tells assistive tech the region is collapsed. */}
         <div id="service-health-details" className="service-health-details" hidden={!detailsOpen}>
-          <div className="service-health-list" role="list" aria-label={uiText("Router service health")}>
+          <div className="service-health-list" role="list" aria-label={t("serviceHealth.listAria")}>
             {rows.map((row) => <ServiceHealthRowView key={row.id} row={row} />)}
           </div>
         </div>

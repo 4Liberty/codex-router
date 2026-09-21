@@ -1,3 +1,4 @@
+import { backendText } from "../backend-text";
 import { useEffect, useMemo, useRef, useState, type Ref } from "react";
 import {
   ArrowUpRight,
@@ -28,8 +29,7 @@ import type {
   UsageEvent,
   UsageMetric,
 } from "../types";
-import { detectLanguage, type Translate } from "../i18n";
-import { uiLocale, uiText } from "../ui-text";
+import { useI18n, type Translate } from "../i18n";
 import "./usage-status.css";
 
 type UsageBucketWithRequests = UsageBucket & {
@@ -113,11 +113,10 @@ export function UsagePage({
   const allowanceRef = useRef<HTMLElement>(null);
   const allowanceTargetRef = useRef<HTMLElement>(null);
   const handledFocusRequest = useRef<number | undefined>(undefined);
-  const language = detectLanguage();
 
   const sources = useMemo(
     () => buildSources(t, target, account, providerUsage),
-    [account, providerUsage, t, target, language],
+    [account, providerUsage, t, target],
   );
 
   useEffect(() => {
@@ -151,7 +150,7 @@ export function UsagePage({
   const rangeRequests = bucketRequestsAvailable
     ? buckets.reduce((sum, bucket) => sum + (bucket.requests || 0), 0)
     : null;
-  const chartBreakdownAvailable = buckets.some((bucket) => tokenParts(bucket) !== null);
+  const chartBreakdownAvailable = buckets.some((bucket) => tokenParts(bucket, t) !== null);
   const summary = source
     ? usageSummary(source, range, buckets, rangeRequests, t, latestReportedBucket)
     : [];
@@ -245,18 +244,18 @@ export function UsagePage({
   }, [source, sources]);
 
   return (
-    <div ref={pageRef} tabIndex={-1} aria-label={uiText("Usage overview")} className="usage-status-page usage-page">
+    <div ref={pageRef} tabIndex={-1} aria-label={t("usage.overviewAria")} className="usage-status-page usage-page">
       <PageHeader
-        eyebrow={uiText("Allowance and traffic")}
-        title={uiText("Usage")}
-        description={`${uiText("Account limits and balances stay separate from traffic measured by this router.")}${fetchedAt ? ` ${uiText("Snapshot fetched {time}.", { time: formatDateTime(fetchedAt) })}` : ""}`}
+        eyebrow={t("usage.eyebrow")}
+        title={t("usage.title")}
+        description={`${t("usage.description")}${fetchedAt ? ` ${t("usage.snapshotFetched", { time: formatDateTime(fetchedAt, t) })}` : ""}`}
         onRefresh={onRefresh}
         refreshing={refreshing}
         actions={sources.length ? (
           <label className="us-source-select">
-            <span>{uiText("View")}</span>
+            <span>{t("usage.view")}</span>
             <select
-              aria-label={uiText("Usage source")}
+              aria-label={t("usage.sourceAria")}
               value={source?.id || ""}
               onChange={(event) => setSelected(event.target.value)}
             >
@@ -272,8 +271,8 @@ export function UsagePage({
         !dataReady.snapshot || !dataReady.accountUsage || !dataReady.providerUsage ? <UsageLoading /> : (
           <EmptyState
             icon={<BarChart3 size={22} />}
-            title={uiText("No usage sources available")}
-            body={uiText("Connect a provider or sign in to ChatGPT, then refresh usage.")}
+            title={t("usage.empty.title")}
+            body={t("usage.empty.body")}
           />
         )
       ) : (
@@ -285,8 +284,8 @@ export function UsagePage({
             <section className="panel-section us-chart-panel">
               <SectionHeading
                 title={source.kind === "subscription"
-                  ? localFallbackDays > 0 ? t("usage.fallback.chartTitle") : uiText("Daily account tokens")
-                  : uiText("Daily router traffic")}
+                  ? localFallbackDays > 0 ? t("usage.fallback.chartTitle") : t("usage.dailyAccountTokens")
+                  : t("usage.dailyRouterTraffic")}
                 description={source.kind === "subscription"
                   ? localFallbackDays > 0
                     ? t(
@@ -296,9 +295,9 @@ export function UsagePage({
                         { name: source.name, count: localFallbackDays },
                       )
                     : chartBreakdownAvailable
-                      ? uiText("{name}, shown over the selected local date range with the reported input/cache/output split.", { name: source.name })
-                      : uiText("{name}, shown over the selected local date range. The account API reports daily totals only.", { name: source.name })
-                  : uiText("{name}, shown over the selected local date range. Router bars split regular input, cached input, and output.", { name: source.name })}
+                      ? t("usage.chart.accountBreakdown", { name: source.name })
+                      : t("usage.chart.accountTotalsOnly", { name: source.name })
+                  : t("usage.chart.routerBreakdown", { name: source.name })}
                 action={<RangePicker value={range} onChange={setRange} />}
               />
               {buckets.some((bucket) => bucket.tokens > 0) ? (
@@ -311,10 +310,10 @@ export function UsagePage({
                 <div className="us-chart-empty">
                   <EmptyState
                     icon={<BarChart3 size={20} />}
-                    title={uiText("No traffic in this range")}
+                    title={t("usage.chart.noTraffic")}
                     body={source.kind === "subscription"
-                      ? uiText("ChatGPT has not reported token usage for these dates.")
-                      : uiText("No token usage was observed by the local router for these dates.")}
+                      ? t("usage.chart.noTrafficAccount")
+                      : t("usage.chart.noTrafficRouter")}
                   />
                 </div>
               )}
@@ -328,13 +327,13 @@ export function UsagePage({
                 <p className="us-live-note" role="status">
                   <strong>
                     {routerAggregate.last24hTokens == null
-                      ? uiText("Router traffic for the last 24 hours: not measured.")
-                      : uiText("Router observed in the last 24 hours: {tokens} tokens.", { tokens: exactNumber(routerAggregate.last24hTokens) })}
+                      ? t("usage.live.notMeasured")
+                      : t("usage.live.measured", { count: exactNumber(routerAggregate.last24hTokens) })}
                   </strong>
                   <span>
                     {routerAggregate.last24hTokens == null
-                      ? uiText("This install's router is not reporting a rolling 24-hour window, so the figure is missing rather than zero.")
-                      : uiText("This is live local Codex traffic and is separate from ChatGPT's calendar-day account rollup.")}
+                      ? t("usage.live.missingNote")
+                      : t("usage.live.separateNote")}
                   </span>
                 </p>
               ) : null}
@@ -343,12 +342,12 @@ export function UsagePage({
             <section
               ref={allowanceRef}
               tabIndex={-1}
-              aria-label={uiText("Accounts and allowances")}
+              aria-label={t("usage.allowances.title")}
               className={`panel-section us-allowance-panel${allowanceFocused ? " is-navigation-focus" : ""}`}
             >
               <SectionHeading
-                title={uiText("Accounts and allowances")}
-                description={uiText("Official quota windows and balances for every connected account.")}
+                title={t("usage.allowances.title")}
+                description={t("usage.allowances.description")}
               />
               {allowances.length ? (
                 <div className="us-metric-stack">
@@ -366,14 +365,12 @@ export function UsagePage({
                   ) : null}
                 </div>
               ) : !dataReady.accountUsage || !dataReady.providerUsage ? (
-                <PanelSkeleton label={uiText("Loading account allowances")} count={2} />
+                <PanelSkeleton label={t("usage.loading.allowances")} count={2} />
               ) : (
                 <EmptyState
                   icon={<Gauge size={20} />}
-                  title={uiText("No account meter available")}
-                  body={source.message
-                    ? uiText(source.message)
-                    : uiText("Local traffic remains available without estimating a quota.")}
+                  title={t("usage.allowances.empty")}
+                  body={backendText(source.message, t) || t("usage.allowances.emptyBody")}
                 />
               )}
               {dashboardSources.length ? (
@@ -385,7 +382,7 @@ export function UsagePage({
                       disabled={!api}
                       onClick={() => api && void api.openExternal(entry.dashboardUrl!)}
                     >
-                      {uiText("{name} dashboard", { name: entry.name })}
+                      {t("usage.dashboard", { name: entry.name })}
                       <ArrowUpRight aria-hidden size={13} strokeWidth={1.7} />
                     </Button>
                   ))}
@@ -397,8 +394,8 @@ export function UsagePage({
           <div className="us-secondary-grid">
             <section className="panel-section us-source-panel">
               <SectionHeading
-                title={uiText("Usage sources")}
-                description={uiText("Local router totals and account-reported history are shown separately.")}
+                title={t("usage.sources.title")}
+                description={t("usage.sources.description")}
               />
               <div className="us-source-list" role="list">
                 {sources.filter((entry) => entry.kind !== "subscription").map((entry) => (
@@ -419,8 +416,8 @@ export function UsagePage({
               </div>
               {sources.some((entry) => entry.kind === "subscription") ? (
                 <>
-                  <p className="us-source-group-label">{uiText("Account-reported · excluded from router total")}</p>
-                  <div className="us-source-list" role="list" aria-label={uiText("Account-reported usage")}>
+                  <p className="us-source-group-label">{t("usage.sources.accountGroup")}</p>
+                  <div className="us-source-list" role="list" aria-label={t("usage.sources.accountAria")}>
                     {sources.filter((entry) => entry.kind === "subscription").map((entry) => (
                       <SourceRow
                         key={entry.id}
@@ -460,8 +457,8 @@ function buildSources(
   ])];
   const hasRetainedLedger = Boolean(snapshot?.retained?.from);
   const retainedScopeLabel = hasRetainedLedger
-    ? uiText("All retained · router")
-    : uiText("Last {days} days · router", { days: LEDGER_DAYS });
+    ? t("usage.scope.allRetained")
+    : t("usage.scope.lastDays", { days: LEDGER_DAYS });
   const retainedFrom = snapshot?.retained?.from ?? null;
 
   for (const providerId of providerIds) {
@@ -500,20 +497,19 @@ function buildSources(
     // own billed accounting. Naming the meter is what keeps an operator from
     // reading one subscription as two.
     const providerName = provider.id === "openai"
-      ? uiText("ChatGPT · measured by this router")
+      ? t("usage.source.chatgptMeasured")
       : provider.displayName;
-    const retainedScope = hasRetainedLedger ? uiText("all retained") : uiText("{days}-day", { days: LEDGER_DAYS });
     providerSources.push({
       id: `provider:${provider.id}`,
       kind: "provider",
       name: providerName,
       detail: provider.id === "openai"
-        ? uiText("Same subscription OpenAI reports below, counted here across {scope} router events; the two totals are not comparable", {
-            scope: retainedScope,
+        ? t("usage.source.openaiDetail", {
+            scope: hasRetainedLedger ? t("usage.scope.allRetained") : t("usage.scope.days", { days: LEDGER_DAYS }),
           })
-        : uiText("{source} traffic measured by this router{scope}", {
-            source: provider.credentialType?.toUpperCase() || uiText("Provider"),
-            scope: hasRetainedLedger ? uiText(" across all retained events") : "",
+        : t("usage.source.providerTraffic", {
+            credential: provider.credentialType?.toUpperCase() || t("usage.source.providerFallback"),
+            scope: hasRetainedLedger ? t("usage.source.retainedSuffix") : "",
           }),
       buckets: (provider.dailyUsageBuckets ?? []) as UsageBucketWithRequests[],
       metrics,
@@ -575,12 +571,8 @@ function buildSources(
     result.push({
       id: "all-router",
       kind: "aggregate",
-      name: uiText("This router · all providers"),
-      detail: uiText("Sum of every provider measured by this router over its local ledger; excludes account usage reported by providers{suffix}", {
-        suffix: reportedLast24Tokens == null && eventFallback?.tokens != null
-          ? uiText("; rolling window uses bounded event details until provider counters are available")
-          : "",
-      }),
+      name: t("usage.source.allProviders"),
+      detail: `${t("usage.source.aggregateDetail")}${reportedLast24Tokens == null && eventFallback?.tokens != null ? t("usage.source.aggregateRollingSuffix") : ""}`,
       buckets: mergeBuckets(providerSources.map((source) => source.buckets)),
       metrics: [],
       requests: sumNullable(providerSources.map((source) => source.requests)),
@@ -617,24 +609,19 @@ function buildSources(
       kind: "subscription",
       name: fallbackDays > 0
         ? t("usage.fallback.source")
-        : uiText("ChatGPT account · reported by OpenAI"),
+        : t("usage.source.chatgptReported"),
       detail: account.planType
         ? fallbackDays > 0
-          ? uiText("{plan} plan · {detail}", {
-              plan: friendlyPlanName(account.planType),
-              detail: t(
-                fallbackDays === 1 ? "usage.fallback.detailOne" : "usage.fallback.detail",
-                { count: fallbackDays },
-              ),
-            })
-          : uiText("{plan} plan · account-level usage as OpenAI reports it; this view is not added to the all-router total", {
-              plan: friendlyPlanName(account.planType),
-            })
+          ? `${friendlyPlanName(account.planType)} plan · ${t(
+              fallbackDays === 1 ? "usage.fallback.detailOne" : "usage.fallback.detail",
+              { count: fallbackDays },
+            )}`
+          : t("usage.source.planDetail", { plan: friendlyPlanName(account.planType) })
         : fallbackDays > 0
           ? t(fallbackDays === 1 ? "usage.fallback.detailOne" : "usage.fallback.detail", { count: fallbackDays })
-          : uiText("Account-level usage as OpenAI reports it; this view is not added to the all-router total"),
+          : t("usage.source.accountDetail"),
       buckets: accountBuckets,
-      metrics: codexAccountMetrics(account),
+      metrics: codexAccountMetrics(account, t),
       requests: null,
       successfulRequests: null,
       meteredRequests: null,
@@ -687,17 +674,14 @@ function usageSummary(
     const accountTokens = rangeTokens - fallbackTokens;
     return [
       {
-        label: uiText("Last reported day"),
-        value: latestTokens == null ? uiText("Not reported") : compactNumber(latestTokens),
+        label: t("usage.summary.lastReportedDay"),
+        value: latestTokens == null ? t("usage.summary.notReported") : compactNumber(latestTokens),
         detail: latestReportedBucket
-          ? uiText("{tokens} account tokens · {date}", {
-              tokens: exactNumber(latestTokens),
-              date: formatBucketDate(latestReportedBucket.startDate),
-            })
-          : uiText("ChatGPT has not published a daily bucket"),
+          ? t("usage.summary.accountTokensDate", { count: exactNumber(latestTokens), date: formatBucketDate(latestReportedBucket.startDate) })
+          : t("usage.summary.noDailyBucket"),
       },
       {
-        label: uiText("Last {days} days", { days: range }),
+        label: t("usage.summary.lastRangeDays", { range }),
         value: compactNumber(rangeTokens),
         detail: fallbackDays > 0
           ? t("usage.fallback.summary", {
@@ -705,16 +689,12 @@ function usageSummary(
               account: exactNumber(accountTokens),
               fallback: exactNumber(fallbackTokens),
             })
-          : uiText("{tokens} account tokens", { tokens: exactNumber(rangeTokens) }),
+          : t("usage.summary.accountTokens", { count: exactNumber(rangeTokens) }),
       },
-      { label: uiText("Account lifetime"), value: optionalCompact(source.lifetimeTokens), detail: uiText("Reported by OpenAI") },
-      { label: uiText("Peak day"), value: optionalCompact(source.peakDailyTokens), detail: uiText("Account history") },
-      {
-        label: uiText("Current streak"),
-        value: source.streakDays == null ? uiText("Not reported") : uiText("{count} days", { count: source.streakDays }),
-        detail: uiText("Account activity"),
-      },
-      { label: uiText("Plan"), value: source.plan ? friendlyPlanName(source.plan) : uiText("Not reported"), detail: uiText("Signed-in account") },
+      { label: t("usage.summary.accountLifetime"), value: optionalCompact(source.lifetimeTokens, t), detail: t("usage.summary.reportedByOpenai") },
+      { label: t("usage.summary.peakDay"), value: optionalCompact(source.peakDailyTokens, t), detail: t("usage.summary.accountHistory") },
+      { label: t("usage.summary.currentStreak"), value: source.streakDays == null ? t("usage.summary.notReported") : t("usage.summary.streakDays", { days: source.streakDays }), detail: t("usage.summary.accountActivity") },
+      { label: t("usage.summary.plan"), value: source.plan ? friendlyPlanName(source.plan) : t("usage.summary.notReported"), detail: t("usage.summary.signedInAccount") },
     ];
   }
 
@@ -724,63 +704,57 @@ function usageSummary(
   const last24hTokens = source.last24hTokens;
   const last24hRequests = source.last24hRequests;
   const last24hMeteredRequests = source.last24hMeteredRequests;
-  const routerScope = source.scopeLabel || uiText("Last {days} days · router", { days: LEDGER_DAYS });
+  const routerScope = source.scopeLabel || t("usage.scope.lastDays", { days: LEDGER_DAYS });
   const items: Array<{ label: string; value: string; detail: string; tone?: TokenTone }> = [
     ...(source.kind === "aggregate" ? [{
-      label: uiText("This router total"),
-      value: optionalCompact(source.totalTokens),
-      detail: uiText("Sum of every provider row · {scope}", { scope: routerScope }),
+      label: t("usage.summary.routerTotal"),
+      value: optionalCompact(source.totalTokens, t),
+      detail: t("usage.summary.routerTotalDetail", { scope: routerScope }),
       tone: "total" as const,
     }] : []),
     {
-      label: uiText("Last 24 hours"),
-      value: last24hTokens == null ? uiText("Not measured") : compactNumber(last24hTokens),
+      label: t("usage.summary.last24h"),
+      value: last24hTokens == null ? t("usage.summary.notMeasured") : compactNumber(last24hTokens),
       detail: last24hTokens == null
-        ? uiText("Rolling router window unavailable")
-        : uiText("{tokens} router tokens{requests}{metered}", {
-            tokens: exactNumber(last24hTokens),
-            requests: last24hRequests == null ? "" : uiText(" · {count} requests", { count: exactNumber(last24hRequests) }),
-            metered: last24hMeteredRequests == null || last24hMeteredRequests === last24hRequests
-              ? ""
-              : uiText(" · {count} metered", { count: exactNumber(last24hMeteredRequests) }),
-          }),
+        ? t("usage.summary.rollingUnavailable")
+        : `${t("usage.summary.routerTokens", { count: exactNumber(last24hTokens) })}${last24hRequests == null ? "" : t("usage.summary.requestsSuffix", { count: exactNumber(last24hRequests) })}${last24hMeteredRequests == null || last24hMeteredRequests === last24hRequests ? "" : t("usage.summary.meteredSuffix", { count: exactNumber(last24hMeteredRequests) })}`,
     },
     {
-      label: uiText("Last {days} days", { days: range }),
+      label: t("usage.summary.lastRangeDays", { range }),
       value: compactNumber(rangeTokens),
-      detail: uiText("{tokens} router tokens · selected range", { tokens: exactNumber(rangeTokens) }),
+      detail: t("usage.summary.rangeTokens", { count: exactNumber(rangeTokens) }),
     },
     {
-      label: uiText("Requests"),
-      value: rangeRequests == null ? optionalCompact(source.requests) : compactNumber(rangeRequests),
+      label: t("usage.summary.requests"),
+      value: rangeRequests == null ? optionalCompact(source.requests, t) : compactNumber(rangeRequests),
       detail: rangeRequests == null
-        ? uiText("{scope} · not this range", { scope: routerScope })
-        : uiText("Selected {days}-day range", { days: range }),
+        ? t("usage.summary.notThisRange", { scope: routerScope })
+        : t("usage.summary.selectedRange", { range }),
     },
     {
-      label: uiText("Regular input"),
-      value: optionalCompact(source.regularInputTokens),
-      detail: uiText("{scope} · cache excluded", { scope: routerScope }),
+      label: t("usage.summary.regularInput"),
+      value: optionalCompact(source.regularInputTokens, t),
+      detail: t("usage.summary.cacheExcluded", { scope: routerScope }),
       tone: "regular" as const,
     },
     {
-      label: uiText("Cached input"),
-      value: optionalCompact(source.cachedInputTokens),
-      detail: uiText("{scope} · included in input", { scope: routerScope }),
+      label: t("usage.summary.cachedInput"),
+      value: optionalCompact(source.cachedInputTokens, t),
+      detail: t("usage.summary.includedInInput", { scope: routerScope }),
       tone: "cached" as const,
     },
     {
-      label: uiText("Output"),
-      value: optionalCompact(source.outputTokens),
-      detail: uiText("{scope} · not this range", { scope: routerScope }),
+      label: t("usage.summary.output"),
+      value: optionalCompact(source.outputTokens, t),
+      detail: t("usage.summary.notThisRange", { scope: routerScope }),
       tone: "output" as const,
     },
     {
-      label: uiText("Successful"),
-      value: successRate == null ? uiText("Not measured") : `${successRate.toFixed(successRate < 99 ? 1 : 0)}%`,
+      label: t("usage.summary.successful"),
+      value: successRate == null ? t("usage.summary.notMeasured") : `${successRate.toFixed(successRate < 99 ? 1 : 0)}%`,
       detail: source.meteredRequests == null
-        ? uiText("Router outcomes · {scope}", { scope: routerScope })
-        : uiText("{count} metered · {scope}", { count: exactNumber(source.meteredRequests), scope: routerScope }),
+        ? t("usage.summary.routerOutcomes", { scope: routerScope })
+        : t("usage.summary.meteredScope", { count: exactNumber(source.meteredRequests), scope: routerScope }),
     },
   ];
   return items;
@@ -804,34 +778,25 @@ function UsageSummary({ items }: { items: Array<{ label: string; value: string; 
 }
 
 function AggregateLedgerNote({ source }: { source: UsageSource }) {
+  const t = useI18n();
   if (source.kind !== "aggregate") return null;
   const input = source.inputTokens;
   const regular = source.regularInputTokens;
   const cached = source.cachedInputTokens;
   const output = source.outputTokens;
   const total = source.totalTokens;
-  const scope = source.scopeLabel || uiText("Last {days} days · router", { days: LEDGER_DAYS });
-  const since = source.windowStart ? uiText(" since {date}", { date: source.windowStart.slice(0, 10) }) : "";
+  const scope = source.scopeLabel || t("usage.scope.lastDays", { days: LEDGER_DAYS });
+  const since = source.windowStart ? t("usage.ledger.since", { date: source.windowStart.slice(0, 10) }) : "";
   return (
     <div className="us-aggregate-note" role="status">
-      <strong>{uiText("This router total is the sum of every measured provider row.")}</strong>
+      <strong>{t("usage.ledger.title")}</strong>
       <span>
         {total == null
-          ? uiText("The aggregate is not reported because at least one provider is missing a counter.")
-          : uiText("{tokens} tokens in {scope}{since}{breakdown}", {
-              tokens: exactNumber(total),
-              scope: scope.toLowerCase(),
-              since,
-              breakdown: input == null || output == null
-                ? "."
-                : uiText(" = {input} input + {output} output.", { input: exactNumber(input), output: exactNumber(output) }),
-            })}
+          ? t("usage.ledger.missing")
+          : `${t("usage.ledger.tokensIn", { count: exactNumber(total), scope: scope.toLowerCase(), since })}${input == null || output == null ? "." : t("usage.ledger.breakdown", { input: exactNumber(input), output: exactNumber(output) })}`}
         {regular != null && cached != null
-          ? uiText(" Input is split into {regular} regular and {cached} cached; cached input is a subset of input, not an extra total.", {
-              regular: exactNumber(regular),
-              cached: exactNumber(cached),
-            })
-          : uiText(" Input/cache split is not reported by every provider yet.")}
+          ? t("usage.ledger.split", { regular: exactNumber(regular), cached: exactNumber(cached) })
+          : t("usage.ledger.splitMissing")}
       </span>
     </div>
   );
@@ -842,11 +807,12 @@ function TokenMix({ source, buckets, range }: {
   buckets: UsageBucketWithRequests[];
   range: 7 | 30 | 90;
 }) {
-  const completeRangeMix = hasCompleteTokenBreakdown(buckets)
+  const t = useI18n();
+  const completeRangeMix = hasCompleteTokenBreakdown(buckets, t)
     && (source.kind !== "subscription"
       || !buckets.some((bucket) => bucket.displaySource === "router-fallback"));
   const bucketMix = buckets.reduce((totals, bucket) => {
-    const parts = tokenParts(bucket);
+    const parts = tokenParts(bucket, t);
     if (!parts) return totals;
     totals.regular += parts.find((part) => part.tone === "regular-input")?.tokens ?? 0;
     totals.cached += parts.find((part) => part.tone === "cached-input")?.tokens ?? 0;
@@ -866,20 +832,18 @@ function TokenMix({ source, buckets, range }: {
   const cached = completeRangeMix ? bucketMix.cached : recentCached;
   const output = completeRangeMix ? bucketMix.output : recentOutput;
   if (regular == null && cached == null && output == null) return null;
-  const scope = completeRangeMix
-    ? uiText("selected {days}-day range", { days: range })
-    : uiText("last 24h");
+  const scope = completeRangeMix ? t("usage.scope.selectedRange", { range }) : t("usage.scope.last24h");
   const rows = [
-    { label: uiText("Regular input"), value: regular, tone: "regular" as const },
-    { label: uiText("Cached input"), value: cached, tone: "cached" as const },
-    { label: uiText("Output"), value: output, tone: "output" as const },
+    { label: t("usage.summary.regularInput"), value: regular, tone: "regular" as const },
+    { label: t("usage.summary.cachedInput"), value: cached, tone: "cached" as const },
+    { label: t("usage.summary.output"), value: output, tone: "output" as const },
   ];
   return (
-    <div className="us-token-mix" aria-label={uiText("Token mix for {scope}", { scope })}>
+    <div className="us-token-mix" aria-label={t("usage.tokenMix.aria", { scope })}>
       {rows.map((row) => (
         <div key={row.label} className={`tone-${row.tone}`}>
           <span>{row.label}</span>
-          <strong>{row.value == null ? uiText("Not reported") : exactNumber(row.value)}</strong>
+          <strong>{row.value == null ? t("usage.summary.notReported") : exactNumber(row.value)}</strong>
           <small>{scope}</small>
         </div>
       ))}
@@ -891,8 +855,9 @@ function RangePicker({ value, onChange }: {
   value: 7 | 30 | 90;
   onChange: (value: 7 | 30 | 90) => void;
 }) {
+  const t = useI18n();
   return (
-    <div className="us-range-picker" role="radiogroup" aria-label={uiText("Usage date range")}>
+    <div className="us-range-picker" role="radiogroup" aria-label={t("usage.rangeAria")}>
       {([7, 30, 90] as const).map((days) => (
         <button
           type="button"
@@ -902,7 +867,7 @@ function RangePicker({ value, onChange }: {
           className={value === days ? "is-active" : ""}
           onClick={() => onChange(days)}
         >
-          {uiText("{days}D", { days })}
+          {days}D
         </button>
       ))}
     </div>
@@ -923,15 +888,15 @@ function UsageChart({ buckets, sourceKind, t }: {
   const innerHeight = height - paddingY * 2;
   const barSlot = innerWidth / Math.max(1, buckets.length);
   const barWidth = Math.max(2, Math.min(9, barSlot * 0.45));
-  const breakdownAvailable = buckets.some((bucket) => tokenParts(bucket) !== null);
+  const breakdownAvailable = buckets.some((bucket) => tokenParts(bucket, t) !== null);
   const fallbackDays = buckets.filter((bucket) => bucket.displaySource === "router-fallback").length;
-  const sourceLabel = sourceKind === "subscription" ? uiText("Daily account") : uiText("Daily router");
+  const sourceLabel = sourceKind === "subscription" ? t("usage.chart.dailyAccount") : t("usage.chart.dailyRouter");
   const breakdownLabel = breakdownAvailable
-    ? uiText(" split into regular input, cached input, and output")
-    : uiText(" shown as account totals");
+    ? t("usage.chart.splitLabel")
+    : t("usage.chart.totalsLabel");
   const ariaLabel = fallbackDays > 0
     ? t(fallbackDays === 1 ? "usage.fallback.chartAriaOne" : "usage.fallback.chartAria", { count: fallbackDays })
-    : uiText("{source} token usage{breakdown}", { source: sourceLabel, breakdown: breakdownLabel });
+    : t("usage.chart.aria", { source: sourceLabel, breakdown: breakdownLabel });
 
   return (
     <div
@@ -942,12 +907,12 @@ function UsageChart({ buckets, sourceKind, t }: {
       <div className="us-chart-legend" aria-hidden="true">
         {breakdownAvailable ? (
           <>
-            {sourceKind === "subscription" && fallbackDays > 0 ? <span className="is-account">{uiText("Account total")}</span> : null}
-            <span className="is-regular">{uiText("Regular input")}</span>
-            <span className="is-cached">{uiText("Cached input")}</span>
-            <span className="is-output">{uiText("Output")}</span>
+            {sourceKind === "subscription" && fallbackDays > 0 ? <span className="is-account">{t("usage.chart.accountTotal")}</span> : null}
+            <span className="is-regular">{t("usage.summary.regularInput")}</span>
+            <span className="is-cached">{t("usage.summary.cachedInput")}</span>
+            <span className="is-output">{t("usage.summary.output")}</span>
           </>
-        ) : <span className={sourceKind === "subscription" ? "is-account" : "is-token"}>{sourceKind === "subscription" ? uiText("Account total") : uiText("Tokens")}</span>}
+        ) : <span className={sourceKind === "subscription" ? "is-account" : "is-token"}>{sourceKind === "subscription" ? t("usage.chart.accountTotal") : t("usage.chart.tokens")}</span>}
         {fallbackDays > 0 ? <span className="is-router-fallback">{t("usage.fallback.legend")}</span> : null}
       </div>
       <div className="us-chart-scale" aria-hidden="true">
@@ -969,7 +934,7 @@ function UsageChart({ buckets, sourceKind, t }: {
         <g className="us-chart-token-bars">
           {buckets.map((bucket, index) => {
             const x = paddingX + index * barSlot + barSlot / 2 - barWidth / 2;
-            const parts = breakdownAvailable ? tokenParts(bucket) : null;
+            const parts = breakdownAvailable ? tokenParts(bucket, t) : null;
             if (!parts) {
               const barHeight = (bucket.tokens / tokenMax) * innerHeight;
               return (
@@ -985,7 +950,7 @@ function UsageChart({ buckets, sourceKind, t }: {
                   height={Math.max(bucket.tokens ? 2 : 0, barHeight)}
                   rx="2"
                 >
-                  <title>{uiText("{date}: {count} tokens", { date: formatBucketDate(bucket.startDate), count: exactNumber(bucket.tokens) })}</title>
+                  <title>{t("usage.chart.barTitle", { date: formatBucketDate(bucket.startDate), count: exactNumber(bucket.tokens) })}</title>
                 </rect>
               );
             }
@@ -1010,11 +975,7 @@ function UsageChart({ buckets, sourceKind, t }: {
                       height={Math.max(1, barHeight)}
                       rx={part.tone === "output" || part.tone === "other" ? "1" : "0"}
                     >
-                      <title>{uiText("{date}: {count} {label}", {
-                        date: formatBucketDate(bucket.startDate),
-                        count: exactNumber(part.tokens),
-                        label: part.label,
-                      })}</title>
+                      <title>{t("usage.chart.partTitle", { date: formatBucketDate(bucket.startDate), count: exactNumber(part.tokens), label: part.label })}</title>
                     </rect>
                   );
                 })}
@@ -1032,12 +993,12 @@ function UsageChart({ buckets, sourceKind, t }: {
         }}
       >
         {buckets.map((bucket, index) => {
-          const parts = tokenParts(bucket);
+          const parts = tokenParts(bucket, t);
           const breakdownItems = parts?.filter((part) => part.tokens > 0)
-            .map((part) => `${part.label}: ${exactNumber(part.tokens)}`) ?? [];
+            .map((part) => t("usage.chart.partValue", { label: part.label, count: exactNumber(part.tokens) })) ?? [];
           const label = [
-            uiText("{date}.", { date: formatBucketDate(bucket.startDate) }),
-            uiText("Total: {count} tokens.", { count: exactNumber(bucket.tokens) }),
+            `${formatBucketDate(bucket.startDate)}.`,
+            `${t("usage.chart.totalLabel", { count: exactNumber(bucket.tokens) })}.`,
             ...(bucket.displaySource === "router-fallback"
               ? [t("usage.fallback.point")]
               : []),
@@ -1071,28 +1032,29 @@ function UsageChartHint({ sourceKind, buckets, range }: {
   buckets: UsageBucketWithRequests[];
   range: 7 | 30 | 90;
 }) {
-  const breakdownComplete = hasCompleteTokenBreakdown(buckets)
+  const t = useI18n();
+  const breakdownComplete = hasCompleteTokenBreakdown(buckets, t)
     && (sourceKind !== "subscription"
       || !buckets.some((bucket) => bucket.displaySource === "router-fallback"));
   if (sourceKind === "subscription") {
-  return (
-    <p className="us-chart-hint is-account" role="note">
-        <strong>{uiText("Account graph")}</strong>
+    return (
+      <p className="us-chart-hint is-account" role="note">
+        <strong>{t("usage.hint.accountGraph")}</strong>
         <span>
           {breakdownComplete
-            ? uiText("The account API supplied the input/cache/output split for this {days}-day range.", { days: range })
-            : uiText("OpenAI supplies daily account totals only here; use “This router · all providers” for regular input, cached input, and output.")}
+            ? t("usage.hint.accountSplit", { range })
+            : t("usage.hint.accountTotalsOnly")}
         </span>
       </p>
-  );
+    );
   }
   return (
     <p className="us-chart-hint" role="note">
-      <strong>{uiText("Token key")}</strong>
+      <strong>{t("usage.hint.tokenKey")}</strong>
       <span>
         {breakdownComplete
-          ? uiText("Cached input is a subset of input, so it is shown as its own color and is not added a second time.")
-          : uiText("This router snapshot did not report an input/cache/output split for the selected range.")}
+          ? t("usage.hint.cachedSubset")
+          : t("usage.hint.noSplit")}
       </span>
     </p>
   );
@@ -1100,7 +1062,7 @@ function UsageChartHint({ sourceKind, buckets, range }: {
 
 type TokenPart = { tone: "regular-input" | "cached-input" | "output" | "other"; label: string; tokens: number };
 
-function tokenParts(bucket: UsageBucketWithRequests): TokenPart[] | null {
+function tokenParts(bucket: UsageBucketWithRequests, t: Translate): TokenPart[] | null {
   const hasBreakdown = bucket.inputTokens !== undefined
     || bucket.cachedInputTokens !== undefined
     || bucket.outputTokens !== undefined;
@@ -1113,10 +1075,10 @@ function tokenParts(bucket: UsageBucketWithRequests): TokenPart[] | null {
   const output = Math.max(0, Number(bucket.outputTokens) || 0);
   const other = Math.max(0, bucket.tokens - regular - cached - output);
   return [
-    { tone: "regular-input", label: uiText("regular input"), tokens: regular },
-    { tone: "cached-input", label: uiText("cached input"), tokens: cached },
-    { tone: "output", label: uiText("output"), tokens: output },
-    { tone: "other", label: uiText("unattributed tokens"), tokens: other },
+    { tone: "regular-input", label: t("usage.token.regularInput"), tokens: regular },
+    { tone: "cached-input", label: t("usage.token.cachedInput"), tokens: cached },
+    { tone: "output", label: t("usage.token.output"), tokens: output },
+    { tone: "other", label: t("usage.token.other"), tokens: other },
   ];
 }
 
@@ -1124,10 +1086,10 @@ function tokenParts(bucket: UsageBucketWithRequests): TokenPart[] | null {
 // tokens has a split. Padded zero days need no split, but one account-total or
 // fallback-only partial bucket makes an aggregate input/cache/output sum
 // incomplete and therefore unsafe to label as the whole range.
-function hasCompleteTokenBreakdown(buckets: UsageBucketWithRequests[]): boolean {
+function hasCompleteTokenBreakdown(buckets: UsageBucketWithRequests[], t: Translate): boolean {
   const tokenBuckets = buckets.filter((bucket) => bucket.tokens > 0);
   return tokenBuckets.length > 0
-    && tokenBuckets.every((bucket) => tokenParts(bucket) !== null);
+    && tokenBuckets.every((bucket) => tokenParts(bucket, t) !== null);
 }
 
 function ChartTooltip({ bucket, parts, sourceKind, t }: {
@@ -1141,8 +1103,8 @@ function ChartTooltip({ bucket, parts, sourceKind, t }: {
   return (
     <span className="us-chart-tooltip" aria-hidden="true">
       <span className="us-chart-tooltip-date">{formatBucketDate(bucket.startDate)}</span>
-      <strong className="us-chart-tooltip-total">{uiText("{count} tokens", { count: compactNumber(bucket.tokens).toUpperCase() })}</strong>
-      <span className="us-chart-tooltip-exact">{uiText("{count} total tokens", { count: exactNumber(bucket.tokens) })}</span>
+      <strong className="us-chart-tooltip-total">{t("usage.chart.tokensTotal", { count: compactNumber(bucket.tokens).toUpperCase() })}</strong>
+      <span className="us-chart-tooltip-exact">{t("usage.chart.totalTokens", { count: exactNumber(bucket.tokens) })}</span>
       {hasRows ? (
         <span className="us-chart-tooltip-rows">
           {visibleParts.map((part) => (
@@ -1156,8 +1118,8 @@ function ChartTooltip({ bucket, parts, sourceKind, t }: {
       ) : bucket.displaySource !== "router-fallback" ? (
         <span className="us-chart-tooltip-note">
           {sourceKind === "subscription"
-            ? uiText("The account API reports a daily total for this day; input, cached input, and output are not available.")
-            : uiText("Input and output details were not reported for this day.")}
+            ? t("usage.tooltip.accountTotals")
+            : t("usage.tooltip.noDetails")}
         </span>
       ) : null}
       {bucket.displaySource === "router-fallback" ? (
@@ -1175,6 +1137,7 @@ function MetricCard({ source, metric, cardRef, navigationFocused = false }: {
   cardRef?: Ref<HTMLElement>;
   navigationFocused?: boolean;
 }) {
+  const t = useI18n();
   const remaining = remainingPercent(metric);
   const tone = remaining !== null && remaining < 15
     ? "danger"
@@ -1182,27 +1145,20 @@ function MetricCard({ source, metric, cardRef, navigationFocused = false }: {
       ? "warning"
       : "neutral";
   const reset = metricResetAt(metric);
-  const label = metric.label
-    ? uiText(metric.label)
-    : (metric.kind === "balance" ? uiText("Balance") : uiText("Usage limit"));
+  const label = backendText(metric.label, t) || (metric.kind === "balance" ? t("usage.metric.balance") : t("usage.metric.usageLimit"));
   const resetLabel = reset !== undefined
-    ? uiText("Resets {time} ({countdown})", { time: formatDateTime(reset), countdown: resetCountdown(reset) })
-    : uiText("No reset reported");
+    ? t("usage.metric.resets", { date: formatDateTime(reset, t), countdown: resetCountdown(reset, t) })
+    : t("usage.metric.noReset");
   return (
     <article
       ref={cardRef}
       tabIndex={cardRef ? -1 : undefined}
-      aria-label={uiText("{source}, {label}, {value}. {reset}", {
-        source,
-        label,
-        value: metricValue(metric),
-        reset: resetLabel,
-      })}
+      aria-label={`${source}, ${label}, ${metricValue(metric, t)}. ${resetLabel}`}
       className={`us-metric-card${navigationFocused ? " is-navigation-focus" : ""}`}
     >
       <header>
         <span className="us-metric-source">{source}</span>
-        <Badge tone={tone}>{metricValue(metric)}</Badge>
+        <Badge tone={tone}>{metricValue(metric, t)}</Badge>
       </header>
       <div className="us-metric-title">
         {metric.kind === "balance"
@@ -1215,26 +1171,23 @@ function MetricCard({ source, metric, cardRef, navigationFocused = false }: {
           className={`us-quota-progress tone-${tone}`}
           max="100"
           value={remaining}
-          aria-label={uiText("{label}: {percent} percent remaining", {
-            label: metric.label ? uiText(metric.label) : uiText("Quota"),
-            percent: Math.round(remaining),
-          })}
+          aria-label={`${metric.label || t("usage.metric.quota")}: ${t("usage.metric.percentRemaining", { percent: Math.round(remaining) })}`}
         />
       ) : null}
       {metric.kind !== "balance" && hasMetricCounts(metric) ? (
         <dl className="us-metric-facts">
-          <div><dt>{uiText("Used")}</dt><dd>{formatMetricCount(metric.used, metric.unit)}</dd></div>
-          <div><dt>{uiText("Remaining")}</dt><dd>{formatMetricCount(metric.remaining, metric.unit)}</dd></div>
-          <div><dt>{uiText("Limit")}</dt><dd>{formatMetricCount(metric.limit, metric.unit)}</dd></div>
+          <div><dt>{t("usage.metric.used")}</dt><dd>{formatMetricCount(metric.used, metric.unit, t)}</dd></div>
+          <div><dt>{t("usage.metric.remaining")}</dt><dd>{formatMetricCount(metric.remaining, metric.unit, t)}</dd></div>
+          <div><dt>{t("usage.metric.limit")}</dt><dd>{formatMetricCount(metric.limit, metric.unit, t)}</dd></div>
         </dl>
       ) : null}
-      {metric.detail ? <p>{uiText(metric.detail)}</p> : null}
+      {metric.detail ? <p>{backendText(metric.detail, t)}</p> : null}
       <footer>
         {reset !== undefined ? (
           <time dateTime={dateTimeValue(reset)}>
             {resetLabel}
           </time>
-        ) : uiText("No reset reported")}
+        ) : t("usage.metric.noReset")}
       </footer>
     </article>
   );
@@ -1274,25 +1227,18 @@ function SourceRow({ source, selected, onSelect, t }: {
     && bucketsForRange(source.buckets, 7)
       .some((bucket) => bucket.displaySource === "router-fallback");
   const windowLabel = isSubscription
-    ? subscriptionUsesFallback ? t("usage.fallback.lastSeven") : uiText("Last 7 days · OpenAI")
-    : source.totalTokens == null
-      ? uiText("Last 24 hours · router")
-      : source.scopeLabel || uiText("Last {days} days · router", { days: LEDGER_DAYS });
+    ? subscriptionUsesFallback ? t("usage.fallback.lastSeven") : t("usage.source.last7Openai")
+    : source.totalTokens == null ? t("usage.source.last24hRouter") : source.scopeLabel || t("usage.scope.lastDays", { days: LEDGER_DAYS });
   const recentRouterTokens = !isSubscription && source.last24hTokens != null
-    ? uiText("{tokens} tok · last 24h", { tokens: compactNumber(source.last24hTokens) })
+    ? t("usage.source.recentTokens", { count: compactNumber(source.last24hTokens) })
     : null;
   const status = source.kind === "aggregate"
-    ? uiText("All data")
+    ? t("usage.source.allData")
     : isSubscription
-      ? source.plan ? friendlyPlanName(source.plan) : uiText("Signed in")
-      : source.enabled ? uiText("Enabled") : uiText("Historical");
+      ? source.plan ? friendlyPlanName(source.plan) : t("usage.source.signedIn")
+      : source.enabled ? t("usage.source.enabled") : t("usage.source.historical");
   const tone = source.enabled ? "success" : "neutral";
-  const quota = primary
-    ? uiText("{value} · {label}", {
-        value: metricValue(primary),
-        label: primary.label ? uiText(primary.label) : uiText("Account meter"),
-      })
-    : "";
+  const quota = primary ? `${metricValue(primary, t)} · ${backendText(primary.label, t) || t("usage.source.accountMeter")}` : "";
   return (
     <button
       type="button"
@@ -1300,11 +1246,7 @@ function SourceRow({ source, selected, onSelect, t }: {
       className={selected ? "is-active" : ""}
       aria-pressed={selected}
       onClick={onSelect}
-      title={uiText("{name} — {detail}{quota}", {
-        name: source.name,
-        detail: source.detail,
-        quota: quota ? uiText(" — {quota}", { quota }) : "",
-      })}
+      title={`${source.name} — ${source.detail}${quota ? ` — ${quota}` : ""}`}
     >
       <span className="us-source-name">
         <strong>{source.name}</strong>
@@ -1314,7 +1256,7 @@ function SourceRow({ source, selected, onSelect, t }: {
         {/* Absent is not zero: a backend that never reported this window says
             nothing, and printing "0 tok" for it is what makes a fully booked
             day read as an idle one. */}
-        <strong>{measuredTokens == null ? uiText("Not measured") : `${compactNumber(measuredTokens)} tok`}</strong>
+        <strong>{measuredTokens == null ? t("usage.summary.notMeasured") : t("usage.source.tok", { count: compactNumber(measuredTokens) })}</strong>
         <small>{windowLabel}</small>
         {recentRouterTokens ? <small>{recentRouterTokens}</small> : null}
         {quota ? <small>{quota}</small> : null}
@@ -1325,42 +1267,43 @@ function SourceRow({ source, selected, onSelect, t }: {
 }
 
 function UsageLoading() {
+  const t = useI18n();
   return (
     <div className="us-loading" role="status" aria-live="polite">
-      <span className="visually-hidden">{uiText("Loading account and router usage")}</span>
+      <span className="visually-hidden">{t("usage.loading.main")}</span>
       <div className="us-loading-summary">{Array.from({ length: 7 }, (_, index) => <SkeletonBlock key={index} />)}</div>
       <div className="us-loading-panels"><SkeletonBlock /><SkeletonBlock /></div>
     </div>
   );
 }
 
-function codexAccountMetrics(account: AccountUsage): UsageMetric[] {
+function codexAccountMetrics(account: AccountUsage, t: Translate): UsageMetric[] {
   const metrics: UsageMetric[] = [];
   [account.primary, account.secondary].forEach((window, index) => {
     if (!window) return;
     metrics.push({
       ...window,
       kind: "quota",
-      label: limitWindowLabel(window.windowDurationMins, index),
+      label: limitWindowLabel(window.windowDurationMins, index, t),
       detail: account.planType
-        ? uiText("{plan} plan", { plan: friendlyPlanName(account.planType) })
-        : uiText("ChatGPT account limit"),
+        ? t("usage.metric.plan", { plan: friendlyPlanName(account.planType) })
+        : t("usage.metric.chatgptLimit"),
     });
   });
   return metrics;
 }
 
-function limitWindowLabel(minutes: number | undefined, index: number): string {
-  if (!Number.isFinite(Number(minutes))) return index === 0 ? uiText("Primary limit") : uiText("Secondary limit");
+function limitWindowLabel(minutes: number | undefined, index: number, t: Translate): string {
+  if (!Number.isFinite(Number(minutes))) return index === 0 ? t("status.limit.primary") : t("status.limit.secondary");
   const value = Number(minutes);
   if (value >= 1_440 && value % 1_440 === 0) {
     const days = value / 1_440;
-    if (days === 1) return uiText("Daily limit");
-    if (days === 7) return uiText("Weekly limit");
-    return uiText("{days}-day limit", { days });
+    if (days === 1) return t("status.limit.daily");
+    if (days === 7) return t("status.limit.weekly");
+    return t("status.limit.days", { days });
   }
-  if (value >= 60 && value % 60 === 0) return uiText("{hours}-hour limit", { hours: value / 60 });
-  return uiText("{minutes}-minute limit", { minutes: value });
+  if (value >= 60 && value % 60 === 0) return t("status.limit.hours", { hours: value / 60 });
+  return t("status.limit.minutes", { minutes: value });
 }
 
 function mergeBuckets(groups: UsageBucketWithRequests[][]): UsageBucketWithRequests[] {
@@ -1467,8 +1410,8 @@ function optionalEventNumber(value: number | undefined): number | null {
   return Number.isFinite(number) && number >= 0 ? Math.round(number) : null;
 }
 
-function optionalCompact(value: number | null | undefined): string {
-  return value == null ? uiText("Not reported") : compactNumber(value);
+function optionalCompact(value: number | null | undefined, t: Translate): string {
+  return value == null ? t("usage.summary.notReported") : compactNumber(value);
 }
 
 function friendlyPlanName(value: string): string {
@@ -1478,36 +1421,36 @@ function friendlyPlanName(value: string): string {
 }
 
 function formatBucketDate(value?: string): string {
-  if (!value) return uiText("No data");
+  if (!value) return "No data";
   const date = new Date(`${value}T12:00:00`);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat(uiLocale(), { month: "short", day: "numeric" }).format(date);
+  return new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(date);
 }
 
 function hasMetricCounts(metric: UsageMetric): boolean {
   return [metric.used, metric.remaining, metric.limit].some((value) => Number.isFinite(Number(value)));
 }
 
-function formatMetricCount(value: number | undefined, unit?: string): string {
-  if (!Number.isFinite(Number(value))) return uiText("Not reported");
+function formatMetricCount(value: number | undefined, unit: string | undefined, t: Translate): string {
+  if (!Number.isFinite(Number(value))) return t("usage.summary.notReported");
   const formatted = exactNumber(value);
   return unit ? `${formatted} ${unit}` : formatted;
 }
 
-function resetCountdown(value: number | string): string {
+function resetCountdown(value: number | string, t: Translate): string {
   const numeric = Number(value);
   const timestamp = Number.isFinite(numeric)
     ? (numeric < 10_000_000_000 ? numeric * 1_000 : numeric)
     : new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return uiText("time unavailable");
+  if (!Number.isFinite(timestamp)) return t("usage.countdown.unavailable");
   const remaining = timestamp - Date.now();
-  if (remaining <= 0) return uiText("refresh due");
+  if (remaining <= 0) return t("usage.countdown.refreshDue");
   const minutes = Math.ceil(remaining / 60_000);
-  if (minutes < 60) return uiText("in {minutes}m", { minutes });
+  if (minutes < 60) return t("usage.countdown.minutes", { minutes });
   const hours = Math.floor(minutes / 60);
-  if (hours < 24) return uiText("in {hours}h {minutes}m", { hours, minutes: minutes % 60 });
+  if (hours < 24) return t("usage.countdown.hours", { hours, minutes: minutes % 60 });
   const days = Math.floor(hours / 24);
-  return uiText("in {days}d {hours}h", { days, hours: hours % 24 });
+  return t("usage.countdown.days", { days, hours: hours % 24 });
 }
 
 function dateTimeValue(value: number | string): string {

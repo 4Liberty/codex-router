@@ -14,17 +14,25 @@ import WidgetKit
 enum RouterWidgetLanguage: String {
   case english
   case chinese
+  case traditionalChinese
 
   static func resolve(_ published: String?) -> RouterWidgetLanguage {
     guard let published, !published.isEmpty else { return system }
     let lowered = published.lowercased()
-    if lowered.hasPrefix("zh") || lowered == "chinese" { return .chinese }
+    if lowered == "traditionalchinese" { return .traditionalChinese }
+    if lowered == "chinese" { return .chinese } // Older snapshots keep their exact meaning.
+    let parts = lowered.replacingOccurrences(of: "_", with: "-").split(separator: "-").map(String.init)
+    if parts.first == "zh" {
+      if parts.contains("hant") { return .traditionalChinese }
+      if parts.contains("hans") { return .chinese }
+      return parts.contains(where: { ["tw", "hk", "mo"].contains($0) }) ? .traditionalChinese : .chinese
+    }
     return .english
   }
 
   static var system: RouterWidgetLanguage {
     let preferred = (Locale.preferredLanguages.first ?? Locale.current.identifier).lowercased()
-    return preferred.hasPrefix("zh") ? .chinese : .english
+    return resolve(preferred)
   }
 
   /// The identifier a tray publishes for a given resolved language. Kept here
@@ -38,6 +46,7 @@ enum RouterWidgetLanguage: String {
     switch self {
     case .english: return nil
     case .chinese: return RouterWidgetChineseText.values
+    case .traditionalChinese: return RouterWidgetTraditionalChineseText.values
     }
   }
 
@@ -94,6 +103,53 @@ enum RouterWidgetChineseText {
     "%dd %dh": "%d 天 %d 小时",
     "Seven day cumulative token usage": "7 天累计 token 用量",
     "Seven day cumulative token usage, most recent day measured locally": "7 天累计 token 用量，最近一天为本机测量",
+  ]
+}
+
+enum RouterWidgetTraditionalChineseText {
+  static let values: [String: String] = [
+    "Today · %@ · UTC": "今天 · %@ · UTC",
+    "Limits": "限制",
+    "No quota available": "暫無可用額度",
+    "7D cumulative": "7 天累計",
+    "7-day cumulative": "7 天累計",
+    "Usage snapshot is stale": "用量資料已過期",
+    "Open Codex Router to refresh usage.": "開啟 Codex Router 以重新整理用量。",
+    "Waiting for router data": "正在等待路由資料",
+    "Open Codex Router once to publish usage.": "請先開啟一次 Codex Router 以發佈用量。",
+    "this Mac · account not reported yet": "本機 · 帳戶尚未報告",
+    "account tokens": "帳戶 token",
+    "tokens routed": "路由 token",
+    "Reset": "重置",
+    "Reset data is stale": "重置資料已過期",
+    "No reset available": "暫無重置資訊",
+    "Waiting for reset data": "正在等待重置資料",
+    "Open Codex Router to refresh provider limits.": "開啟 Codex Router 以重新整理提供商額度。",
+    "Next · %@": "下一個 · %@",
+    "until reset · %@": "距重置 · %@",
+    "Next reset": "下次重置",
+    "%@ · %@": "%@ · %@",
+    "Soon": "即將",
+    "Resets": "重置時間",
+    "5-hour limit": "5 小時限制",
+    "Weekly limit": "每週限制",
+    "Monthly limit": "每月限制",
+    "%d active": "%d 個進行中",
+    "Active": "使用中",
+    "Ready": "就緒",
+    "%d percent left": "剩餘 %d%%",
+    ", resets %@": "，重置 %@",
+    "%@, %@, %@%@": "%@，%@，%@%@",
+    "soon": "即將",
+    "in %d m": "%d 分鐘後",
+    "in %d h": "%d 小時後",
+    "in %d d": "%d 天後",
+    "<1m": "不到 1 分鐘",
+    "%dm": "%d 分鐘",
+    "%dh %dm": "%d 小時 %d 分",
+    "%dd %dh": "%d 天 %d 小時",
+    "Seven day cumulative token usage": "7 天累計 token 用量",
+    "Seven day cumulative token usage, most recent day measured locally": "7 天累計 token 用量，最近一天為本機測量",
   ]
 }
 

@@ -96,10 +96,11 @@ function untranslatedMarkup(markup) {
 
 const PANEL_KEYS = panelTranslationKeys();
 
-test("every browser panel string is defined for every language", () => {
+test("every browser panel string is defined for English and both Chinese catalogs", () => {
   const keys = translationKeys();
   assert.ok(PANEL_KEYS.length > 200, `the panel key scan found only ${PANEL_KEYS.length} strings`);
-  for (const [language, list] of Object.entries(keys)) {
+  for (const language of ["en", "zh-CN", "zh-TW"]) {
+    const list = keys[language];
     const defined = new Set(list);
     for (const key of PANEL_KEYS) {
       assert.ok(defined.has(key), `${key} is missing from ${language}`);

@@ -10,6 +10,7 @@ enum TrayLanguage: String, CaseIterable, Identifiable {
   case system
   case english
   case chinese
+  case traditionalChinese
   case arabic
   case hindi
   case japanese
@@ -31,7 +32,8 @@ enum TrayLanguage: String, CaseIterable, Identifiable {
     case .system:
       return "\(routerLocalized("System")) · \(RouterLanguage.systemResolution.nativeName)"
     case .english: return "English"
-    case .chinese: return "中文"
+    case .chinese: return "简体中文"
+    case .traditionalChinese: return "繁體中文"
     case .arabic: return "العربية"
     case .hindi: return "हिन्दी"
     case .japanese: return "日本語"
@@ -45,6 +47,7 @@ enum TrayLanguage: String, CaseIterable, Identifiable {
 enum ResolvedTrayLanguage {
   case english
   case chinese
+  case traditionalChinese
   case arabic
   case hindi
   case japanese
@@ -53,7 +56,8 @@ enum ResolvedTrayLanguage {
   var nativeName: String {
     switch self {
     case .english: return "English"
-    case .chinese: return "中文"
+    case .chinese: return "简体中文"
+    case .traditionalChinese: return "繁體中文"
     case .arabic: return "العربية"
     case .hindi: return "हिन्दी"
     case .japanese: return "日本語"
@@ -66,6 +70,7 @@ enum ResolvedTrayLanguage {
     switch self {
     case .english: return nil
     case .chinese: return RouterChineseText.values
+    case .traditionalChinese: return RouterTraditionalChineseText.values
     case .arabic: return RouterArabicText.values
     case .hindi: return RouterHindiText.values
     case .japanese: return RouterJapaneseText.values
@@ -80,6 +85,7 @@ enum ResolvedTrayLanguage {
     switch self {
     case .english: return "english"
     case .chinese: return "chinese"
+    case .traditionalChinese: return "traditionalChinese"
     case .arabic: return "arabic"
     case .hindi: return "hindi"
     case .japanese: return "japanese"
@@ -103,14 +109,24 @@ enum RouterLanguage {
     UserDefaults.standard.set(next.rawValue, forKey: storageKey)
   }
 
+  static func resolve(_ languageTag: String) -> ResolvedTrayLanguage {
+    let parts = languageTag.replacingOccurrences(of: "_", with: "-").lowercased().split(separator: "-").map(String.init)
+    if parts.first == "zh" {
+      if parts.contains("hant") { return .traditionalChinese }
+      if parts.contains("hans") { return .chinese }
+      return parts.contains(where: { ["tw", "hk", "mo"].contains($0) }) ? .traditionalChinese : .chinese
+    }
+    switch parts.first {
+    case "ar": return .arabic
+    case "hi": return .hindi
+    case "ja": return .japanese
+    case "ko": return .korean
+    default: return .english
+    }
+  }
+
   static var systemResolution: ResolvedTrayLanguage {
-    let preferred = (Locale.preferredLanguages.first ?? Locale.current.identifier).lowercased()
-    if preferred.hasPrefix("zh") { return .chinese }
-    if preferred.hasPrefix("ar") { return .arabic }
-    if preferred.hasPrefix("hi") { return .hindi }
-    if preferred.hasPrefix("ja") { return .japanese }
-    if preferred.hasPrefix("ko") { return .korean }
-    return .english
+    resolve(Locale.preferredLanguages.first ?? Locale.current.identifier)
   }
 
   static var systemPrefersChinese: Bool { systemResolution == .chinese }
@@ -120,6 +136,7 @@ enum RouterLanguage {
     case .system: return systemResolution
     case .english: return .english
     case .chinese: return .chinese
+    case .traditionalChinese: return .traditionalChinese
     case .arabic: return .arabic
     case .hindi: return .hindi
     case .japanese: return .japanese
@@ -127,8 +144,7 @@ enum RouterLanguage {
     }
   }
 
-  /// Kept for the call sites that compose Chinese strings inline; those fall
-  /// back to English in every other translated language.
+  /// Compatibility predicate; new UI code uses the shared message catalogs.
   static var isSimplifiedChinese: Bool { resolution == .chinese }
 }
 

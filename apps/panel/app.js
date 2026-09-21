@@ -871,9 +871,8 @@ function startPanel() {
         )
       : `<div class="empty-state">${escapeHtml(t("models.enableProviderForSubagents"))}</div>`;
     const subagentCount = subagentModels.filter(isSubagentOn).length;
-    elements.subagentSummary.textContent = t("models.subagentSummary", {
+    elements.subagentSummary.textContent = t(subagentCount === 1 ? "models.subagentSummaryOne" : "models.subagentSummary", {
       count: subagentCount,
-      plural: subagentCount === 1 ? "" : "s",
       mode: localizeSubagentMode(subagent.mode),
     });
 
@@ -1203,7 +1202,7 @@ function startPanel() {
     const downloadable = model.downloadable !== false;
     const tooLarge = downloadable && (model.fit === "too-large" || model.diskFit === "too-large");
     const fit = localCatalogFit(model);
-    const fitClass = fit === "won’t fit" ? " is-danger" : fit === "tight" ? " is-warning" : "";
+    const fitClass = fit === "too-large" ? " is-danger" : fit === "tight" ? " is-warning" : "";
     const capabilities = Array.isArray(model.researchCapabilities) && model.researchCapabilities.length
       ? ` · ${model.researchCapabilities.join(" · ")}`
       : "";
@@ -1225,8 +1224,8 @@ function startPanel() {
   }
 
   function localCatalogFit(model) {
-    if (model.downloadable === false) return "cloud only";
-    if (model.fit === "too-large" || model.diskFit === "too-large") return "won’t fit";
+    if (model.downloadable === false) return "cloud";
+    if (model.fit === "too-large" || model.diskFit === "too-large") return "too-large";
     if (model.fit === "tight" || model.diskFit === "tight") return "tight";
     return model.fit || model.diskFit || "untested";
   }
@@ -1248,7 +1247,7 @@ function startPanel() {
     const leftLatest = left.variant === "latest";
     const rightLatest = right.variant === "latest";
     if (leftLatest !== rightLatest) return leftLatest ? -1 : 1;
-    const fitRank = { fits: 0, tight: 1, "cloud only": 2, "won’t fit": 3 };
+    const fitRank = { fits: 0, tight: 1, cloud: 2, "too-large": 3 };
     const leftRank = fitRank[localCatalogFit(left)] ?? 4;
     const rightRank = fitRank[localCatalogFit(right)] ?? 4;
     if (leftRank !== rightRank) return leftRank - rightRank;
@@ -2193,13 +2192,45 @@ function startIsland() {
 
 function localizeProviderPlan(note) {
   const value = String(note || "");
-  if (getLanguage() === "zh-CN") {
-    if (value.includes("Needs the Command Code Provider plan")) return "需要 Command Code Provider 方案。";
-    if (value.includes("Requires Copilot access")) return "需要 Copilot 访问权限。连接后，请运行 ./bin/curate-models github-copilot。";
-    if (value.includes("Requires an active ClinePass subscription")) return "需要有效的 ClinePass 订阅。";
-    if (value.includes("Runs on this machine")) return "在此设备上运行。使用这些模型前请先启动 Ollama。";
+  // The note is the router's own English sentence, and it is what identifies
+  // which plan gate the provider is behind, so it is matched rather than keyed.
+  const table = PROVIDER_PLAN_NOTES[getLanguage()];
+  if (!table) return value;
+  for (const [needle, text] of Object.entries(table)) {
+    if (value.includes(needle)) return text;
   }
   return value;
+}
+
+const PROVIDER_PLAN_NOTES = {
+  "zh-CN": {
+    "Needs the Command Code Provider plan": "需要 Command Code Provider 方案。",
+    "Requires Copilot access": "需要 Copilot 访问权限。连接后，请运行 ./bin/curate-models github-copilot。",
+    "Requires an active ClinePass subscription": "需要有效的 ClinePass 订阅。",
+    "Runs on this machine": "在此设备上运行。使用这些模型前请先启动 Ollama。",
+  },
+  "zh-TW": {
+    "Needs the Command Code Provider plan": "需要 Command Code Provider 方案。",
+    "Requires Copilot access": "需要 Copilot 存取權限。連線後，請執行 ./bin/curate-models github-copilot。",
+    "Requires an active ClinePass subscription": "需要有效的 ClinePass 訂閱。",
+    "Runs on this machine": "在本機執行。使用這些模型前，請先啟動 Ollama。",
+  },
+};
+
+// Vision effort ids come from the router, so the same ladder the control center
+// renders is mapped here instead of being title-cased on screen.
+function localizeEffort(effort) {
+  const key = {
+    default: "effort.default",
+    minimal: "effort.minimal",
+    low: "effort.low",
+    medium: "effort.medium",
+    high: "effort.high",
+    xhigh: "effort.xhigh",
+    max: "effort.max",
+    ultra: "effort.ultra",
+  }[effort];
+  return key ? t(key) : effort;
 }
 
 function localizeSubagentMode(mode) {
