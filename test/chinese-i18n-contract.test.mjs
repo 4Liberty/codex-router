@@ -137,3 +137,17 @@ test("the read-only panel serves the new message module and never evaluates tran
   assert.match(i18n, /element\.textContent = t\(element\.dataset\.i18n\)/);
   assert.doesNotMatch(i18n, /\.innerHTML\s*=|\beval\s*\(/);
 });
+
+
+test("ordinary Traditional Chinese labels do not retain untranslated English prose", () => {
+  const t = createTranslator("zh-TW");
+  assert.equal(t("settings.context.title"), "Token 精簡");
+  assert.equal(t("harness.row.agent"), "代理程式");
+  assert.equal(t("harness.row.agentCount", { count: 2 }), "代理程式 · 2");
+  assert.equal(t("status.model.req", { count: 3 }), "3 次");
+  try {
+    setLanguage("zh-TW");
+    assert.equal(panelText("connections.githubToken"), "GitHub 權杖");
+    assert.equal(panelText("models.compactOldToolResults"), "Token 精簡");
+  } finally { setLanguage("en"); }
+});

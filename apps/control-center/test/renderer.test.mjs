@@ -553,9 +553,10 @@ const bridgeSource = String.raw`
       addCustomEndpoint: async (input) => {
         record("addCustomEndpoint", clone(input));
         const id = "user_fixture";
+        const { credential, ...publicFields } = input;
         providers.customEndpoints.push({
-          id, ...input, kind: "api", generic: true, configured: true, enabled: true,
-          hasKey: Boolean(input.credential), credentialLabel: "API key",
+          id, ...publicFields, kind: "api", generic: true, configured: true, enabled: true,
+          hasKey: Boolean(credential), credentialLabel: "API key",
           catalogSources: [{ id, displayName: input.displayName, kind: "models-endpoint" }],
         });
         // An exact raw diagnostic must remain visible in every UI language.
@@ -1521,6 +1522,14 @@ test(`${language} covers every page, dialogs, raw values, English round trips an
 }
 
 
+async function captureIntegrationView(page, name) {
+  const artifacts = process.env.CODEX_ROUTER_UI_ARTIFACTS;
+  if (!artifacts) return;
+  mkdirSync(artifacts, { recursive: true });
+  // Test data only; credential fields are empty at the capture sites.
+  await page.screenshot({ path: path.join(artifacts, `${name}.png`) });
+}
+
 // Independent expectations for the newly merged Usage and custom-endpoint
 // surfaces. Use the actual compiled renderer; the bridge is the only mock.
 for (const [language, copy] of [
@@ -1577,6 +1586,7 @@ for (const [language, copy] of [
       assert.equal(await dialog.getByRole("button", { name: copy.saveChoose, exact: true }).isDisabled(), true);
       await dialog.locator("#custom-endpoint-url").fill(address);
       await dialog.locator("#custom-endpoint-adapter").selectOption("openai-responses");
+      await captureIntegrationView(page, `custom-endpoint-add-${language}`);
       await dialog.getByLabel(copy.key, { exact: true }).fill("test-only-not-a-real-key");
       await dialog.getByRole("button", { name: copy.saveChoose, exact: true }).click();
       await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "addCustomEndpoint"));
@@ -1587,6 +1597,7 @@ for (const [language, copy] of [
       await notice.waitFor();
       assert.match(await notice.innerText(), /Fixture \{count\}/);
       assert.doesNotMatch(await notice.innerText(), /test-only-not-a-real-key/);
+      await captureIntegrationView(page, `custom-endpoint-diagnostic-${language}`);
       await notice.getByRole("button", { name: copy.namedTitle, exact: true }).click();
       const named = page.getByRole("dialog", { name: copy.namedTitle, exact: true });
       const modelId = "vendor/model-{count}";
@@ -1602,8 +1613,12 @@ for (const [language, copy] of [
       await openEndpoint();
       await page.getByRole("button", { name: copy.edit, exact: true }).click();
       const editing = page.getByRole("dialog").filter({ has: page.locator("#custom-endpoint-name") });
+      // React populates the edit form in an effect after the dialog opens.
+      // Wait for that observable state, not a fixed delay or mere DOM presence.
+      await page.waitForFunction((expected) => document.querySelector("#custom-endpoint-name")?.value === expected, name);
       assert.equal(await editing.locator("#custom-endpoint-name").inputValue(), name);
       assert.equal(await editing.locator("#custom-endpoint-key").inputValue(), "", "stored credentials must not be rendered back");
+      await captureIntegrationView(page, `custom-endpoint-edit-${language}`);
       await editing.locator("#custom-endpoint-url").fill("https://new.example.test/v1");
       await editing.getByRole("button", { name: copy.save, exact: true }).click();
       await page.waitForFunction(() => window.routerControlTest.calls().some((c) => c.name === "editCustomEndpoint"));
@@ -1649,6 +1664,7 @@ for (const [language, copy] of [
       await page.getByText(copy.selected, { exact: true }).waitFor();
       await page.getByText(copy.others, { exact: true }).waitFor();
       await page.getByText("2.5k (25%)", { exact: true }).waitFor();
+      await captureIntegrationView(page, `usage-account-groups-${language}`);
       await select.selectOption("provider:venice");
       await page.getByText(copy.noHit, { exact: false }).waitFor();
       assert.doesNotMatch(await page.locator(".us-summary-grid").innerText(), /\(0%\)/);

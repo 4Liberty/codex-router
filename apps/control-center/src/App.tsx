@@ -308,8 +308,8 @@ export default function App() {
   useEffect(() => {
     applyDocumentLanguage(language);
     storeLanguage(language);
-    // The tray context menu is built in the main process, which has no
-    // dictionary of its own; hand it the labels this renderer already resolved.
+    // The main process owns its menu dictionaries. Send only the resolved
+    // language ID through its existing trusted-renderer boundary.
     api?.setInterfaceLanguage?.(language);
   }, [language, t, api]);
 

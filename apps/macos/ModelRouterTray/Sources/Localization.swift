@@ -117,7 +117,7 @@ enum RouterLanguage {
     else { return .english }
     // A script or region inside an extension/private-use value is not the
     // language's declared script/region (zh-x-hant still means Simplified).
-    let core = tag.split(separator: "-").prefix { $0.count != 1 }.joined(separator: "-")
+    let core = tag.components(separatedBy: "-").prefix(while: { $0.count != 1 }).joined(separator: "-")
     let locale = Locale(identifier: core)
     if locale.languageCode == "zh" {
       if locale.scriptCode == "Hans" { return .chinese }

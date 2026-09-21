@@ -26,7 +26,7 @@ enum RouterWidgetLanguage: String {
       tag.range(of: #"^[A-Za-z]{2,3}(?:-[A-Za-z0-9]{1,8})*$"#, options: .regularExpression) != nil
     else { return .english }
     // Ignore extension/private-use values when resolving a declared script.
-    let core = tag.split(separator: "-").prefix { $0.count != 1 }.joined(separator: "-")
+    let core = tag.components(separatedBy: "-").prefix(while: { $0.count != 1 }).joined(separator: "-")
     let locale = Locale(identifier: core)
     guard locale.languageCode == "zh" else { return .english }
     if locale.scriptCode == "Hans" { return .chinese }
