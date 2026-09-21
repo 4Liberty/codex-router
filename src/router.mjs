@@ -1098,6 +1098,16 @@ function needsStrictOpenCodeToolCompatibility(route) {
 // restriction. Command Code answers the identical `Recursive JSON schemas are
 // not currently supported` on every model behind either of its provider
 // variants (issue #626), so it is gated provider-wide rather than per model.
+//
+// A route that documents the limitation on itself -- `toolSchemaRecursion:
+// "flatten"` in its own registry fragment -- opts in here as well. The
+// api-forwarder repair only sees top-level `type: "function"` tools, so a
+// Responses-native endpoint that keeps Codex's `type: "namespace"` entries,
+// and the recursive `inputSchema` children inside them, needs the repair here
+// in the shape that endpoint actually validates. Moonshot-flavored routes stay
+// out: a blanked cycle-closing ref there must keep the type it declared, which
+// the shared non-recursive pass does not recover, and those routes already run
+// the pass below.
 const NON_RECURSIVE_SCHEMA_PROVIDER_IDS = new Set(["commandcode", "commandcode-messages"]);
 
 function needsNonRecursiveToolSchemaCompatibility(route) {
@@ -1106,7 +1116,9 @@ function needsNonRecursiveToolSchemaCompatibility(route) {
     NON_RECURSIVE_SCHEMA_PROVIDER_IDS.has(providerId) ||
     needsZenFreeToolCompatibility(route) ||
     (providerId === "opencode-go-responses" &&
-      route.upstreamModel === "muse-spark-1.2-contributor")
+      route.upstreamModel === "muse-spark-1.2-contributor") ||
+    (route?.toolSchemaRecursion === "flatten" &&
+      !needsMoonshotSchemaCompatibility(route))
   );
 }
 

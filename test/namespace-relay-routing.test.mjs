@@ -2268,6 +2268,107 @@ test("OpenCode Go Muse removes recursive tool refs in both response modes", asyn
   }
 });
 
+// Issue #792 added the cycle-closing repair for the direct Meta Muse Spark 1.3
+// Contributor route, but it ran only in the api-forwarder, which understands
+// top-level `type: "function"` tools. A Responses-native endpoint keeps Codex's
+// `type: "namespace"` entries, so the app and MCP toolset -- where the
+// recursive `$defs` actually lives -- reached Meta unchanged and a tool-bearing
+// turn still came back as HTTP 400 `Recursive JSON schemas are not currently
+// supported`. The route's own `toolSchemaRecursion` flag now opts it into the
+// router-side repair too; the sibling Meta route without that measured proof
+// keeps its payload byte-identical, which is the control below.
+test("direct Meta Muse Spark 1.3 Contributor breaks recursive refs inside namespace tools", async () => {
+  const recursiveNamespaceChild = () => ({
+    type: "function",
+    name: "automation_update",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: { $ref: "#/$defs/__schema0" },
+        branch: { type: "string" },
+      },
+      $defs: {
+        __schema0: {
+          anyOf: [
+            { type: "string" },
+            { type: "array", items: { $ref: "#/$defs/__schema0" } },
+            {
+              type: "object",
+              additionalProperties: { $ref: "#/$defs/__schema0" },
+            },
+          ],
+        },
+      },
+    },
+  });
+  const requestPayload = (stream, model) => ({
+    model,
+    stream,
+    input: [
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "hi" }],
+      },
+    ],
+    tools: [
+      { type: "namespace", name: "codex_app", tools: [recursiveNamespaceChild()] },
+      {
+        type: "function",
+        name: "inspect",
+        parameters: {
+          type: "object",
+          properties: { child: { $ref: "#/$defs/Row" } },
+          $defs: {
+            Row: {
+              type: "object",
+              properties: { child: { $ref: "#/$defs/Row" } },
+            },
+          },
+        },
+      },
+    ],
+  });
+  const namespaceChildOf = (body) =>
+    body.tools
+      .find((tool) => tool.type === "namespace")
+      .tools.find((tool) => tool.name === "automation_update");
+
+  const verified = await scenario(true, {
+    model: "meta/muse-spark-1.3-contributor",
+    requestPayload,
+  });
+  const outgoing = verified.gatewayBodies[0];
+  const repairedChild = namespaceChildOf(outgoing);
+  // Definitions and acyclic references survive; only the edge that closes the
+  // cycle is blanked.
+  assert.equal(repairedChild.inputSchema.properties.id.$ref, "#/$defs/__schema0");
+  assert.deepEqual(
+    repairedChild.inputSchema.$defs.__schema0.anyOf[1].items,
+    {},
+  );
+  assert.deepEqual(
+    repairedChild.inputSchema.$defs.__schema0.anyOf[2].additionalProperties,
+    {},
+  );
+  const repairedFlatTool = outgoing.tools.find((tool) => tool.name === "inspect");
+  assert.deepEqual(repairedFlatTool.parameters.$defs.Row.properties.child, {});
+
+  const control = await scenario(true, {
+    model: "meta/muse-spark-1.3",
+    requestPayload,
+  });
+  const controlChild = namespaceChildOf(control.gatewayBodies[0]);
+  assert.deepEqual(controlChild.inputSchema.$defs.__schema0.anyOf[1].items, {
+    $ref: "#/$defs/__schema0",
+  });
+  assert.deepEqual(
+    control.gatewayBodies[0].tools.find((tool) => tool.name === "inspect")
+      .parameters.$defs.Row.properties.child,
+    { $ref: "#/$defs/Row" },
+  );
+});
+
 test("OpenCode Go compaction removes native tool history before the strict endpoint", async () => {
   const result = await scenario(false, {
     endpoint: "/responses/compact",
