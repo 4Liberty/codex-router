@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **A replayed tool call with no arguments no longer kills a Meta Muse Spark
+  thread.** Meta validates a function call's `arguments` as JSON and refuses the
+  whole request with HTTP 400 `` `arguments` must be valid JSON `` before
+  inference, so the turn is lost — and because the call stays in the transcript,
+  every later turn in that thread is lost with it. Measured live: Muse called an
+  MCP tool with no arguments at all, the server answered "pattern is required",
+  Codex recorded the call with `arguments: ""`, and the next request died on
+  replay. Meta-bound requests now turn an absent, empty, or whitespace-only
+  argument string into `{}`, which is what the call meant and what the endpoint
+  accepts. The repair is deliberately narrow: a non-empty string that is not
+  JSON is a different failure and is left exactly as it arrived, and each
+  substitution is reported rather than quieted.
 - **Your own OpenAI-compatible endpoints can be added from Control Center.**
   A generic provider already carried everything an operator needs — an address,
   a protected key file, `/models` discovery, curation into the picker, and
