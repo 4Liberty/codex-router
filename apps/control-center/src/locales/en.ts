@@ -805,7 +805,7 @@ export const en = {
   "models.route.input": "Input",
   "models.route.inPicker": "In picker",
   "models.route.subagents": "Subagents",
-  "models.route.thinking": "Thinking",
+  "models.route.thinking": "Reasoning effort",
   "models.route.pickerLabel": "Show {model} through {provider} in the picker",
   "models.route.subagentLabel": "Use {model} through {provider} as a subagent",
   "models.route.subagentEffortAria": "{model} {provider} subagent thinking effort",

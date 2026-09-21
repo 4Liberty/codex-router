@@ -41,6 +41,21 @@ for (const language of ["zh-CN", "zh-TW"]) {
   });
 }
 
+test("page headings and reasoning controls retain their meaning in each locale", () => {
+  const en = createTranslator("en"), cn = createTranslator("zh-CN"), tw = createTranslator("zh-TW");
+  // These are UI contract expectations, not values read back from a catalog:
+  // a settings column must not become the transient "Thinking" activity state.
+  assert.equal(en("models.route.thinking"), "Reasoning effort");
+  assert.equal(cn("models.route.thinking"), "推理强度");
+  assert.equal(tw("models.route.thinking"), "推理強度");
+  assert.equal(tw("harness.title"), "工具鏈");
+  assert.equal(tw("context.title"), "Context 管理");
+  for (const key of ["models.method.apiKey", "models.credential.apiKey"]) {
+    assert.equal(cn(key), "API 密钥");
+    assert.equal(tw(key), "API 金鑰");
+  }
+});
+
 test("all UI surfaces distinguish script, region and persisted locale ids consistently", () => {
   const expected = new Map([
     ["zh", "zh-CN"], ["zh_CN", "zh-CN"], ["zh-SG", "zh-CN"],
