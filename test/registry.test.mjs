@@ -966,7 +966,7 @@ test("four additional OpenCode Go Chat routes retain their documented limits and
 test("GLM-5.3 Coding Plan opts in to GPT-5.6 behavior, concise execution, and standalone search", () => {
   const model = MODEL_BY_SLUG.get("zai-coding/glm-5.3");
   assert.equal(model?.behaviorTemplate, "gpt-5.6-sol");
-  assert.equal(model?.instructionOverlay, "efficient-agentic");
+  assert.equal(model?.instructionOverlay, "efficient-agentic-v2");
   assert.deepEqual(model?.searchTool, { mode: "standalone" });
 });
 
