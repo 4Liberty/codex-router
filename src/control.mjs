@@ -98,6 +98,9 @@ const restartBearingOverlayOperation = new Set([
   "vision-bridge",
   "local-models",
   "signed-routing",
+  // Descriptor, credential, and removal changes republish the model overlay
+  // and restart the router, exactly like `credential`.
+  "generic-providers",
 ]).has(args[0]);
 const selfReplacingControl =
   args[0] === "maintenance" ||
