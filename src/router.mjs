@@ -228,6 +228,7 @@ import {
   grokOauth46IngressContextBytes,
   knownServiceTier,
   usageDiagnosticMetadata,
+  utf8JsonBytes,
 } from "./request-diagnostics.mjs";
 import {
   classifySsePrefix,
@@ -1125,6 +1126,29 @@ function zenFreeCompatibleInput(input, route) {
   return stripUnissuedEncryptedReasoning(
     downgradeOriginalImageDetail(agentMessagesAsUserMessages(input)),
   );
+}
+
+// Console Go validates the two Muse Contributor routes strictly enough to
+// reject Codex's collaboration item by name, so a delegated child dies before
+// its first token (`input[5] did not match any supported type`). The readable
+// handoff is already recovered by `normalizeRoutedAgentInput`; present it as the
+// equivalent user message, the way the Zen free and native DeepSeek routes
+// already do. Measured on these two upstreams only: the sibling Console Go
+// models answered the same item with their own contract (a required `author`),
+// so they keep it unchanged.
+const CONSOLE_GO_COLLABORATION_UPSTREAMS = new Set([
+  "muse-spark-1.2-contributor",
+  "muse-spark-1.3-contributor",
+]);
+
+function consoleGoCompatibleInput(input, route) {
+  if (
+    providerForModel(route)?.id !== "opencode-go-responses" ||
+    !CONSOLE_GO_COLLABORATION_UPSTREAMS.has(route?.upstreamModel)
+  ) {
+    return input;
+  }
+  return agentMessagesAsUserMessages(input);
 }
 
 function applyZenFreeIncludeCompatibility(payload, route) {
@@ -2828,8 +2852,11 @@ async function summarizeWith(
   signal,
   { searchContract } = {},
 ) {
-  const compatibleInput = zenFreeCompatibleInput(
-    normalizeProviderAppToolOutputs(aged.input),
+  const compatibleInput = consoleGoCompatibleInput(
+    zenFreeCompatibleInput(
+      normalizeProviderAppToolOutputs(aged.input),
+      route,
+    ),
     route,
   );
   const providerInput = (needsConsoleGoResponsesToolCompatibility(route) || usesDeepSeekResponses(route))
@@ -2866,6 +2893,7 @@ async function summarizeWith(
   normalizeAutoToolChoice(body, route);
   delete body.previous_response_id;
   delete body.client_metadata;
+  delete body.access_programs;
   // Codex sends reasoning as an object; the ordinary routed turn drops it for
   // keyless providers because LiteLLM forwards it as a `think` value Ollama
   // rejects. Compaction spreads the same payload, so it needs the same drop,
@@ -3405,8 +3433,11 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   const clientTools = chatCompletionsProvider || deepSeekResponses || consoleGoResponsesCompatibility
     ? restorePreflattenedToolNamespaces(payload.tools, payload.client_metadata)
     : payload.tools;
-  const compatibleInput = zenFreeCompatibleInput(
-    normalizeProviderAppToolOutputs(agedInput),
+  const compatibleInput = consoleGoCompatibleInput(
+    zenFreeCompatibleInput(
+      normalizeProviderAppToolOutputs(agedInput),
+      route,
+    ),
     route,
   );
   // Image substitution may spend another provider's quota. Every Groq tool
@@ -3640,6 +3671,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
   if (namespacesFlattened) {
     routedInput = flattenNamespacedHistory(routedInput, flattenedNamespaces);
     if (
+      chatCompletionsProvider ||
       provider?.id === "groq" ||
       provider?.id === "commandcode" ||
       provider?.id === "commandcode-messages"
@@ -3724,9 +3756,10 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     routed.reasoning = { ...(routed.reasoning || {}), effort: childEffort };
   }
   normalizeAutoToolChoice(routed, route);
-  // Native OpenAI traffic keeps client_metadata; routed providers do not
-  // consume it and the strict ones reject the unknown field.
+  // Native OpenAI traffic keeps client_metadata and access_programs; routed
+  // providers do not consume them and the strict ones reject the unknown field.
   delete routed.client_metadata;
+  delete routed.access_programs;
   // Codex sends reasoning as an object. LiteLLM's Ollama path tests that value
   // for membership of a string set, which raises on a dict and fails the whole
   // turn -- 210 of them here before this was caught. Ollama has no
@@ -3737,8 +3770,17 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     delete routed.reasoning_effort;
   }
   if (rejectsWebSearchOptions(route)) delete routed.web_search_options;
+  const usageDiagnostics = {
+    reasoningEffort:
+      routed.reasoning?.effort ??
+      routed.reasoning_effort ??
+      route.defaultEffort,
+    providerToolCount: Array.isArray(routed.tools) ? routed.tools.length : 0,
+    providerToolSchemaBytes: utf8JsonBytes(routed.tools),
+  };
   return {
     body: Buffer.from(JSON.stringify(routed), "utf8"),
+    usageDiagnostics,
     target: routedResponsesTarget(route),
     headers: routedHeaders(),
     // The exact mode used while constructing this body. Failover compares it
@@ -4242,6 +4284,11 @@ async function handleResponses(request, response, requestUrl) {
     let agingEnabled = false;
     let agedInput;
     let searchContract;
+    const setRoutingDiagnostics = (built) => {
+      diagnostics.reasoningEffort = built.usageDiagnostics?.reasoningEffort;
+      diagnostics.providerToolCount = built.usageDiagnostics?.providerToolCount;
+      diagnostics.providerToolSchemaBytes = built.usageDiagnostics?.providerToolSchemaBytes;
+    };
     // Adopts a rebuilt request for a different model. Everything downstream --
     // the response transforms, the prompt-token estimate, the empty-completion
     // retry -- reads these, so all of them have to move together or the turn
@@ -4258,6 +4305,7 @@ async function handleResponses(request, response, requestUrl) {
       diagnostics.contextBytes = grokOauth46IngressContextBytes(payload, route);
       diagnostics.requestedServiceTier =
         route.slug === "grok-oauth/grok-4.6" ? payload.service_tier : undefined;
+      setRoutingDiagnostics(built);
       pendingInterrupts = built.pendingInterrupts;
       agedInput = built.agedInput;
       toolResultAging = built.toolResultAging;
@@ -4297,6 +4345,7 @@ async function handleResponses(request, response, requestUrl) {
       namespacesFlattened = built.namespacesFlattened;
       flattenedNamespaces = built.flattenedNamespaces;
       diagnostics.grokStructuredPatch = built.grokStructuredPatch;
+      setRoutingDiagnostics(built);
       pendingInterrupts = built.pendingInterrupts;
       target = built.target;
       headers = built.headers;
