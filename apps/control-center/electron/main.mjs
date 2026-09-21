@@ -24,7 +24,7 @@ import {
 } from "./lifecycle-state.mjs";
 import { controlCenterDestination, controlCenterNavigationURL } from "./navigation.mjs";
 
-import { interfaceMenuTemplates, isInterfaceLanguage, initialInterfaceLanguage } from "./interface-menu.mjs";
+import { interfaceLanguageFromLocale, interfaceMenuTemplates, isInterfaceLanguage } from "./interface-menu.mjs";
 
 let interfaceLanguage = "en";
 
@@ -199,7 +199,7 @@ function createWindow() {
   createdWindow.on("close", (event) => {
     // Close means hide only while a recoverable owner can bring the window
     // back (embedded macOS host or a live tray). Without that owner, destroy
-    // so window-all-closed can quit instead of stranding an invisible process.
+    // so the window-all-closed handler can quit instead of stranding an invisible process.
     if (isQuitting || createdWindow.isDestroyed()) return;
     if (!(nativeTrayOwnedByHost || trayIsAvailable())) return;
     event.preventDefault();
@@ -341,7 +341,7 @@ if (primaryInstance && !quitForUpdateInvocation) {
   // lock. The ready bit is raised only after the full Electron boundary is set.
   publishLifecycleState();
   app.whenReady().then(() => {
-    interfaceLanguage = initialInterfaceLanguage(app.getLocale());
+    interfaceLanguage = interfaceLanguageFromLocale(app.getLocale());
     updateInterfaceMenus();
     if (process.platform !== "darwin") {
       Menu.setApplicationMenu(null);

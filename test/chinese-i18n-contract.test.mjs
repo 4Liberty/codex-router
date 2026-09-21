@@ -10,7 +10,7 @@ import { effortLabel, formatContext, formatDateTime, metricValue } from "../apps
 import { backendText } from "../apps/control-center/src/backend-text.ts";
 import { MESSAGES } from "../apps/panel/messages.mjs";
 import { availableLanguages, getLanguage, resolveLanguage as resolvePanelLanguage, setLanguage, t as panelText } from "../apps/panel/i18n.mjs";
-import { initialInterfaceLanguage, interfaceMenuTemplates } from "../apps/control-center/electron/interface-menu.mjs";
+import { interfaceLanguageFromLocale, interfaceMenuTemplates } from "../apps/control-center/electron/interface-menu.mjs";
 
 const tokens = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((match) => match[1]).sort();
 
@@ -66,8 +66,8 @@ test("all UI surfaces distinguish script, region and persisted locale ids consis
   for (const [tag, language] of expected) {
     assert.equal(resolveLanguage(tag), language, tag);
     assert.equal(resolvePanelLanguage(tag), language, tag);
-    // Native Electron menu copy for unrelated locales retains English fallback.
-    assert.equal(initialInterfaceLanguage(tag), language.startsWith("zh") ? language : "en", tag);
+    // Locale IDs agree; unrelated menu languages still use English labels.
+    assert.equal(interfaceLanguageFromLocale(tag), language, tag);
   }
   assert.deepEqual(availableLanguages().map((l) => l.id), LANGUAGE_OPTIONS.map((l) => l.id));
 });
