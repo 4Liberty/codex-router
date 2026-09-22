@@ -216,6 +216,12 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "qwen-plan/qwen3.8-flash",
       "qwen-plan/qwen3.8-max-preview",
       "qwen-plan/qwen3.8-max",
+      "stepfun-api/step-3.5-flash-2603",
+      "stepfun-api/step-3.7-flash",
+      "stepfun-api/step-5-preview",
+      "stepfun-api-cn/step-3.5-flash-2603",
+      "stepfun-api-cn/step-3.7-flash",
+      "stepfun-api-cn/step-5-preview",
       "venice/claude-fable-5.1",
       "venice/gemini-3.8-flash",
       "venice/glm-5.3",
@@ -749,6 +755,51 @@ test("provider registry exposes configured API and OAuth model families", () => 
     MODEL_BY_SLUG.get("deepseek/deepseek-v4-flash-vision-exp").inputModalities,
     ["text", "image"],
   );
+});
+
+test("StepFun ships both regional platforms with separate credentials", () => {
+  const global = PROVIDERS.get("stepfun-api");
+  assert.equal(global.baseUrl, "https://api.stepfun.ai/v1");
+  assert.equal(global.baseUrlEnv, "STEPFUN_API_BASE_URL");
+  assert.deepEqual(global.credential.environment, ["STEPFUN_API_KEY", "STEP_API_KEY"]);
+  assert.equal(global.credential.file, "stepfun-api-key.secret");
+  assert.deepEqual(global.credential.keychainServices, ["codex-router-stepfun-api"]);
+  const china = PROVIDERS.get("stepfun-api-cn");
+  assert.equal(china.baseUrl, "https://api.stepfun.com/v1");
+  assert.equal(china.baseUrlEnv, "STEPFUN_API_CN_BASE_URL");
+  assert.deepEqual(china.credential.environment, ["STEPFUN_API_CN_KEY"]);
+  assert.equal(china.credential.file, "stepfun-api-cn-key.secret");
+  assert.deepEqual(china.credential.keychainServices, ["codex-router-stepfun-api-cn"]);
+  // Each platform has its own console, so the note rides on every surface that
+  // asks for the China key instead of arriving as a 401 inside Codex.
+  assert.match(china.planNote, /platform\.stepfun\.com/);
+  // A regional twin is the same upstream model on another host: the ids must
+  // stay identical, or one region would silently route somewhere else.
+  for (const model of ["step-5-preview", "step-3.7-flash", "step-3.5-flash-2603"]) {
+    assert.equal(MODEL_BY_SLUG.get(`stepfun-api/${model}`).upstreamModel, model);
+    assert.equal(MODEL_BY_SLUG.get(`stepfun-api-cn/${model}`).upstreamModel, model);
+  }
+  // Documented ladders: Step 5 Preview and 3.7 Flash take low/medium/high,
+  // while the agent-tuned 3.5 Flash snapshot documents only low and high.
+  assert.deepEqual(
+    MODEL_BY_SLUG.get("stepfun-api/step-5-preview").reasoningLevels.map((l) => l.effort),
+    ["low", "medium", "high"],
+  );
+  assert.deepEqual(
+    MODEL_BY_SLUG.get("stepfun-api/step-3.5-flash-2603").reasoningLevels.map((l) => l.effort),
+    ["low", "high"],
+  );
+  assert.deepEqual(
+    MODEL_BY_SLUG.get("stepfun-api/step-3.7-flash").inputModalities,
+    ["text", "image"],
+  );
+  assert.deepEqual(
+    MODEL_BY_SLUG.get("stepfun-api/step-3.5-flash-2603").inputModalities,
+    ["text"],
+  );
+  // The million-token route compacts at the same limit as every other one.
+  assert.equal(MODEL_BY_SLUG.get("stepfun-api/step-5-preview").contextWindow, 1_000_000);
+  assert.equal(MODEL_BY_SLUG.get("stepfun-api/step-5-preview").autoCompact, 900_000);
 });
 
 test("only checked-in Gemini reseller models opt into trailing model-turn trimming", () => {

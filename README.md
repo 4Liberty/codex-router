@@ -277,6 +277,12 @@ Linux installations support the Codex CLI.
 | MiniMax M3 | `minimax-token-plan/minimax-m3` | MiniMax Token Plan API key |
 | MiMo-V2.5 (Xiaomi API) | `xiaomi-mimo/mimo-v2.5` | Xiaomi MiMo API key |
 | MiMo-V2.5-Pro (Xiaomi API) | `xiaomi-mimo/mimo-v2.5-pro` | Xiaomi MiMo API key |
+| Step 5 Preview (StepFun) | `stepfun-api/step-5-preview` | StepFun API key (`STEPFUN_API_KEY`) |
+| Step 3.7 Flash (StepFun) | `stepfun-api/step-3.7-flash` | StepFun API key (`STEPFUN_API_KEY`) |
+| Step 3.5 Flash 2603 (StepFun) | `stepfun-api/step-3.5-flash-2603` | StepFun API key (`STEPFUN_API_KEY`) |
+| Step 5 Preview (StepFun China) | `stepfun-api-cn/step-5-preview` | StepFun **China** platform key (`STEPFUN_API_CN_KEY`) |
+| Step 3.7 Flash (StepFun China) | `stepfun-api-cn/step-3.7-flash` | StepFun **China** platform key (`STEPFUN_API_CN_KEY`) |
+| Step 3.5 Flash 2603 (StepFun China) | `stepfun-api-cn/step-3.5-flash-2603` | StepFun **China** platform key (`STEPFUN_API_CN_KEY`) |
 | Qwen3.8 Max (Plan) | `qwen-plan/qwen3.8-max` | Alibaba Model Studio plan API key |
 | Qwen3.8 Max Preview (Plan) | `qwen-plan/qwen3.8-max-preview` | Alibaba Model Studio plan API key |
 | Qwen3.7 Max (Plan) | `qwen-plan/qwen3.7-max` | Alibaba Model Studio plan API key |
@@ -329,6 +335,15 @@ with `kimi login --region global` (guided setup asks which site to use). The
 router reads the region the official CLI recorded in `~/.kimi-code/config.toml`
 and refreshes tokens, forwards requests, and reads quota from the matching
 `auth.`/`api.` hosts, so no router-side configuration is needed for either.
+
+StepFun is split the same way. `stepfun-api` is the global Open Platform at
+platform.stepfun.ai (`https://api.stepfun.ai/v1`); `stepfun-api-cn` is the
+mainland console at platform.stepfun.com (`https://api.stepfun.com/v1`). Each
+console issues its own key, so the two providers are enabled and credentialed
+separately and can both be active at once — pick the one matching where your
+key was created. The model ids are identical on both hosts, so the only
+difference between a `stepfun-api/` and a `stepfun-api-cn/` route is which
+platform serves and bills it.
 
 The Codex catalog is credential-aware. It includes models only from enabled
 external providers with a stored credential or valid OAuth session. Native GPT
