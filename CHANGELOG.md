@@ -1,6 +1,25 @@
 # Changelog
 
 ## Unreleased
+- **One tool name never stands for two tools on a chat route, and a live schema
+  always wins over a discovered one.** Two halves of the same collision.
+  `chatProviderToolSurface` asked `flattenNamespaceTools` for deterministic
+  aliases only on the Groq route, so every unbounded chat provider published
+  two distinct native identities under one name: Codex injects its app tools as
+  a `codex_app` namespace and also sends the flattened spelling, so a client
+  carrying `codex_app__create_thread` beside the namespaced `create_thread` had
+  that name sent upstream twice, its own tool unreachable for the turn, and the
+  past call it had made restored under the namespaced identity Codex dispatches
+  elsewhere. The other half ran the opposite way: `flattenToolSearchHistory`
+  states that live top-level schemas win on a name collision, but it compared
+  provider-facing names, so exactly the routes that do alias -- Groq and
+  Command Code -- handed the discovered tool a different name, stopped seeing
+  the collision, and declared a stale searched schema beside the live one. The
+  shadow check now compares the live tools' own wire spellings, which is what a
+  discovery collides with. Every chat route now behaves the same way on both,
+  with the aliases Groq and Command Code already minted. Asking for the aliases
+  changes nothing where there is no collision: across 20,000 generated
+  collision-free tool lists the flattened output is byte-identical either way.
 - **A turn the router sent twice is metered at what both attempts cost.**
   `mergeTokenUsage` exists to add up two attempts at one turn -- "a turn the
   router had to send twice cost twice; the meter has to say so" -- and added up
