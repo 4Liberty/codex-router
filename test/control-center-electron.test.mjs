@@ -55,7 +55,7 @@ import {
   NAVIGATION_SOURCE_ARGUMENT,
 } from "../apps/control-center/electron/navigation.mjs";
 
-import { LANGUAGE_OPTIONS } from "../apps/control-center/src/i18n.ts";
+import { LANGUAGE_OPTIONS, messageCatalogs } from "../apps/control-center/src/i18n.ts";
 
 test("ChatGPT browser login reports a terminal retry after child close without auth", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "router-browser-login-"));
@@ -1161,7 +1161,11 @@ test("electron boundary does not enable node integration or shell argv", async (
   assert.match(main, /else openRequests\.requestOpen\(\)/);
   assert.match(main, /new Tray\(/);
   assert.match(main, /createdTray\.on\("click", showWindow\)/);
-  assert.match(main, /Open Control Center/);
+  const { interfaceMenuTemplates } = await import("../apps/control-center/electron/interface-menu.mjs");
+  const openControlCenter = () => {};
+  const menu = interfaceMenuTemplates("en", { showWindow: openControlCenter, quit() {} });
+  assert.equal(menu.tray[0].label, "Open Control Center");
+  assert.equal(menu.tray[0].click, openControlCenter);
   assert.match(main, /CODEX_ROUTER_EMBEDDED_CONTROL_CENTER/);
   assert.match(main, /image\.isEmpty\(\)[\s\S]*tray icon could not be loaded/);
   assert.match(main, /const trayAvailable = trayIsAvailable\(\)/);
@@ -1227,8 +1231,16 @@ test("electron boundary does not enable node integration or shell argv", async (
   assert.doesNotMatch(renderer, /drag-region|no-drag/);
   assert.match(styles, /-webkit-app-region:\s*drag/);
   assert.match(styles, /-webkit-app-region:\s*no-drag/);
-  for (const label of ["Close window", "Minimize window", "Maximize or restore window"]) {
-    assert.match(renderer, new RegExp(`aria-label=\\"${label}\\"`));
+  // The window buttons name themselves through the shared dictionary, so the
+  // assertion follows the copy into the key rather than into the call site.
+  const chromeDictionary = await readUiCopy();
+  for (const [key, label] of [
+    ["app.window.close", "Close window"],
+    ["app.window.minimize", "Minimize window"],
+    ["app.window.maximize", "Maximize or restore window"],
+  ]) {
+    assert.ok(renderer.includes(`aria-label={t("${key}")}`), `${key} must label its window control`);
+    assert.ok(chromeDictionary.includes(`"${key}": "${label}"`), `${key} must keep its English copy`);
   }
   const runner = await readFile(new URL("../apps/control-center/electron/command-runner.mjs", import.meta.url), "utf8");
   assert.match(runner, /shell:\s*false/);
@@ -1436,11 +1448,11 @@ test("the control center health rows match the tray's on absent and Grok depende
   // about, so an id missing from `degraded` is Ready rather than Unknown.
   assert.match(source, /routerOk\?: boolean/);
   assert.match(source, /if \(!offline && routerOk === true\) \{[\s\S]*?state: "ready"/);
-  assert.match(source, /dependencyRow\("gateway", "Gateway", health\?\.gateway, degraded, routerOk\)/);
+  assert.match(source, /dependencyRow\("gateway", t\("serviceHealth\.gateway"\), health\?\.gateway, degraded, t, routerOk\)/);
 
   // The Grok OAuth forwarder is a fifth local port with its own probe, and
   // both surfaces enumerate forwarders explicitly, so it has to be listed.
-  assert.match(source, /\["grokOauth", "Grok OAuth forwarder"\]/);
+  assert.match(source, /\["grokOauth", "serviceHealth\.forwarder\.grokOauth"\]/);
   const types = await readFile(new URL("../apps/control-center/src/types.ts", import.meta.url), "utf8");
   assert.match(types, /grokOauth\?: RouterServiceHealth;/);
 });
@@ -1467,22 +1479,31 @@ test("control center sidebar keeps the requested product order", async () => {
   assert.match(serviceHealth, /\{onRepair && attention \?/);
 
   const usage = await readFile(new URL("../apps/control-center/src/pages/UsagePage.tsx", import.meta.url), "utf8");
-  assert.match(usage, /ChatGPT · measured by this router/);
-  assert.match(usage, /ChatGPT account · reported by OpenAI/);
-  assert.match(usage, /excludes account usage/);
-  assert.match(usage, /This router total is the sum of every measured provider row/);
-  assert.match(usage, /Account-reported · excluded from router total/);
+  // The source labels are keys now; the copy they must still carry is asserted
+  // against the dictionary so a renamed key cannot quietly change the wording.
+  const usageDictionary = await readUiCopy();
+  for (const [key, copy] of [
+    ["usage.source.chatgptMeasured", "ChatGPT · measured by this router"],
+    ["usage.source.chatgptReported", "ChatGPT account · reported by OpenAI"],
+    ["usage.source.aggregateDetail", "excludes account usage reported by providers"],
+    ["usage.ledger.title", "This router total is the sum of every measured provider row."],
+    ["usage.sources.accountGroup", "Account-reported · excluded from router total"],
+  ]) {
+    assert.ok(usage.includes(`t("${key}")`), `${key} must be rendered through the translator`);
+    assert.ok(usageDictionary.includes(`"${key}":`), `${key} must exist in the dictionary`);
+    assert.ok(usageDictionary.includes(copy), `${key} must keep its copy: ${copy}`);
+  }
   assert.match(usage, /regularInputTokens/);
   assert.match(usage, /cachedInputTokens/);
   assert.match(usage, /outputTokens/);
-  assert.match(usage, /All retained/);
+  assert.ok(usage.includes('t("usage.scope.allRetained")'));
   assert.match(usage, /scopeLabel/);
   assert.match(usage, /is-regular/);
   assert.match(usage, /is-cached/);
   assert.match(usage, /is-output/);
   assert.match(usage, /ChartTooltip/);
   assert.match(usage, /aria-label=\{label\}/);
-  assert.match(usage, /Regular input|regular input/);
+  assert.match(usage, /t\("usage\.summary\.regularInput"\)/);
   const usageStyles = await readFile(new URL("../apps/control-center/src/pages/usage-status.css", import.meta.url), "utf8");
   assert.match(usageStyles, /--token-regular/);
   assert.match(usageStyles, /--token-cached/);
@@ -1496,7 +1517,7 @@ test("control center sidebar keeps the requested product order", async () => {
   assert.match(dashboard, /db-trend-stack/);
   assert.match(dashboard, /TrafficTooltip/);
   assert.match(dashboard, /tabIndex=\{0\}/);
-  assert.match(dashboard, /Token activity/);
+  assert.match(dashboard, /t\("dashboard\.activity\.title"\)/);
   assert.match(dashboard, /TOKEN_ACTIVITY_WEEKS = 53/);
   assert.match(dashboard, /providerUsage\?\.retained\?\.providers/);
   assert.match(dashboard, /\["daily", "weekly", "cumulative"\]/);
@@ -1533,9 +1554,9 @@ test("settings keeps model choice out and exposes durable app preferences", asyn
   assert.match(settings, /setVisionBridgeEnabled\(/);
   assert.match(settings, /setVisionBridgeEngine\(/);
   assert.match(settings, /setVisionBridgeEffort\(/);
-  assert.match(settings, /ChatGPT accounts/);
+  assert.ok(settings.includes('t("settings.accounts.title")'));
   assert.match(settings, /subscription-account-row/);
-  assert.match(settings, /No saved ChatGPT accounts/);
+  assert.ok(settings.includes('t("settings.accounts.emptyTitle")'));
   assert.match(settings, /addChatGptSubscriptionAccount\(/);
   assert.match(settings, /loginChatGptSubscriptionAccount\(/);
   assert.match(settings, /removeChatGptSubscriptionAccount\(/);
@@ -1550,7 +1571,7 @@ test("settings keeps model choice out and exposes durable app preferences", asyn
   assert.match(settings, /settings\.maintenance\.confirm\.body/);
   assert.doesNotMatch(settings, /controlService\("(?:stop|restart)"\)/);
 
-  const i18n = await readFile(new URL("../apps/control-center/src/i18n.ts", import.meta.url), "utf8");
+  const i18n = await readUiCopy();
   assert.match(i18n, /settings\.language\.title/);
   assert.match(i18n, /settings\.context\.enable\.title/);
   assert.match(i18n, /settings\.vision\.title/);
@@ -1564,8 +1585,7 @@ test("settings keeps model choice out and exposes durable app preferences", asyn
     "settings.maintenance.confirm.title",
     "settings.maintenance.confirm.body",
   ]) {
-    const occurrences = i18n.split(`"${key}"`).length - 1;
-    assert.equal(occurrences, LANGUAGE_OPTIONS.length, `${key} must be translated in every locale`);
+    for (const { id } of LANGUAGE_OPTIONS) assert.ok(Object.hasOwn(messageCatalogs[id], key), `${key} must be translated in ${id}`);
   }
   // Sharing is an authorization to spend the user's subscription, so its
   // confirmation and live state cannot silently fall back to English.
@@ -1587,15 +1607,13 @@ test("settings keeps model choice out and exposes durable app preferences", asyn
     "settings.chatgptSession.action.enable",
     "settings.chatgptSession.action.disable",
   ]) {
-    const occurrences = i18n.split(`"${key}"`).length - 1;
-    assert.equal(occurrences, LANGUAGE_OPTIONS.length, `${key} must be translated in every locale`);
+    for (const { id } of LANGUAGE_OPTIONS) assert.ok(Object.hasOwn(messageCatalogs[id], key), `${key} must be translated in ${id}`);
   }
   for (const key of [
     "settings.desktop.unavailable.title",
     "settings.desktop.unavailable.body",
   ]) {
-    const occurrences = i18n.split(`"${key}"`).length - 1;
-    assert.equal(occurrences, LANGUAGE_OPTIONS.length, `${key} must be translated in every locale`);
+    for (const { id } of LANGUAGE_OPTIONS) assert.ok(Object.hasOwn(messageCatalogs[id], key), `${key} must be translated in ${id}`);
     assert.ok(settings.includes(`t("${key}")`), `${key} must be rendered through the translator`);
   }
   assert.doesNotMatch(settings, /["`]Sharing (?:enabled|disabled|status unavailable)/);
@@ -1614,9 +1632,9 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /saveProviderCredential/);
   assert.match(models, /setProviderEnabled/);
   assert.match(models, /setPickerModel/);
-  assert.match(models, /"Show all router models", \(\) => api\.setPickerModels\(true\)/);
-  assert.match(models, /<span>Turn all on<\/span>/);
-  assert.match(models, /<span>Turn all off<\/span>/);
+  assert.match(models, /t\("models\.action\.showAll"\), \(\) => api\.setPickerModels\(true\)/);
+  assert.match(models, /<span>\{t\("models\.turnAllOn"\)\}<\/span>/);
+  assert.match(models, /<span>\{t\("models\.turnAllOff"\)\}<\/span>/);
   assert.match(models, /invalidateCatalogs\(\);[\s\S]{0,180}try \{[\s\S]*finally \{\s*invalidateCatalogs\(\)/);
   assert.match(models, /const generation = beginCatalogRequest/);
   assert.match(models, /catalogRequestIsCurrent\(catalogRequestGenerations\.current, sourceId, generation\)/);
@@ -1630,8 +1648,8 @@ test("the model directory combines provider setup with de-duplicated model-famil
   // Custom endpoints are reached through the Custom chip rather than sitting
   // beside it, so the summary counts the chips on the strip, not every
   // provider in the directory.
-  assert.match(models, /\{connected\.length\} of \{chips\.length\} connected/);
-  assert.match(models, /Connect provider/);
+  assert.match(models, /t\("models\.connectionsCount", \{ connected: connected\.length, total: chips\.length \}\)/);
+  assert.match(models, /t\("models\.connectProvider"\)/);
   assert.doesNotMatch(models, /className="pm-provider-row"|className="pm-provider-summary"/);
   assert.doesNotMatch(models, /<StatStrip/);
   assert.match(providerModelsCss, /\.pm-connections\s*\{/);
@@ -1645,13 +1663,13 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /const readyRows = visibleRows\.filter\(\(row\) => row\.usable\.length\)/);
   assert.match(models, /const blockedRows = visibleRows\.filter\(\(row\) => !row\.usable\.length\)/);
   // Only the one split a switch cannot change keeps a heading.
-  assert.match(models, /<span>Needs a provider<\/span>/);
+  assert.match(models, /<span>\{t\("models\.needsProvider"\)\}<\/span>/);
   assert.match(models, /className="pm-group-heading"/);
   assert.match(providerModelsCss, /\.pm-group-heading\s*\{/);
 
   // The switch states its own value, and the disclosure sits at the far left
   // so it cannot read as part of that switch.
-  assert.match(models, /className="pm-family-state" aria-hidden>\{on \? "On" : "Off"\}/);
+  assert.match(models, /className="pm-family-state" aria-hidden>\{on \? t\("models\.status\.on"\) : t\("models\.status\.off"\)\}/);
   assert.match(models, /<ChevronDown className="pm-accordion-chevron"[\s\S]{0,80}<BrandLogo/);
   assert.match(providerModelsCss, /\.pm-family-open \{[^}]*grid-template-columns: 14px 38px/s);
 
@@ -1662,7 +1680,7 @@ test("the model directory combines provider setup with de-duplicated model-famil
   // The count describes the visible list, not the whole catalogue.
   assert.match(models, /modelSearch \|\| statusFilter !== "all"[\s\S]{0,120}visibleRows\.length/);
   assert.match(models, /\{crowded \? \(/);
-  assert.match(models, /aria-label="More model actions"/);
+  assert.match(models, /aria-label=\{t\("models\.moreActions"\)\}/);
 
   // The provider chip follows the same judgement, counted in providers rather
   // than rows, and composes with the search and status filters instead of
@@ -1670,7 +1688,7 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /const CROWDED_PROVIDERS = 3/);
   assert.match(models, /const providerCrowded = filterProviders\.length > CROWDED_PROVIDERS/);
   assert.match(models, /\{providerCrowded \? \([\s\S]{0,400}className="pm-filter-trigger"/);
-  assert.match(models, /aria-label="Filter models by provider"/);
+  assert.match(models, /aria-label=\{t\("models\.filterByProviderAria"\)\}/);
   assert.match(models, /role="menuitemradio"\s*aria-checked=\{activeProviderFilter === entry\.id\}/);
   assert.match(models, /activeProviderFilter !== "all" && !family\.routes\.some\(\(model\) => model\.provider === activeProviderFilter\)/);
   assert.match(models, /modelSearch \|\| statusFilter !== "all" \|\| activeProviderFilter !== "all"[\s\S]{0,120}visibleRows\.length/);
@@ -1680,7 +1698,7 @@ test("the model directory combines provider setup with de-duplicated model-famil
 
   // Nothing to connect means nothing to browse, so the page asks for that
   // first instead of showing an empty list behind a disabled button.
-  assert.match(models, /title="Connect a provider to get started"/);
+  assert.match(models, /title=\{t\("models\.connectToGetStarted"\)\}/);
 
   // A single-route model already showed its identity in the row above, so the
   // panel carries only what the summary left out.
@@ -1689,14 +1707,14 @@ test("the model directory combines provider setup with de-duplicated model-famil
   // menu doubled every row's height and repeated "Thinking" down the list.
   assert.match(models, /function SubagentToggle\(/);
   assert.match(models, /function SubagentEffort\(/);
-  assert.match(models, /<span>Thinking<\/span>/);
+  assert.match(models, /<span>\{t\("models\.route\.thinking"\)\}<\/span>/);
   assert.match(providerModelsCss, /grid-template-columns: minmax\(0, 1fr\) 78px 92px 70px 74px 104px/);
   // The effort control uses this page's own menu: a native select's popup is
   // shifted by the macOS checkmark gutter, which reads as misaligned in a table.
   assert.match(providerModelsCss, /\.pm-effort-menu \{/);
   assert.match(models, /className="pm-effort-trigger"/);
   assert.doesNotMatch(models, /<select[\s\S]{0,200}subagent thinking effort/);
-  assert.match(models, /<dt>Model id<\/dt>/);
+  assert.match(models, /<dt>\{t\("models\.details\.modelId"\)\}<\/dt>/);
   assert.match(providerModelsCss, /\.pm-model-details\s*\{/);
   assert.match(models, /<dd className="pm-model-details-controls">/);
   assert.match(
@@ -1709,7 +1727,7 @@ test("the model directory combines provider setup with de-duplicated model-famil
   // stand in meanwhile, or the click reads as having done nothing at all.
   assert.match(models, /setPendingModels\(\(current\) => addPendingCatalogModels\(current, entry\.id, selected\)\)/);
   assert.match(models, /<PendingModelRows slugs=\{pendingSlugs\} \/>/);
-  assert.match(models, /<small>Adding…<\/small>/);
+  assert.match(models, /<small>\{t\("models\.pending\.adding"\)\}<\/small>/);
   // Cleared in a finally: a placeholder surviving a failed add would claim the
   // model arrived.
   assert.match(models, /\} finally \{[\s\S]{0,400}setPendingModels\(/);
@@ -1747,13 +1765,13 @@ test("the model directory combines provider setup with de-duplicated model-famil
   // once, rather than a catalog browser hidden inside each provider.
   assert.match(models, /function AddModelsDialog\(/);
   assert.match(models, /loadedCatalogModels\(directory, catalogStates\)/);
-  assert.match(models, /Search every connected provider/);
+  assert.match(models, /placeholder=\{t\("models\.add\.search"\)\}/);
   assert.match(models, /const CATALOG_ADD_BATCH_LIMIT = 200/);
   assert.match(models, /selected\.length >= CATALOG_ADD_BATCH_LIMIT/);
   assert.match(models, /const blocked = !model\.registered && !model\.addable/);
-  assert.match(models, /Not yet supported/);
+  assert.match(models, /t\("models\.add\.notSupported"\)/);
   assert.match(models, /pm-catalog-block-reason/);
-  assert.match(models, /Show 120 more/);
+  assert.match(models, /t\("models\.add\.showMore"\)/);
   assert.doesNotMatch(models, /Browse model catalog|Load connected catalogs/);
   // Opening the picker reads stored lists; only an explicit reload re-asks.
   assert.match(models, /const loadConnectedCatalogs = async/);
@@ -1761,8 +1779,8 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /discoverProviderModels\(sourceId, \{ refresh \}\)/);
   assert.match(models, /onReload=\{\(\) => void loadConnectedCatalogs\(\{ refresh: true \}\)\}/);
   // A stored list can be a day old, so the dialog says when it was read.
-  assert.match(models, /read \$\{formatDateTime\(lastRead\)\}/);
-  assert.match(models, /Lists are stored locally/);
+  assert.match(models, /t\("models\.add\.read", \{ time: formatDateTime\(lastRead, t\) \}\)/);
+  assert.match(models, /t\("models\.add\.hint", \{ limit: CATALOG_ADD_BATCH_LIMIT \}\)/);
   assert.match(providerModelsCss, /\.pm-add-models\s*\{/);
   assert.match(providerModelsCss, /\.dialog-panel:has\(\.pm-add-models\)/);
   assert.match(providerModelsCss, /\.pm-filter-menu-wrap\s*\{/);
@@ -2030,14 +2048,18 @@ test("Harness page renders fixed client rows backed by the shared session index"
   assert.match(harness, /api\.connectCursor\(cursorHostname\.trim\(\) \|\| undefined\)/);
   assert.match(harness, /api\.disconnectCursor\(\)/);
   assert.match(harness, /api\.disconnectHarness\(harness\.id\)/);
-  assert.match(harness, /Route \$\{harness\.displayName\} through Codex Router/);
-  assert.match(harness, /Custom API keys/);
-  assert.match(harness, /Use an existing Cloudflare hostname/);
+  // The row copy moved into the dictionary; the keys are what the page owns.
+  assert.match(harness, /t\("harness\.routeToggle", \{ name: harness\.displayName \}\)/);
+  const harnessDictionary = await readUiCopy();
+  assert.ok(harnessDictionary.includes('"harness.routeToggle": "Route {name} through Codex Router"'));
+  assert.ok(harnessDictionary.includes("Custom API keys"));
+  assert.ok(harnessDictionary.includes('"harness.cursor.existingHostname": "Use an existing Cloudflare hostname"'));
   assert.match(harness, /lhc-harness-toolbar/);
   assert.match(harness, /lhc-harness-hint-tooltip/);
   assert.doesNotMatch(harness, /CircleHelp/);
-  assert.match(harness, /Turn Route on to install the connector/);
-  assert.match(harness, /Cursor setup progress/);
+  assert.match(harness, /t\("harness\.cursor\.helpInstall"\)/);
+  assert.ok(harnessDictionary.includes("Turn Route on to install the connector"));
+  assert.match(harness, /t\("harness\.cursor\.progressAria"\)/);
   assert.match(styles, /\.lhc-harness-toolbar/);
   assert.match(styles, /\.lhc-harness-hint-tooltip/);
   assert.match(styles, /\.lhc-harness-hint:hover/);
@@ -2218,17 +2240,33 @@ test("tray mutations detach before the GUI releases its mutation drain", async (
   );
 });
 
+test("one bounded language IPC updates both tray and native application menus", async () => {
+  const main = await readFile(new URL("../apps/control-center/electron/main.mjs", import.meta.url), "utf8");
+  const preload = await readFile(new URL("../apps/control-center/electron/preload.cjs", import.meta.url), "utf8");
+  const app = await readFile(new URL("../apps/control-center/src/App.tsx", import.meta.url), "utf8");
+  assert.match(main, /ipcMain\.on\("router-control:interface-language"/);
+  assert.match(main, /if \(!trustedRendererSender\(event\) \|\| !isInterfaceLanguage\(language\)\) return/);
+  assert.match(main, /interfaceLanguage = language;\s+updateInterfaceMenus\(\)/);
+  assert.match(main, /Menu\.setApplicationMenu\(Menu\.buildFromTemplate\(templates\.application\)\)/);
+  assert.match(main, /tray\.setContextMenu\(Menu\.buildFromTemplate\(templates\.tray\)\)/);
+  assert.match(preload, /setInterfaceLanguage: \(language\) => ipcRenderer\.send\("router-control:interface-language", language\)/);
+  assert.match(app, /api\?\.setInterfaceLanguage\?\.\(language\)/);
+  assert.doesNotMatch(main + preload + app, /setTrayLabels/);
+});
+
 test("detached tray acceptance is labeled started, never completed", async () => {
   const source = (await readFile(new URL("../apps/control-center/src/App.tsx", import.meta.url), "utf8"))
     .replaceAll("\r\n", "\n");
-  const action = source.slice(source.indexOf("const runAction"), source.indexOf("const t = useCallback"));
+  const action = source.slice(source.indexOf("const runAction"), source.indexOf("const navItems"));
   assert.match(action, /accepted[^\n]+=== true/);
-  assert.match(action, /`\$\{label\} started\.`/);
+  // The label is interpolated through the dictionary now, so the "started, not
+  // completed" guarantee is asserted against the key it renders.
+  assert.match(action, /t\("app\.toast\.actionStarted", \{ action: label \}\)/);
   const acceptedStart = action.indexOf("if (\n        actionResult?.accepted === true");
   assert.notEqual(acceptedStart, -1, "runAction should keep a dedicated detached-acceptance branch");
   const accepted = action.slice(acceptedStart, action.indexOf("return;", acceptedStart));
   assert.doesNotMatch(accepted, /status: "completed"/);
-  assert.match(source, /<Badge tone="neutral">Started<\/Badge>/);
+  assert.match(source, /<Badge tone="neutral">\{t\("app\.toast\.started"\)\}<\/Badge>/);
 });
 
 test("local model mutations cover service readiness and validate consent flags", async () => {
@@ -2253,11 +2291,18 @@ test("one-click MLX setup stays on fixed IPC commands and polls background stage
   assert.match(page, /title="Qwen 3\.8 27B · MLX"/);
   assert.match(page, /api\.installLocalMlx\(\)/);
   assert.match(page, /api\.cancelLocalMlx\(\)/);
-  assert.match(page, /about 15 GB/);
-  assert.match(page, /runtime installation, model download, and local proxy publication/);
+  // The consent copy lives in the dictionary; the page must render its keys.
+  const mlxDictionary = await readUiCopy();
+  for (const [key, copy] of [
+    ["local.mlx.oneClick", "about 15 GB"],
+    ["local.mlx.consent", "runtime installation, model download, and local proxy publication"],
+    ["local.mlx.guardrailsTitle", "Reduced guardrails; local access only"],
+  ]) {
+    assert.ok(page.includes(`t("${key}")`), `${key} must be rendered through the translator`);
+    assert.ok(mlxDictionary.includes(copy), `${key} must keep its copy: ${copy}`);
+  }
   assert.match(page, /mlxPublished && mlx\?\.runtime\?\.served === true/);
   assert.match(page, /mlx\?\.host\?\.supported !== false/);
-  assert.match(page, /Reduced guardrails; local access only/);
   assert.match(page, /progressMode === "indeterminate"/);
   assert.match(page, /ollamaMutationActive/);
   assert.doesNotMatch(page, /token.*(?:input|textarea)|(?:input|textarea).*token/i);
@@ -2587,6 +2632,10 @@ test("router children inherit the proxy opt-in this install recorded", async () 
   // It applies only to the install that recorded it.
   assert.match(runner, /recordedInstall\?\.sourceRoot === sourceRoot\s*&&\s*recordedInstall\.proxyOptIn/);
 });
+
+async function readUiCopy() {
+  return (await Promise.all(["en.ts", "zh-CN.ts", "zh-TW.ts", "overlays.ts"].map((file) => readFile(new URL(`../apps/control-center/src/locales/${file}`, import.meta.url), "utf8")))).join("\n");
+}
 
 test("a custom endpoint URL is validated before it can reach the router CLI", async () => {
   const { customEndpointBaseUrl } = await import("../apps/control-center/electron/ipc.mjs");
