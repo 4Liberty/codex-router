@@ -20,6 +20,29 @@
   with the aliases Groq and Command Code already minted. Asking for the aliases
   changes nothing where there is no collision: across 20,000 generated
   collision-free tool lists the flattened output is byte-identical either way.
+- **A turn the router sent twice is metered at what both attempts cost.**
+  `mergeTokenUsage` exists to add up two attempts at one turn -- "a turn the
+  router had to send twice cost twice; the meter has to say so" -- and added up
+  every field except the two that carry what was actually billed.
+  `billedInputTokens` and `billedOutputTokens` were dropped when both attempts
+  reported, while being kept when only one did. `provider-usage.mjs` reads
+  `billedInputTokens ?? inputTokens`, so the Usage view fell back to the
+  reported prompt on exactly the turns where the two differ: a Grok OAuth
+  progress-only repair whose upstream billed 301,000 input tokens was shown as
+  101,000. Both are now summed like the cache and reasoning counts, absent when
+  neither attempt reported one, and a measured zero still survives.
+- **A replayed tool call with no arguments no longer kills a Meta Muse Spark
+  thread.** Meta validates a function call's `arguments` as JSON and refuses the
+  whole request with HTTP 400 `` `arguments` must be valid JSON `` before
+  inference, so the turn is lost — and because the call stays in the transcript,
+  every later turn in that thread is lost with it. Measured live: Muse called an
+  MCP tool with no arguments at all, the server answered "pattern is required",
+  Codex recorded the call with `arguments: ""`, and the next request died on
+  replay. Meta-bound requests now turn an absent, empty, or whitespace-only
+  argument string into `{}`, which is what the call meant and what the endpoint
+  accepts. The repair is deliberately narrow: a non-empty string that is not
+  JSON is a different failure and is left exactly as it arrived, and each
+  substitution is reported rather than quieted.
 - **StepFun ships as a first-party provider, one per regional platform.**
   `stepfun-api` is the global Open Platform (`https://api.stepfun.ai/v1`,
   `STEPFUN_API_KEY`) and `stepfun-api-cn` is the mainland console
