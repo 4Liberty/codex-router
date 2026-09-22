@@ -1103,6 +1103,8 @@ struct ProviderIcon: View {
     if providerID == "ollama-cloud" || providerID == "local" { return "ollama" }
     if providerID == "clinepass" { return "cline" }
     if providerID == "minimax-token-plan" { return "minimax" }
+    // Both StepFun regional platforms share the one StepFun mark.
+    if providerID.hasPrefix("stepfun-api") { return "stepfun" }
     if providerID == "meta" { return "meta" }
     return nil
   }
@@ -1110,7 +1112,8 @@ struct ProviderIcon: View {
   private var assetExtension: String {
     // Keyed off the asset, not the provider id, so every route sharing a mark
     // (opencode-go and friends) resolves the same file type.
-    ["github-copilot", "chutes", "google", "opencode-free", "kilo-free", "nano-gpt"].contains(assetName ?? "") ? "svg" : "png"
+    ["github-copilot", "chutes", "google", "opencode-free", "kilo-free", "nano-gpt", "stepfun"]
+      .contains(assetName ?? "") ? "svg" : "png"
   }
 
   private var providerName: String {

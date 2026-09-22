@@ -144,6 +144,8 @@ const PROVIDER_BRANDS: Record<string, string> = {
   openrouter: "openrouter",
   "qwen-plan": "qwen",
   siliconflow: "siliconflow",
+  "stepfun-api": "stepfun",
+  "stepfun-api-cn": "stepfun",
   together: "together",
   venice: "venice",
   vertex: "google",
