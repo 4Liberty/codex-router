@@ -8,7 +8,7 @@
       "provider": "openrouter",
       "listed": true,
       "displayName": "DeepSeek V4 Pro (OpenRouter)",
-      "description": "DeepSeek V4 Pro through OpenRouter with a 1M context window and high/xhigh reasoning.",
+      "description": "DeepSeek V4 Pro through OpenRouter with a 1M context window and high/max reasoning.",
       "priority": 76,
       "defaultEffort": "high",
       "reasoningLevels": [
@@ -17,8 +17,8 @@
           "description": "Deep reasoning"
         },
         {
-          "effort": "xhigh",
-          "description": "Extra-high reasoning depth"
+          "effort": "max",
+          "description": "Maximum reasoning depth"
         }
       ],
       "contextWindow": 1048576,
@@ -27,7 +27,6 @@
         "text"
       ],
       "requestProfile": "auto-tool-choice",
-      "supportsReasoningSummaries": true,
       "compHash": "openrouter-deepseek-v4-pro-v1"
     }
   ]

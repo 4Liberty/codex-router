@@ -147,7 +147,13 @@ test("DeepSeek V4 Pro on OpenRouter matches the live catalog capabilities", () =
   assert.equal(model.upstreamModel, "deepseek/deepseek-v4-pro");
   assert.equal(model.requestProfile, "auto-tool-choice");
   assert.equal(model.defaultEffort, "high");
-  assert.deepEqual(model.reasoningLevels.map(({ effort }) => effort), ["high", "xhigh"]);
+  // The DeepSeek V4.x ladder AGENTS.md documents, and the one every other
+  // V4 Pro route in the registry publishes. OpenRouter resells the same
+  // upstream, so it does not get a ladder of its own.
+  assert.deepEqual(model.reasoningLevels.map(({ effort }) => effort), ["high", "max"]);
   assert.equal(model.contextWindow, 1_048_576);
   assert.deepEqual(model.inputModalities, ["text"]);
+  // Reasoning summaries are claimed only by routes observed to emit them;
+  // no OpenRouter route does.
+  assert.equal(model.supportsReasoningSummaries, undefined);
 });
