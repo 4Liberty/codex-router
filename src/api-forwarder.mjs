@@ -8,6 +8,7 @@ import {
   reasoningForToolCalls,
   toolCallIdsOf,
 } from "./chat-reasoning-replay.mjs";
+import { EFFORT_LADDER, declaredEffort } from "./effort-ladder.mjs";
 import {
   deepSeekResponsesEffort,
   deepSeekResponsesInput,
@@ -201,19 +202,8 @@ function hy4Effort(value, levels) {
 // request under the model's floor lands on that floor. An absent or unknown
 // value is treated as "high", which is what the two-tier map sent before this
 // generalization.
-const EFFORT_LADDER = ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
-
-function declaredEffort(value, levels) {
-  const declared = levels
-    .filter((effort) => EFFORT_LADDER.includes(effort))
-    .sort((left, right) => EFFORT_LADDER.indexOf(left) - EFFORT_LADDER.indexOf(right));
-  if (!declared.length) return undefined;
-  if (["xhigh", "max", "ultra"].includes(value)) return declared.at(-1);
-  const requested = EFFORT_LADDER.indexOf(value);
-  const ceiling = requested === -1 ? EFFORT_LADDER.indexOf("high") : requested;
-  const atOrBelow = declared.filter((effort) => EFFORT_LADDER.indexOf(effort) <= ceiling);
-  return atOrBelow.at(-1) || declared[0];
-}
+// The effort clamp lives in `effort-ladder.mjs`: this module starts a server at
+// import time, so a pure helper has to live somewhere a unit test can reach it.
 
 // DashScope's OpenAI-compatible surfaces take the flat `reasoning_effort` on
 // /chat/completions and the nested `reasoning.effort` on /responses, and the
