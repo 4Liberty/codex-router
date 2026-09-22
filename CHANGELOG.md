@@ -19,6 +19,88 @@
   payloads until their own endpoint proves the restriction (#792), and
   Moonshot-flavored routes keep their own pass, where a blanked cycle-closing
   reference has to retain the type it declared.
+- **One tool name never stands for two tools on a chat route, and a live schema
+  always wins over a discovered one.** Two halves of the same collision.
+  `chatProviderToolSurface` asked `flattenNamespaceTools` for deterministic
+  aliases only on the Groq route, so every unbounded chat provider published
+  two distinct native identities under one name: Codex injects its app tools as
+  a `codex_app` namespace and also sends the flattened spelling, so a client
+  carrying `codex_app__create_thread` beside the namespaced `create_thread` had
+  that name sent upstream twice, its own tool unreachable for the turn, and the
+  past call it had made restored under the namespaced identity Codex dispatches
+  elsewhere. The other half ran the opposite way: `flattenToolSearchHistory`
+  states that live top-level schemas win on a name collision, but it compared
+  provider-facing names, so exactly the routes that do alias -- Groq and
+  Command Code -- handed the discovered tool a different name, stopped seeing
+  the collision, and declared a stale searched schema beside the live one. The
+  shadow check now compares the live tools' own wire spellings, which is what a
+  discovery collides with. Every chat route now behaves the same way on both,
+  with the aliases Groq and Command Code already minted. Asking for the aliases
+  changes nothing where there is no collision: across 20,000 generated
+  collision-free tool lists the flattened output is byte-identical either way.
+- **A turn the router sent twice is metered at what both attempts cost.**
+  `mergeTokenUsage` exists to add up two attempts at one turn -- "a turn the
+  router had to send twice cost twice; the meter has to say so" -- and added up
+  every field except the two that carry what was actually billed.
+  `billedInputTokens` and `billedOutputTokens` were dropped when both attempts
+  reported, while being kept when only one did. `provider-usage.mjs` reads
+  `billedInputTokens ?? inputTokens`, so the Usage view fell back to the
+  reported prompt on exactly the turns where the two differ: a Grok OAuth
+  progress-only repair whose upstream billed 301,000 input tokens was shown as
+  101,000. Both are now summed like the cache and reasoning counts, absent when
+  neither attempt reported one, and a measured zero still survives.
+- **A replayed tool call with no arguments no longer kills a Meta Muse Spark
+  thread.** Meta validates a function call's `arguments` as JSON and refuses the
+  whole request with HTTP 400 `` `arguments` must be valid JSON `` before
+  inference, so the turn is lost — and because the call stays in the transcript,
+  every later turn in that thread is lost with it. Measured live: Muse called an
+  MCP tool with no arguments at all, the server answered "pattern is required",
+  Codex recorded the call with `arguments: ""`, and the next request died on
+  replay. Meta-bound requests now turn an absent, empty, or whitespace-only
+  argument string into `{}`, which is what the call meant and what the endpoint
+  accepts. The repair is deliberately narrow: a non-empty string that is not
+  JSON is a different failure and is left exactly as it arrived, and each
+  substitution is reported rather than quieted.
+- **StepFun ships as a first-party provider, one per regional platform.**
+  `stepfun-api` is the global Open Platform (`https://api.stepfun.ai/v1`,
+  `STEPFUN_API_KEY`) and `stepfun-api-cn` is the mainland console
+  (`https://api.stepfun.com/v1`, `STEPFUN_API_CN_KEY`). Each console issues its
+  own key, so they are credentialed and enabled separately and carry a
+  `planNote` saying where to create the China one. Both serve
+  `step-5-preview` (1M context, text + image), `step-3.7-flash` (256K, text +
+  image) and the agent-tuned `step-3.5-flash-2603` (256K, text-only) over the
+  standard `/chat/completions` surface with a top-level `reasoning_effort` —
+  low/medium/high for the first two, low/high for the 2603 snapshot, all taken
+  from StepFun's published model pages. The million-token route compacts at
+  900,000 like every other one. The provider ids carry the `-api` suffix that
+  `kimi-api` and `zai-api` already use, which also leaves the unreserved
+  `stepfun` id available to operator-defined generic endpoints.
+- **The Union Alpha routes are removed; both providers withdrew the preview.**
+  OpenRouter's public model list no longer carries `stealth/union-alpha`, and
+  OpenCode's models.dev record no longer carries `union-alpha` on Go, so the
+  two checked-in routes pointed at ids that no longer resolve. Both configs,
+  the Messages completion clamp that existed only for that hop, and the
+  catalog/curation entries are gone. The OpenCode limits the preview exposed
+  are provider-wide, not route-specific, so they stay: Console Go's
+  2,500,000-character single-message rejection still replaces an oversized
+  ImageGen data URL with a labeled stub (now in `opencode-message-compat.mjs`),
+  compact overflow still hops to a larger same-family window without a
+  cooldown, and a context-length 400 is still translated rather than
+  classified as quota. Ox Alpha is untouched: it graduated to GLM-5.3-Flash
+  earlier, and its slug aliases still keep an existing pin routable.
+- **Z.ai Coding GLM agents now use a leaner execution overlay and stop treating a poll timeout as a stalled child.**
+  The GPT-5.6-Sol behavior template already supplies routine progress cadence,
+  parallel tool use, persistence after tool calls, and outcome-first handoff, so
+  repeating those rules in `efficient-agentic` spent prompt budget without
+  changing the contract. The Coding Plan GLM-5.3 and GLM-5.3-Flash routes now
+  use `efficient-agentic-v2`, which keeps bounded tool output, secret-safe
+  diagnostics, schema-first fixtures, RED-to-GREEN continuity, hypothesis
+  retracing, and Windows quoting while adding one collaboration invariant:
+  `wait_agent` timing out means only that the child has not finished yet. A
+  running child is not interrupted or replaced for the same mutable task
+  without a terminal error, explicit cancellation/supersession, safety reason,
+  or repeated concrete no-progress evidence. The legacy overlay remains
+  available for routes that already name it.
 - **Your own OpenAI-compatible endpoints can be added from Control Center.**
   A generic provider already carried everything an operator needs — an address,
   a protected key file, `/models` discovery, curation into the picker, and

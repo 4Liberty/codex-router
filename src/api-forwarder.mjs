@@ -4,6 +4,11 @@ import {
   usesNativeChatReasoning,
 } from "./chat-reasoning.mjs";
 import {
+  createReasoningReplayTap,
+  reasoningForToolCalls,
+  toolCallIdsOf,
+} from "./chat-reasoning-replay.mjs";
+import {
   deepSeekResponsesEffort,
   deepSeekResponsesInput,
   usesDeepSeekResponses,
@@ -70,10 +75,7 @@ import {
 } from "./openai-adapters.mjs";
 import { threadIdFromHeaders } from "./codex-session-names.mjs";
 import { applyOpenCodeSessionHeaders, isOpenCodeProvider } from "./opencode-session.mjs";
-import {
-  clampOpenCodeMessageContent,
-  clampUnionAlphaCompletion,
-} from "./union-alpha-compat.mjs";
+import { clampOpenCodeMessageContent } from "./opencode-message-compat.mjs";
 import {
   effectiveProviderCredentialStatus,
   providerApiKeyAuthoritySnapshot,
@@ -388,12 +390,24 @@ function ensureToolCallReasoningContent(messages) {
     if (
       message?.role !== "assistant" ||
       !Array.isArray(message.tool_calls) ||
-      message.tool_calls.length === 0 ||
-      typeof message.reasoning_content === "string"
+      message.tool_calls.length === 0
     ) {
       return message;
     }
-    return { ...message, reasoning_content: "" };
+    // Real reasoning already present: never rewrite it, so upstream prefixes
+    // (and their cache hits) stay byte-identical.
+    if (typeof message.reasoning_content === "string" && message.reasoning_content) {
+      return message;
+    }
+    // The contract needs the model's own reasoning, not merely the field:
+    // replay the text remembered from the turn that produced these calls, which
+    // history preserves by call id even across compaction.
+    const remembered = reasoningForToolCalls(toolCallIdsOf(message));
+    if (remembered) return { ...message, reasoning_content: remembered };
+    // Nothing remembered: keep the field present, exactly as before.
+    return typeof message.reasoning_content === "string"
+      ? message
+      : { ...message, reasoning_content: "" };
   });
 }
 
@@ -557,6 +571,45 @@ function flattenRecursiveToolSchemas(payload, protocol, options) {
   // shape, and an unattended service is exactly where that must not be silent.
   console.error(
     "[api-forwarder] broke recursive $ref cycles in tool schema(s) for this request",
+  );
+}
+
+// Meta validates a replayed function call's `arguments` as JSON and answers the
+// whole request with HTTP 400 "`arguments` must be valid JSON" before
+// inference, so the turn is lost -- and, because the call stays in the
+// transcript, so is every later turn in that thread.
+//
+// Measured on a Muse Spark 1.3 Contributor thread that called an MCP tool
+// without arguments: the model emitted the call with `arguments: ""`, Codex
+// recorded the call and the server's "pattern is required" output, and the next
+// request died on replay. The call already ran, so its argument text is
+// transcript filler: an absent, empty, or whitespace-only string becomes `{}`,
+// which is what the model meant and what the endpoint accepts. Anything else is
+// left alone -- an unparseable non-empty string is a different failure and must
+// not be silently rewritten.
+const STRICT_FUNCTION_CALL_ARGUMENT_PROVIDER_IDS = new Set(["meta"]);
+
+function repairEmptyFunctionCallArguments(payload) {
+  if (!Array.isArray(payload.input)) return;
+  let repaired = 0;
+  const input = payload.input.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    if (item.type !== "function_call") return item;
+    const raw = item.arguments;
+    const missing =
+      raw === undefined ||
+      raw === null ||
+      (typeof raw === "string" && raw.trim() === "");
+    if (!missing) return item;
+    repaired += 1;
+    return { ...item, arguments: "{}" };
+  });
+  if (!repaired) return;
+  payload.input = input;
+  // Never quieted: a call in the caller's transcript changed shape, and an
+  // unattended service is exactly where that must not happen in silence.
+  console.error(
+    `[api-forwarder] replaced ${repaired} empty function-call argument string(s) with "{}"`,
   );
 }
 
@@ -1184,6 +1237,9 @@ function normalizeBody(buffer, contentType, route) {
   if (provider.id === "gemini-api") {
     inlineGeminiToolSchemaRefs(payload);
   }
+  if (STRICT_FUNCTION_CALL_ARGUMENT_PROVIDER_IDS.has(provider.id)) {
+    repairEmptyFunctionCallArguments(payload);
+  }
   // Deliberately its own statement rather than a branch of the profile chain
   // below: this is an upstream limitation, and every route that has it also
   // needs a request profile of its own, which the single-valued field cannot
@@ -1462,7 +1518,6 @@ function normalizeBody(buffer, contentType, route) {
     }
   }
   if (adapter) payload = adapter.normalizeBody(payload, model);
-  clampUnionAlphaCompletion(payload, model);
   const targetPath = adapter?.targetPath
     ? adapter.targetPath({ model, body: payload })
     : undefined;
@@ -1555,6 +1610,13 @@ async function relayUpstreamResponse(
     : new Map();
   
   const transform = [
+    // Contract models: remember the reasoning this turn streams so a later
+    // replay can hand the model its own thinking back (required by the
+    // provider; an empty field is a 400). Read-only: it re-emits every byte.
+    requiresReasoningContentOnToolCalls(normalized.model) &&
+    upstreamContentType.toLowerCase().includes("text/event-stream")
+      ? createReasoningReplayTap()
+      : undefined,
     responsesStream
       ? createResponsesStreamTransform(flatToNative, {
           pinResponseId: normalized.provider.authProfile === "github-copilot",

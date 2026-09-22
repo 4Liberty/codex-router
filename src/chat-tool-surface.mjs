@@ -248,19 +248,25 @@ export function chatProviderToolSurface(
     } else {
       providerTools = mergeCodexAppTools(tools).tools;
     }
-    return flattenNamespaceTools(
-      providerTools,
-      BOUNDED_TOOL_NAME_PROVIDERS.has(providerId)
+    // Collision safety is not the length bound. A provider with no name-length
+    // limit still cannot be sent two tools under one name: the second
+    // declaration wins on the wire, and every call to that name comes back
+    // under one identity, so the other tool is unreachable for the whole turn.
+    // The bounded branch already aliases both apart because any duplicate
+    // forces an alias there; the unbounded branch has to ask for it.
+    return flattenNamespaceTools(providerTools, {
+      aliasCollisions: true,
+      ...(BOUNDED_TOOL_NAME_PROVIDERS.has(providerId)
         ? { maxNameLength: BOUNDED_TOOL_NAME_LENGTH }
-        : {},
-    );
+        : {}),
+    });
   }
 
   const merged = mergeCodexAppTools(tools);
 
   // Groq has no OpenCode-style length bound, but it still needs deterministic
   // aliases when two distinct native identities have the same flattened wire
-  // spelling. Keep that collision safety independent from the 64-byte route.
+  // spelling -- the same reason the branch above asks for them.
   const expanded = flattenNamespaceTools(merged.tools, { aliasCollisions: true });
   if (!Array.isArray(expanded.tools) || expanded.tools.length <= GROQ_MAX_TOOLS) return expanded;
 

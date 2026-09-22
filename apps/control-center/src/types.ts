@@ -776,6 +776,7 @@ export interface ContextSessionsSnapshot {
 }
 
 export interface RouterControlApi {
+  setInterfaceLanguage?(language: import("./i18n").LanguageId): void;
   readonly platform: string;
   minimizeWindow(): Promise<unknown>;
   toggleMaximizeWindow(): Promise<unknown>;
