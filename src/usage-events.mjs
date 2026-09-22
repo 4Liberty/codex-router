@@ -195,9 +195,19 @@ export function recordUsageEvent({
   // a token estimate. Missing payload fields measure as zero.
   contextBytes,
   grokStructuredPatch,
+  reasoningEffort,
+  providerToolCount,
+  providerToolSchemaBytes,
   at = Date.now(),
 }) {
-  const diagnostics = usageDiagnosticMetadata({ requestId, contextBytes, grokStructuredPatch });
+  const diagnostics = usageDiagnosticMetadata({
+    requestId,
+    contextBytes,
+    grokStructuredPatch,
+    reasoningEffort,
+    providerToolCount,
+    providerToolSchemaBytes,
+  });
   const event = {
     ...serviceTierMetadata({
       requestedServiceTier,
@@ -533,6 +543,9 @@ export function recentUsageEvents({
           requestId: event.requestId,
           contextBytes: event.contextBytes,
           grokStructuredPatch: event.grokStructuredPatch,
+          reasoningEffort: event.reasoningEffort,
+          providerToolCount: event.providerToolCount,
+          providerToolSchemaBytes: event.providerToolSchemaBytes,
         });
         return {
           ...serviceTierMetadata(event),
