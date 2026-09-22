@@ -256,6 +256,7 @@ import { readHiddenModels } from "./model-picker-state.mjs";
 import { readVisionBridgeSettings } from "./vision-bridge-state.mjs";
 import { installedNativeVisionEngines } from "./vision-engines.mjs";
 import { ageToolResults } from "./tool-result-aging.mjs";
+import { boundImagePayload } from "./prompt-image-budget.mjs";
 import {
   nativeToolResultAgingEnabled,
   toolResultAgingEnabled,
@@ -3855,16 +3856,26 @@ async function prepareRoutedRequest({
   const aged = ageToolResults(normalizedInput, {
     enabled: agingEnabled,
   });
+  // A conversation replays every image it still holds, so a long session can
+  // cross the provider's per-request image ceiling on its own and fail the turn
+  // outright. Bound the payload after aging, from the same pristine input, so
+  // the body that actually leaves is one the provider accepts. The token budget
+  // is charged at this route's per-image bound, so a resold route that pays 4096
+  // tokens a screenshot is trimmed sooner than a native route that pays 1024.
+  const bounded = boundImagePayload(aged.input, {
+    tokensPerImage: maxImageTokensForRoute(route),
+  });
   const built = await buildRoutedRequest({
     request,
     payload,
     route,
-    agedInput: aged.input,
+    agedInput: bounded.input,
   });
   return {
     ...built,
-    agedInput: aged.input,
+    agedInput: bounded.input,
     toolResultAging: aged.stats,
+    imageBudget: bounded.stats,
   };
 }
 
@@ -4133,6 +4144,7 @@ async function handleResponses(request, response, requestUrl) {
   let usage;
   let estimatedInputTokens;
   let toolResultAging;
+  let imageBudget;
   let pendingInterrupts = [];
   let emptyCompletion = false;
   let emptyCompletionRetried = false;
@@ -4384,6 +4396,7 @@ async function handleResponses(request, response, requestUrl) {
       pendingInterrupts = built.pendingInterrupts;
       agedInput = built.agedInput;
       toolResultAging = built.toolResultAging;
+      imageBudget = built.imageBudget;
       target = built.target;
       headers = built.headers;
       routedBody = built.body;
@@ -4416,6 +4429,7 @@ async function handleResponses(request, response, requestUrl) {
         agingEnabled,
       });
       toolResultAging = built.toolResultAging;
+      imageBudget = built.imageBudget;
       agedInput = built.agedInput;
       namespacesFlattened = built.namespacesFlattened;
       flattenedNamespaces = built.flattenedNamespaces;
@@ -5259,6 +5273,7 @@ async function handleResponses(request, response, requestUrl) {
       ...usage,
       estimatedInputTokens,
       ...toolResultAging,
+      ...imageBudget,
       retries: (upstreamRetries || 0) + (usage?.retries || 0) || undefined,
       ...(emptyCompletion ? { emptyCompletion: true } : {}),
       ...(emptyCompletionRetried ? { emptyCompletionRetried: true } : {}),
@@ -5294,6 +5309,10 @@ async function handleResponses(request, response, requestUrl) {
         }${estimatedInputTokens ? ` estimated-input-tokens=${estimatedInputTokens}` : ""}${
           toolResultAging?.toolResultBytesSaved
             ? ` aged-tool-results=${toolResultAging.toolResultsAged} saved-tool-bytes=${toolResultAging.toolResultBytesSaved}`
+            : ""
+        }${
+          imageBudget?.imageBytesSaved || imageBudget?.imageTokensSaved
+            ? ` trimmed-images=${imageBudget.imageReferencesDropped} saved-image-bytes=${imageBudget.imageBytesSaved} saved-image-tokens=${imageBudget.imageTokensSaved}`
             : ""
         }${
           emptyCompletionRetried ? " empty-completion-retried=true" : ""
@@ -5429,6 +5448,7 @@ async function handleResponses(request, response, requestUrl) {
         ...usage,
         estimatedInputTokens,
         ...toolResultAging,
+        ...imageBudget,
         ...(emptyCompletion ? { emptyCompletion: true } : {}),
         ...(emptyCompletionPreludeLimit
           ? { emptyCompletionPreludeLimit }
@@ -5469,6 +5489,7 @@ async function handleResponses(request, response, requestUrl) {
           ...usage,
           estimatedInputTokens,
           ...toolResultAging,
+          ...imageBudget,
           retries: (upstreamRetries || 0) + (usage?.retries || 0) || undefined,
         }, diagnostics);
         usageRecorded = true;
@@ -5504,6 +5525,7 @@ async function handleResponses(request, response, requestUrl) {
           ...usage,
           estimatedInputTokens,
           ...toolResultAging,
+          ...imageBudget,
           ...(emptyCompletion ? { emptyCompletion: true } : {}),
           ...(emptyCompletionRetried ? { emptyCompletionRetried: true } : {}),
         }, diagnostics);
@@ -5530,6 +5552,7 @@ async function handleResponses(request, response, requestUrl) {
         ...usage,
         estimatedInputTokens,
         ...toolResultAging,
+        ...imageBudget,
         ...(response.headersSent ? { streamAborted: true } : {}),
         ...(emptyCompletion ? { emptyCompletion: true } : {}),
         ...(emptyCompletionRetried ? { emptyCompletionRetried: true } : {}),

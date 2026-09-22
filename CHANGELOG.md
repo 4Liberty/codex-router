@@ -1,6 +1,20 @@
 # Changelog
 
 ## Unreleased
+- **A long session's images can no longer cross the provider's ceiling and fail
+  the whole turn.** A conversation replays every image it still holds on every
+  following turn, so a session that views screenshots grows until one request
+  exceeds OpenRouter's limit of 30MB of decoded image content -- measured on
+  this host 2026-09-17 at about 12MB accepted and 31MB refused with `413`, on a
+  Kalaam worker whose session had reached 1,791 image references. The routed
+  path now bounds the payload after tool-result aging: oldest images become
+  short text receipts until the request fits both a 20MB byte budget and a 128K
+  image-token budget, keeping the newest two images always. The byte cap stops
+  the stall; the token cap, charged at the route's per-image bound (4096 on a
+  resold route against 1024 on the documented direct DeepSeek Flash models),
+  bounds the per-turn bill that the byte cap alone does not. Images inside tool
+  results are bounded too, remote image URLs are not measured, and the counts --
+  seen, dropped, bytes and tokens saved -- are recorded in the usage event.
 - **Switching native models no longer carries an unsupported reasoning effort
   into the next turn.** Codex can apply the newly selected model before it
   replaces the previous model's effort, so moving from a model with a
