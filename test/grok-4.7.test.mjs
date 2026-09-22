@@ -46,13 +46,18 @@ test("every Grok 4.7 route records the upstream id and window", () => {
 });
 
 test("Grok 4.7 reasoning ladders match each catalog, not the family name", () => {
-  // xAI documents low/medium/high/xhigh, and the first-party routes plus the
-  // two resellers whose own catalogs pass reasoning_effort through carry it.
+  // xAI documents low/medium/high/xhigh, and every route whose own catalog or
+  // documentation says it forwards an effort carries the same four rungs.
+  // OpenRouter is in this group on its own evidence: its reasoning docs list
+  // xhigh in the accepted vocabulary and map an unsupported rung down rather
+  // than rejecting it, and its /models record for x-ai/grok-4.7 advertises
+  // `reasoning_effort` in supported_parameters.
   for (const slug of [
     "grok-api/grok-4.7",
     "grok-oauth/grok-4.7",
     "nousresearch/grok-4.7",
     "opencode-go-responses/grok-4.7",
+    "openrouter/grok-4.7",
   ]) {
     assert.deepEqual(
       MODEL_BY_SLUG.get(slug).reasoningLevels.map((level) => level.effort),
@@ -61,9 +66,10 @@ test("Grok 4.7 reasoning ladders match each catalog, not the family name", () =>
     );
   }
 
-  // Command Code and OpenRouter document low/medium/high, exactly as their
-  // checked-in Grok 4.6 entries already do. A rung is claimed per route.
-  for (const slug of ["commandcode/grok-4.7", "openrouter/grok-4.7"]) {
+  // Command Code publishes no parameter metadata for its Grok route, so it
+  // keeps the conservative ladder rather than inheriting xAI's through a
+  // reseller that has not said it forwards the field. A rung is per route.
+  for (const slug of ["commandcode/grok-4.7"]) {
     assert.deepEqual(
       MODEL_BY_SLUG.get(slug).reasoningLevels.map((level) => level.effort),
       ["low", "medium", "high"],

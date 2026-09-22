@@ -49,11 +49,23 @@
   checked-in route on `grok-oauth`, `grok-api`, `commandcode` (`xai/grok-4.7`),
   `nousresearch` and `openrouter` (`x-ai/grok-4.7`), and opencode Go's
   Responses surface. Each entry takes its ladder and modalities from that
-  provider's own catalog rather than from the family name: Command Code and
-  OpenRouter publish low/medium/high, exactly as their 4.6 entries already do.
-  None of the six claims `multiAgentVersion: "v2"` — a native collaboration
+  provider's own catalog rather than from the family name: Command Code
+  publishes no parameter metadata and so keeps low/medium/high, while every
+  other route carries xAI's documented `xhigh`. All four rungs were checked
+  live on `grok-oauth/grok-4.7`. None of the six claims `multiAgentVersion: "v2"` — a native collaboration
   proof is not inherited from a certified 4.5 sibling — and the grok-oauth
   route does not inherit 4.6's Fast service tier either.
+- **OpenRouter's Grok routes regain the `xhigh` rung they always had.** The
+  checked-in `openrouter/grok-4.6` ladder was copied from Command Code's entry
+  rather than read from OpenRouter, so it published low/medium/high. OpenRouter
+  documents `xhigh` in the accepted effort vocabulary and maps an unsupported
+  rung down instead of rejecting it, its `/models` record for `x-ai/grok-4.6`
+  and `x-ai/grok-4.7` advertises `reasoning_effort` among the supported
+  parameters, and xAI documents `xhigh` as a native rung of both models. Both
+  OpenRouter entries now carry the fourth rung. Command Code publishes no
+  parameter metadata for its Grok route and stays conservative, which is now
+  recorded as its own reason rather than as the precedent the other route was
+  copied from.
 - **The Grok OAuth bridge's per-model adaptations moved into one list.** The
   literal `"grok-oauth/grok-4.6"` used to be repeated across the forwarder, the
   router, the tool facade, the structured-patch and patch-hook experiments, and
