@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- **The Union Alpha routes are removed; both providers withdrew the preview.**
+  OpenRouter's public model list no longer carries `stealth/union-alpha`, and
+  OpenCode's models.dev record no longer carries `union-alpha` on Go, so the
+  two checked-in routes pointed at ids that no longer resolve. Both configs,
+  the Messages completion clamp that existed only for that hop, and the
+  catalog/curation entries are gone. The OpenCode limits the preview exposed
+  are provider-wide, not route-specific, so they stay: Console Go's
+  2,500,000-character single-message rejection still replaces an oversized
+  ImageGen data URL with a labeled stub (now in `opencode-message-compat.mjs`),
+  compact overflow still hops to a larger same-family window without a
+  cooldown, and a context-length 400 is still translated rather than
+  classified as quota. Ox Alpha is untouched: it graduated to GLM-5.3-Flash
+  earlier, and its slug aliases still keep an existing pin routable.
 - **Z.ai Coding GLM agents now use a leaner execution overlay and stop treating a poll timeout as a stalled child.**
   The GPT-5.6-Sol behavior template already supplies routine progress cadence,
   parallel tool use, persistence after tool calls, and outcome-first handoff, so

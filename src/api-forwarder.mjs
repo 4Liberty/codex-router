@@ -75,10 +75,7 @@ import {
 } from "./openai-adapters.mjs";
 import { threadIdFromHeaders } from "./codex-session-names.mjs";
 import { applyOpenCodeSessionHeaders, isOpenCodeProvider } from "./opencode-session.mjs";
-import {
-  clampOpenCodeMessageContent,
-  clampUnionAlphaCompletion,
-} from "./union-alpha-compat.mjs";
+import { clampOpenCodeMessageContent } from "./opencode-message-compat.mjs";
 import {
   effectiveProviderCredentialStatus,
   providerApiKeyAuthoritySnapshot,
@@ -1479,7 +1476,6 @@ function normalizeBody(buffer, contentType, route) {
     }
   }
   if (adapter) payload = adapter.normalizeBody(payload, model);
-  clampUnionAlphaCompletion(payload, model);
   const targetPath = adapter?.targetPath
     ? adapter.targetPath({ model, body: payload })
     : undefined;
