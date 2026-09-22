@@ -143,6 +143,10 @@ import {
   ResponseUsageTransform,
   tokenUsageFromPayload,
 } from "./response-usage.mjs";
+import {
+  isRemoteCompactV2Trigger,
+  skippableCompactionTokens,
+} from "./compaction-limit.mjs";
 import { fetchWithRetry } from "./upstream-retry.mjs";
 import { applyGrokApplyPatchGuidance } from "./grok-apply-patch-guidance.mjs";
 import {
@@ -4236,9 +4240,50 @@ async function handleResponses(request, response, requestUrl) {
     // Codex remote compaction V2 uses the ordinary Responses endpoint with a
     // terminal trigger. Detect the protocol shape before route dispatch so the
     // native path can also preserve the full tool results being summarized.
-    const compactV2 =
-      Array.isArray(payload.input) &&
-      payload.input.at(-1)?.type === "compaction_trigger";
+    const compactV2 = isRemoteCompactV2Trigger(payload);
+
+    // The same normalization the routed compaction path would do, hoisted so
+    // the budget is judged on the bytes that actually go upstream and so the
+    // checkpoint below reuses the one pass rather than repeating it.
+    const skipNormalized =
+      route && compactV2 ? normalizeRoutedInput(payload.input.slice(0, -1)) : undefined;
+    const skipEstimatedTokens = skipNormalized
+      ? skippableCompactionTokens(skipNormalized, route)
+      : undefined;
+
+    if (skipEstimatedTokens !== undefined) {
+      const prepared = prepareCompaction(skipNormalized);
+      const checkpoint = finalizeCheckpoint("", prepared);
+      const item = {
+        type: "compaction",
+        id: `cmp_${randomUUID().replaceAll("-", "")}`,
+        encrypted_content: encodeCheckpoint(checkpoint),
+      };
+      if (payload.stream === false) {
+        writeJson(response, 200, compactionSnapshot(payload.model, item));
+      } else {
+        writeCompactionSse(response, payload.model, checkpoint);
+      }
+      if (!QUIET) {
+        console.error(
+          `[codex-router] skipped-unnecessary-compaction model=${route.slug} provider=${route.provider} estimated-input=${skipEstimatedTokens}`,
+        );
+      }
+      recordObservedUsage(
+        {
+          model: route.slug,
+          provider: canonicalProviderId(route.provider),
+          status: 200,
+          durationMs: Date.now() - startedAt,
+        },
+        diagnostics,
+      );
+      usage = undefined;
+      finalStatus = 200;
+      activityStatus = 200;
+      usageRecorded = true;
+      return;
+    }
 
     if (route && (compactV1 || compactV2)) {
       const compaction = await handleRoutedCompaction(
