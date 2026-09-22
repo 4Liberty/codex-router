@@ -1,6 +1,24 @@
 # Changelog
 
 ## Unreleased
+- **Direct Meta Muse Spark 1.3 Contributor no longer loses tool-bearing turns
+  to a recursive schema the repair never reached.** Issue #792 opted that route
+  into the cycle-closing repair, but the repair ran only in the api-forwarder,
+  which understands top-level `type: "function"` tools. Meta is a
+  Responses-native endpoint, so the router deliberately keeps Codex's
+  `type: "namespace"` entries, and the recursion lives inside those children --
+  the `codex_app` and connector toolsets, where `$defs` re-enters itself
+  (`__schema0`, and the Gmail-style `MessagePartRequest.parts`). Those turns
+  still came back as HTTP 400 `Recursive JSON schemas are not currently
+  supported` while the forwarder's own log stayed silent, which is what made it
+  read like a stale config. The router now runs the same repair for any route
+  that documents `toolSchemaRecursion: "flatten"` on itself, in the shape its
+  endpoint validates. That also closes the same latent gap on
+  `opencode-go-responses/muse-spark-1.3-contributor`, which carries the flag
+  without being named in the gate. Sibling Meta routes still keep their
+  payloads until their own endpoint proves the restriction (#792), and
+  Moonshot-flavored routes keep their own pass, where a blanked cycle-closing
+  reference has to retain the type it declared.
 - **One tool name never stands for two tools on a chat route, and a live schema
   always wins over a discovered one.** Two halves of the same collision.
   `chatProviderToolSurface` asked `flattenNamespaceTools` for deterministic
