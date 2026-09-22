@@ -143,7 +143,10 @@ import {
   ResponseUsageTransform,
   tokenUsageFromPayload,
 } from "./response-usage.mjs";
-import { shouldSkipRemoteCompactV2 } from "./compaction-limit.mjs";
+import {
+  isRemoteCompactV2Trigger,
+  skippableCompactionTokens,
+} from "./compaction-limit.mjs";
 import { fetchWithRetry } from "./upstream-retry.mjs";
 import { applyGrokApplyPatchGuidance } from "./grok-apply-patch-guidance.mjs";
 import {
@@ -4237,17 +4240,19 @@ async function handleResponses(request, response, requestUrl) {
     // Codex remote compaction V2 uses the ordinary Responses endpoint with a
     // terminal trigger. Detect the protocol shape before route dispatch so the
     // native path can also preserve the full tool results being summarized.
-    let compactV2 =
-      Array.isArray(payload.input) &&
-      payload.input.at(-1)?.type === "compaction_trigger";
+    const compactV2 = isRemoteCompactV2Trigger(payload);
 
-    if (route && compactV2 && shouldSkipRemoteCompactV2(payload, route, body)) {
-      const estimatedTokens = estimateInputTokens(body, {
-        contextWindow: route.contextWindow,
-      });
-      const skipInput = payload.input.slice(0, -1);
-      const normalized = normalizeRoutedInput(skipInput);
-      const prepared = prepareCompaction(normalized);
+    // The same normalization the routed compaction path would do, hoisted so
+    // the budget is judged on the bytes that actually go upstream and so the
+    // checkpoint below reuses the one pass rather than repeating it.
+    const skipNormalized =
+      route && compactV2 ? normalizeRoutedInput(payload.input.slice(0, -1)) : undefined;
+    const skipEstimatedTokens = skipNormalized
+      ? skippableCompactionTokens(skipNormalized, route)
+      : undefined;
+
+    if (skipEstimatedTokens !== undefined) {
+      const prepared = prepareCompaction(skipNormalized);
       const checkpoint = finalizeCheckpoint("", prepared);
       const item = {
         type: "compaction",
@@ -4261,7 +4266,7 @@ async function handleResponses(request, response, requestUrl) {
       }
       if (!QUIET) {
         console.error(
-          `[codex-router] skipped-unnecessary-compaction model=${route.slug} provider=${route.provider} estimated-input=${estimatedTokens ?? "<1k"}`,
+          `[codex-router] skipped-unnecessary-compaction model=${route.slug} provider=${route.provider} estimated-input=${skipEstimatedTokens}`,
         );
       }
       recordObservedUsage(
