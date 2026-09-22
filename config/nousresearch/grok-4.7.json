@@ -2,14 +2,14 @@
   "version": 1,
   "models": [
     {
-      "slug": "openrouter/grok-4.6",
-      "gatewayModel": "openrouter-grok-4-6",
-      "upstreamModel": "x-ai/grok-4.6",
-      "provider": "openrouter",
+      "slug": "nousresearch/grok-4.7",
+      "gatewayModel": "nousresearch-grok-4-7",
+      "upstreamModel": "x-ai/grok-4.7",
+      "provider": "nousresearch",
       "listed": true,
-      "displayName": "Grok 4.6 (OpenRouter)",
-      "description": "xAI Grok 4.6 through OpenRouter.",
-      "priority": 72,
+      "displayName": "Grok 4.7 (Nous Research)",
+      "description": "xAI Grok 4.7 through the Nous Portal.",
+      "priority": 73,
       "defaultEffort": "high",
       "reasoningLevels": [
         {
@@ -30,12 +30,12 @@
         }
       ],
       "contextWindow": 500000,
-      "autoCompact": 440000,
+      "autoCompact": 450000,
       "inputModalities": [
         "text",
         "image"
       ],
-      "compHash": "openrouter-grok-4-6-v1"
+      "compHash": "nousresearch-grok-4-7-v1"
     }
   ]
 }

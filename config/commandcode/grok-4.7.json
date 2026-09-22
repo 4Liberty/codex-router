@@ -2,14 +2,14 @@
   "version": 1,
   "models": [
     {
-      "slug": "openrouter/grok-4.6",
-      "gatewayModel": "openrouter-grok-4-6",
-      "upstreamModel": "x-ai/grok-4.6",
-      "provider": "openrouter",
+      "slug": "commandcode/grok-4.7",
+      "gatewayModel": "commandcode-grok-4-7",
+      "upstreamModel": "xai/grok-4.7",
+      "provider": "commandcode",
       "listed": true,
-      "displayName": "Grok 4.6 (OpenRouter)",
-      "description": "xAI Grok 4.6 through OpenRouter.",
-      "priority": 72,
+      "displayName": "Grok 4.7 (Command Code)",
+      "description": "Grok 4.7 through the Command Code Provider API.",
+      "priority": 114,
       "defaultEffort": "high",
       "reasoningLevels": [
         {
@@ -23,10 +23,6 @@
         {
           "effort": "high",
           "description": "Deep reasoning"
-        },
-        {
-          "effort": "xhigh",
-          "description": "Maximum reasoning depth"
         }
       ],
       "contextWindow": 500000,
@@ -35,7 +31,7 @@
         "text",
         "image"
       ],
-      "compHash": "openrouter-grok-4-6-v1"
+      "compHash": "commandcode-grok-4-7-v1"
     }
   ]
 }

@@ -84,6 +84,54 @@
   accepts. The repair is deliberately narrow: a non-empty string that is not
   JSON is a different failure and is left exactly as it arrived, and each
   substitution is reported rather than quieted.
+- **Grok 4.7 ships on all six providers that serve it.** xAI published
+  `grok-4.7` on 2026-09-21 with the same 500,000-token window, text + image
+  input, and low/medium/high/xhigh effort ladder as 4.6, and it is now a
+  checked-in route on `grok-oauth`, `grok-api`, `commandcode` (`xai/grok-4.7`),
+  `nousresearch` and `openrouter` (`x-ai/grok-4.7`), and opencode Go's
+  Responses surface. Each entry takes its ladder and modalities from that
+  provider's own catalog rather than from the family name: Command Code
+  publishes no parameter metadata and so keeps low/medium/high, while every
+  other route carries xAI's documented `xhigh`. All four rungs were checked
+  live on `grok-oauth/grok-4.7`. None of the six claims `multiAgentVersion: "v2"` — a native collaboration
+  proof is not inherited from a certified 4.5 sibling — and the grok-oauth
+  route does not inherit 4.6's Fast service tier either.
+- **OpenRouter's Grok routes regain the `xhigh` rung they always had.** The
+  checked-in `openrouter/grok-4.6` ladder was copied from Command Code's entry
+  rather than read from OpenRouter, so it published low/medium/high. OpenRouter
+  documents `xhigh` in the accepted effort vocabulary and maps an unsupported
+  rung down instead of rejecting it, its `/models` record for `x-ai/grok-4.6`
+  and `x-ai/grok-4.7` advertises `reasoning_effort` among the supported
+  parameters, and xAI documents `xhigh` as a native rung of both models. Both
+  OpenRouter entries now carry the fourth rung. Command Code publishes no
+  parameter metadata for its Grok route and stays conservative, which is now
+  recorded as its own reason rather than as the precedent the other route was
+  copied from.
+- **The Grok OAuth bridge's per-model adaptations moved into one list.** The
+  literal `"grok-oauth/grok-4.6"` used to be repeated across the forwarder, the
+  router, the tool facade, the structured-patch and patch-hook experiments, and
+  request diagnostics, so adding a Grok model meant finding all of them.
+  `src/grok-oauth-routes.mjs` now holds the routes that run those workarounds,
+  and the two facts the registry already knows — whether a route has an `xhigh`
+  rung and whether it offers a service tier — are read back from the model
+  entry the way hosted search always was. A second Grok model therefore joins
+  by declaring its own capabilities, and a workaround is widened only where the
+  behavior was actually observed.
+- **Xiaomi's MiMo-V2.6 series ships on every provider that lists it.** Xiaomi
+  released `mimo-v2.6-pro`, `mimo-v2.6-flash`, and `mimo-v2.6-pro-ultraspeed`
+  on 2026-09-22. All three are checked in on Xiaomi's own API, Command Code,
+  the Nous Portal, and OpenRouter; opencode Go carries the Pro and Flash ids
+  its catalog lists. Xiaomi publishes reasoning as a toggle rather than an
+  effort ladder, so each entry keeps the single `high` rung every other MiMo
+  route uses. The 1,048,576-token window is each provider's own published
+  figure and compacts at 900,000, which still reserves the full 131,072-token
+  output limit; the two opencode Go routes keep the 1,000,000 their V2.5
+  siblings use, because OpenCode publishes no limit for a paid Go id.
+  UltraSpeed is the same Pro answers generated faster at ten times the token
+  price, and its picker description says so. `mimo-v2.6-flash-free` is
+  curatable on the anonymous OpenCode routes; like `mimo-v2.5-free` it keeps
+  conservative metadata, because its published 200,000-token window cannot
+  reserve room for its own 32,000-token output limit.
 - **StepFun ships as a first-party provider, one per regional platform.**
   `stepfun-api` is the global Open Platform (`https://api.stepfun.ai/v1`,
   `STEPFUN_API_KEY`) and `stepfun-api-cn` is the mainland console

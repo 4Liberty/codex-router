@@ -150,6 +150,7 @@ import {
 } from "./compaction-limit.mjs";
 import { fetchWithRetry } from "./upstream-retry.mjs";
 import { applyGrokApplyPatchGuidance } from "./grok-apply-patch-guidance.mjs";
+import { GROK_OAUTH_PROVIDER, isGrokOauthAgenticRoute } from "./grok-oauth-routes.mjs";
 import {
   GROK_STRUCTURED_PATCH_CODEC,
   grokStructuredPatchEnabled,
@@ -231,7 +232,7 @@ import {
 import { recordUsageEvent } from "./usage-events.mjs";
 import { createRequestProgress } from "./request-progress.mjs";
 import {
-  grokOauth46IngressContextBytes,
+  grokOauthIngressContextBytes,
   knownServiceTier,
   usageDiagnosticMetadata,
   utf8JsonBytes,
@@ -399,11 +400,18 @@ function fetchForRoute(route, url, init) {
 // it advertises that tier (checked-in or curated `serviceTiers`), so a failover
 // candidate or a compaction for another route never inherits a tier it did not
 // offer.
+// A Grok OAuth route that publishes a tier of its own. The registry entry
+// decides, so a second Grok model joins by declaring `serviceTiers` rather
+// than by being named here.
+function offersGrokOauthServiceTier(route) {
+  return route?.provider === GROK_OAUTH_PROVIDER && Boolean(route.serviceTiers?.length);
+}
+
 function applyRoutedServiceTier(body, payload, route) {
   if (!route?.serviceTiers?.some((entry) => entry?.id === payload.service_tier)) {
     delete body.service_tier;
   }
-  if (route?.slug !== "grok-oauth/grok-4.6") return body;
+  if (!offersGrokOauthServiceTier(route)) return body;
   const tier = knownServiceTier(payload.service_tier);
   // Locked LiteLLM loses the Responses service_tier argument at its Chat
   // bridge. extra_body reaches the forwarder without changing other routes.
@@ -3747,7 +3755,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     }
   }
   // Append V4A examples to the native custom apply_patch description for
-  // grok-oauth/grok-4.6 only, before LiteLLM translates that custom tool.
+  // the agentic grok-oauth routes only, before LiteLLM translates that tool.
   tools = applyGrokApplyPatchGuidance(tools, route);
   let routed = {
     ...payload,
@@ -3824,7 +3832,7 @@ async function buildRoutedRequest({ request, payload, route, agedInput }) {
     searchMode: searchCompatibility.searchMode,
     namespacesFlattened,
     flattenedNamespaces,
-    grokStructuredPatch: route.slug === "grok-oauth/grok-4.6"
+    grokStructuredPatch: isGrokOauthAgenticRoute(route)
       ? {
           enabled: patchHook || grokStructuredPatchEnabled(route),
           applied: structuredPatch,
@@ -4275,8 +4283,8 @@ async function handleResponses(request, response, requestUrl) {
       model: route?.slug || requestedModel || undefined,
       ...activityMetadataFromHeaders(request.headers),
     });
-    diagnostics.contextBytes = grokOauth46IngressContextBytes(payload, route);
-    if (route?.slug === "grok-oauth/grok-4.6") diagnostics.requestedServiceTier = payload.service_tier;
+    diagnostics.contextBytes = grokOauthIngressContextBytes(payload, route);
+    if (offersGrokOauthServiceTier(route)) diagnostics.requestedServiceTier = payload.service_tier;
     const compactV1 = /\/responses\/compact$/.test(requestUrl.pathname);
     // Codex remote compaction V2 uses the ordinary Responses endpoint with a
     // terminal trigger. Detect the protocol shape before route dispatch so the
@@ -4387,11 +4395,11 @@ async function handleResponses(request, response, requestUrl) {
       namespacesFlattened = built.namespacesFlattened;
       flattenedNamespaces = built.flattenedNamespaces;
       diagnostics.grokStructuredPatch = built.grokStructuredPatch;
-      // Grok 4.6 ingress measurements describe the request sent to Grok. The
+      // Grok OAuth ingress measurements describe the request sent to Grok. The
       // serving row of another model must not inherit them.
-      diagnostics.contextBytes = grokOauth46IngressContextBytes(payload, route);
+      diagnostics.contextBytes = grokOauthIngressContextBytes(payload, route);
       diagnostics.requestedServiceTier =
-        route.slug === "grok-oauth/grok-4.6" ? payload.service_tier : undefined;
+        offersGrokOauthServiceTier(route) ? payload.service_tier : undefined;
       setRoutingDiagnostics(built);
       pendingInterrupts = built.pendingInterrupts;
       agedInput = built.agedInput;
@@ -4801,7 +4809,7 @@ async function handleResponses(request, response, requestUrl) {
     const upstreamContentType = upstream.headers.get("content-type") || "";
     const createResponsePipeline = (contentType, preludeMs = EMPTY_COMPLETION_PRELUDE_MS) => {
       const usageObserver = new ResponseUsageTransform(contentType, {
-        grokServiceTier: route?.slug === "grok-oauth/grok-4.6",
+        grokServiceTier: offersGrokOauthServiceTier(route),
         onEvent: (payload) => activity.progress.event(payload),
         estimatedInputTokens:
           ZERO_INPUT_ESTIMATE && route

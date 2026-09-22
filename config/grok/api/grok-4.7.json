@@ -2,14 +2,14 @@
   "version": 1,
   "models": [
     {
-      "slug": "openrouter/grok-4.6",
-      "gatewayModel": "openrouter-grok-4-6",
-      "upstreamModel": "x-ai/grok-4.6",
-      "provider": "openrouter",
+      "slug": "grok-api/grok-4.7",
+      "gatewayModel": "grok-api-grok-4-7",
+      "upstreamModel": "grok-4.7",
+      "provider": "grok-api",
       "listed": true,
-      "displayName": "Grok 4.6 (OpenRouter)",
-      "description": "xAI Grok 4.6 through OpenRouter.",
-      "priority": 72,
+      "displayName": "Grok 4.7 (API)",
+      "description": "Grok 4.7 through the separately billed xAI API with agentic coding, tools, and a 500k context window.",
+      "priority": 8,
       "defaultEffort": "high",
       "reasoningLevels": [
         {
@@ -35,7 +35,10 @@
         "text",
         "image"
       ],
-      "compHash": "openrouter-grok-4-6-v1"
+      "requestProfile": "xai-reasoning",
+      "supportsReasoningSummaries": true,
+      "supportsImageDetailOriginal": true,
+      "compHash": "grok-api-grok-4-7-v1"
     }
   ]
 }
