@@ -1362,6 +1362,23 @@ point a credential-free provider at a model somebody would be billed for.
 naming rule that changes without notice, so neither ships that subset: discovery
 filters the provider's live `/models` response and the user curates locally.
 
+Being listed in that response does not mean the id will answer. OpenCode serves
+most of its free tier only to its own client and refuses everything else with
+`FreeTierError: OpenCode's free tier can only be used from within OpenCode`,
+whatever headers the caller sends. Those ids are named in
+`OPENCODE_FREE_CLIENT_GATED` in `src/opencode-curation.mjs`, and curation
+refuses them the same way it refuses an unverified protocol -- a route that
+cannot serve its first request must not become a picker entry. Record the gate
+per id against a live probe, never as a blanket provider rule: ids on the same
+endpoint differ, and `deepseek-v4-flash-free` cleared the gate on the run that
+found the rest of them blocked. The refusal reaches only a fresh candidate; an
+id the operator already curated still resolves to its documented route, because
+curation never takes a model out of a user's configuration.
+
+Do not try to get past that gate. The restriction is the provider's access
+policy, stated in its own error, so reproducing whatever identifies OpenCode's
+client would be circumventing it rather than fixing a compatibility problem.
+
 ## Ox Alpha became GLM-5.3-Flash on OpenCode Go
 
 Z.ai revealed the OpenCode Go Ox Alpha preview as GLM-5.3-Flash. OpenCode Go

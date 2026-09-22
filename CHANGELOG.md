@@ -63,6 +63,22 @@
   the CLI listed it. Hidden entries are now published in a priority band after
   the last visible model; visible priorities, and therefore the picker order
   and the spawn_agent override window, are unchanged.
+- **OpenCode Free models that the provider will not serve to this router are no
+  longer offered.** OpenCode answers a free-tier request that did not come from
+  its own client with `FreeTierError: OpenCode's free tier can only be used from
+  within OpenCode`, so curating one produced a picker entry that failed on its
+  opening request. Probed 2026-09-23 against `https://opencode.ai/zen/v1` in the
+  shape the router uses -- no credential, the `x-opencode-session` header,
+  Chat Completions for the primary ids and Responses for the Muse pair --
+  `big-pickle`, `mimo-v2.5-free`, `mimo-v2.6-flash-free`,
+  `muse-spark-1.2-contributor-free`, `muse-spark-1.3-contributor-free`,
+  `nemotron-3-ultra-free`, and `nemotron-3.5-lightning-free` are all refused
+  that way; `deepseek-v4-flash-free` cleared the same gate on the same run and
+  stays addable, which is why the list is per id rather than a provider-wide
+  rule. Discovery now reports each gated id as blocked with that reason instead
+  of as a candidate, and `doctor` says so where it suggests curating the free
+  tier. An id already in an operator's configuration is untouched and still
+  resolves to its documented route.
 - **A long session's images can no longer cross the provider's ceiling and fail
   the whole turn.** A conversation replays every image it still holds on every
   following turn, so a session that views screenshots grows until one request
