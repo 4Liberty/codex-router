@@ -12,6 +12,20 @@
   progress-only repair whose upstream billed 301,000 input tokens was shown as
   101,000. Both are now summed like the cache and reasoning counts, absent when
   neither attempt reported one, and a measured zero still survives.
+- **StepFun ships as a first-party provider, one per regional platform.**
+  `stepfun-api` is the global Open Platform (`https://api.stepfun.ai/v1`,
+  `STEPFUN_API_KEY`) and `stepfun-api-cn` is the mainland console
+  (`https://api.stepfun.com/v1`, `STEPFUN_API_CN_KEY`). Each console issues its
+  own key, so they are credentialed and enabled separately and carry a
+  `planNote` saying where to create the China one. Both serve
+  `step-5-preview` (1M context, text + image), `step-3.7-flash` (256K, text +
+  image) and the agent-tuned `step-3.5-flash-2603` (256K, text-only) over the
+  standard `/chat/completions` surface with a top-level `reasoning_effort` —
+  low/medium/high for the first two, low/high for the 2603 snapshot, all taken
+  from StepFun's published model pages. The million-token route compacts at
+  900,000 like every other one. The provider ids carry the `-api` suffix that
+  `kimi-api` and `zai-api` already use, which also leaves the unreserved
+  `stepfun` id available to operator-defined generic endpoints.
 - **The Union Alpha routes are removed; both providers withdrew the preview.**
   OpenRouter's public model list no longer carries `stealth/union-alpha`, and
   OpenCode's models.dev record no longer carries `union-alpha` on Go, so the
