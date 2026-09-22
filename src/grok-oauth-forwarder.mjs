@@ -127,12 +127,30 @@ const HOSTED_SEARCH_FUNCTION_NAMES = new Set(["web_search", "x_search"]);
 // receives the upstream model id (LiteLLM translates OAuth slugs before the
 // request arrives), so the lookup goes provider + upstreamModel, not slug.
 export function hostedSearchEnabledFor(upstreamModel, models = MODELS) {
-  return models.some(
-    (model) =>
-      model.provider === "grok-oauth" &&
-      model.upstreamModel === upstreamModel &&
-      model.searchTool?.mode === "hosted",
+  return grokOAuthEntries(upstreamModel, models).some(
+    (model) => model.searchTool?.mode === "hosted",
   );
+}
+
+function grokOAuthEntries(upstreamModel, models = MODELS) {
+  return models.filter(
+    (model) => model.provider === "grok-oauth" && model.upstreamModel === upstreamModel,
+  );
+}
+
+// The same rule decides the other two per-model facts this bridge needs, so
+// that shipping another Grok OAuth model stays a registry change. `xhigh` is a
+// real rung only where the entry lists it and is otherwise clamped to `high`
+// rather than sent through and rejected, and the Fast tier is offered only by
+// a route that declares a service tier of its own.
+export function xhighEnabledFor(upstreamModel, models = MODELS) {
+  return grokOAuthEntries(upstreamModel, models).some((model) =>
+    model.reasoningLevels?.some((level) => level.effort === "xhigh"),
+  );
+}
+
+export function serviceTierEnabledFor(upstreamModel, models = MODELS) {
+  return grokOAuthEntries(upstreamModel, models).some((model) => model.serviceTiers?.length);
 }
 
 function grokClientVersion() {
@@ -192,7 +210,7 @@ function messageContentParts(content, textType) {
 function mapEffort(effort, model) {
   if (effort === "minimal") return "low";
   if (["none", "low"].includes(effort)) return "low";
-  if (effort === "xhigh") return model === "grok-4.6" ? "xhigh" : "high";
+  if (effort === "xhigh") return xhighEnabledFor(model) ? "xhigh" : "high";
   if (effort === "max") return "high";
   return ["medium", "high"].includes(effort) ? effort : undefined;
 }
@@ -367,7 +385,7 @@ export function toResponsesRequest(chat, options = {}) {
   }
 
   const request = { model: chat.model, input, stream: true, store: false };
-  if (chat.model === "grok-4.6" && knownServiceTier(chat.service_tier)) {
+  if (serviceTierEnabledFor(chat.model) && knownServiceTier(chat.service_tier)) {
     request.service_tier = knownServiceTier(chat.service_tier);
   }
   if (instructions) request.instructions = instructions;
@@ -958,7 +976,7 @@ async function handleChatCompletions(request, response) {
 
   // A repair may consume multiple tiers. Do not label aggregate billing with
   // one attempt's tier, even when the selected answer came from that attempt.
-  const tierFields = model === "grok-4.6" && !retried ? chatServiceTierFields(turn) : {};
+  const tierFields = serviceTierEnabledFor(model) && !retried ? chatServiceTierFields(turn) : {};
   if (wantsStream) {
     const wasStarted = streamStarted;
     startStream();
