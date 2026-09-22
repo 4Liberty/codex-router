@@ -301,8 +301,6 @@ Linux installations support the Codex CLI.
 | Hy4 Preview (NanoGPT) | `nano-gpt/tencent/hy4-preview` | NanoGPT API key |
 | Hy4 Preview (Nous Research) | `nousresearch/tencent/hy4-preview` | Nous Portal API key |
 | Hy4 Preview (opencode Go) | `opencode-go/hy4-preview` | opencode Go/Zen API key |
-| Union Alpha (opencode Go) | `opencode-go-messages/union-alpha` | opencode Go/Zen API key |
-| Union Alpha (OpenRouter) | `openrouter/union-alpha` | OpenRouter API key |
 | Hy4 Preview (OpenRouter) | `openrouter/tencent/hy4-preview` | OpenRouter API key |
 | GLM-5.2 (ClinePass) | `clinepass/glm-5.2` | ClinePass API key |
 | Kimi K3 (ClinePass) | `clinepass/kimi-k3` | ClinePass API key |
@@ -736,7 +734,6 @@ the operator explicitly selects them.
 | MiMo-V2.5-Pro (opencode Go) | `opencode-go/mimo-v2.5-pro` |
 | Hy3 (opencode Go) | `opencode-go/hy3` |
 | Hy4 Preview (opencode Go) | `opencode-go/hy4-preview` |
-| Union Alpha (opencode Go) | `opencode-go-messages/union-alpha` |
 | MiniMax M3 (opencode Go) | `opencode-go-messages/minimax-m3` |
 | MiniMax M2.7 (opencode Go) | `opencode-go-messages/minimax-m2.7` |
 | MiniMax M2.5 (opencode Go) | `opencode-go-messages/minimax-m2.5` |
@@ -1036,23 +1033,13 @@ accepted `v2_agent` proof artifact. OpenCode Go's content moderation still
 applies to the compaction request itself, so a sensitive transcript may be
 rejected even when the ordinary task turn worked.
 
-OpenCode Go's current stealth preview is **Union Alpha** (`union-alpha` on
-the Messages API). It is a separate model from Ox Alpha / GLM-5.3-Flash:
-OpenCode does not name the maker, documents a 262,144-token window with
-131,072 tokens of advertised output, text and image input, and currently
-lists it as free for a limited time. The Messages hop and the published
-catalog reserve the measured 32,768 completion cap. A single message whose
-content exceeds Console Go's 2,500,000-character limit (a generated ImageGen
-PNG data URL) is replaced with a labeled stub so the follow-up turn can
-finish. The shipped slug is
-`opencode-go-messages/union-alpha`. OpenRouter publishes the same preview as
-`stealth/union-alpha` (text and image input, 262,144 context, 131,072 output,
-currently free); the shipped slug is `openrouter/union-alpha`. OpenRouter's
-endpoint record accepts `tool_choice` auto only, so that route downgrades
-Codex's forced choice. It does not advertise a reasoning-effort ladder.
-ClinePass and Command Code do not list this id. Omen Alpha remains in the
-live Go catalog but is deprecated in OpenCode's models.dev record and is not
-checked in.
+OpenCode Go withdrew its Union Alpha stealth preview and OpenRouter withdrew
+`stealth/union-alpha`; neither id is listed upstream any more and no route is
+checked in. Console Go still rejects a single message whose content exceeds
+2,500,000 characters, so an oversized ImageGen data URL is replaced with a
+labeled stub on every OpenCode Messages hop. Omen Alpha remains in the live Go
+catalog but is deprecated in OpenCode's models.dev record and is not checked
+in.
 
 Command Code and Venice still expose their live catalogs to explicit curation.
 An operator with an entitled account can inspect and select whatever those

@@ -48,12 +48,14 @@ import {
 import { knownServiceTier } from "./request-diagnostics.mjs";
 import { VERSION } from "./version.mjs";
 import { installStableFetchTransport } from "./fetch-transport.mjs";
+import { createGrokInflightGate, grokInflightLimit, responseWithInflightRelease } from "./grok-inflight.mjs";
 import { grokTransportIdleTimeoutMs } from "./grok-stream-timeouts.mjs";
 
 // This process carries only Grok traffic, so its whole pool outlasts the
 // router's stall guard. Undici's 300s default would otherwise end a long
 // reasoning pause with UND_ERR_BODY_TIMEOUT before the guard could decide.
 installStableFetchTransport({ bodyTimeoutMs: grokTransportIdleTimeoutMs() });
+const grokInflight = createGrokInflightGate(grokInflightLimit());
 
 // LiteLLM speaks OpenAI Chat Completions to this forwarder. It reuses the
 // official Grok CLI OAuth session and translates to xAI's Responses proxy.
@@ -588,7 +590,9 @@ async function handleChatCompletions(request, response) {
       requestId: randomUUID(),
       startedAt: Date.now(),
     };
+    let release;
     try {
+      release = await grokInflight.acquire(controller.signal);
       attempt.response = await fetch(`${GROK_BASE}/responses`, {
         method: "POST",
         headers: upstreamHeaders(accessToken, model, chat?.messages, attempt.requestId),
@@ -596,8 +600,15 @@ async function handleChatCompletions(request, response) {
         signal: controller.signal,
       });
       attempt.headersAt = Date.now();
+      if (attempt.response.body) {
+        attempt.response = responseWithInflightRelease(attempt.response, release);
+      } else {
+        release();
+      }
+      release = undefined;
       return attempt;
     } catch (error) {
+      release?.();
       attempt.endedAt = Date.now();
       if (error && typeof error === "object") {
         try {
