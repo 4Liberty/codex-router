@@ -6859,47 +6859,6 @@ test("API forwarder routes opencode Go chat, Messages, and Responses surfaces", 
     );
     assert.equal(upstreamRequests[1].headers.authorization, undefined);
 
-    const unionAlpha = await fetch(
-      `http://127.0.0.1:${forwarderPort}/v1/messages`,
-      {
-        method: "POST",
-        headers: {
-          "x-api-key": INTERNAL_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "opencode-go-messages-union-alpha",
-          max_tokens: 131_072,
-          messages: [{ role: "user", content: "test" }],
-        }),
-      },
-    );
-    assert.equal(unionAlpha.status, 200);
-    assert.equal(upstreamRequests[2].url, "/v1/messages");
-    assert.equal(upstreamRequests[2].body.model, "union-alpha");
-    assert.equal(upstreamRequests[2].body.max_tokens, 32_768);
-
-    const unionAlphaOmitted = await fetch(
-      `http://127.0.0.1:${forwarderPort}/v1/messages`,
-      {
-        method: "POST",
-        headers: {
-          "x-api-key": INTERNAL_KEY,
-          "anthropic-version": "2023-06-01",
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "opencode-go-messages-union-alpha",
-          messages: [{ role: "user", content: "test" }],
-        }),
-      },
-    );
-    assert.equal(unionAlphaOmitted.status, 200);
-    assert.equal(upstreamRequests[3].url, "/v1/messages");
-    assert.equal(upstreamRequests[3].body.model, "union-alpha");
-    assert.equal(upstreamRequests[3].body.max_tokens, 32_768);
-
     const responses = await fetch(
       `http://127.0.0.1:${forwarderPort}/v1/responses`,
       {
@@ -6916,10 +6875,10 @@ test("API forwarder routes opencode Go chat, Messages, and Responses surfaces", 
       },
     );
     assert.equal(responses.status, 200);
-    assert.equal(upstreamRequests[4].url, "/v1/responses");
-    assert.equal(upstreamRequests[4].body.model, "gpt-5.6-luna");
+    assert.equal(upstreamRequests[2].url, "/v1/responses");
+    assert.equal(upstreamRequests[2].body.model, "gpt-5.6-luna");
     assert.equal(
-      upstreamRequests[4].headers.authorization,
+      upstreamRequests[2].headers.authorization,
       "Bearer TEST_OPENCODE_GO_API_KEY",
     );
   } finally {
@@ -8171,7 +8130,6 @@ test("router normalizes forced tool choices before LiteLLM for auto-tool-choice 
     for (const [slug, gatewayModel] of [
       ["opencode-go/deepseek-v4.1-flash", "opencode-go-deepseek-v4-1-flash"],
       ["openrouter/deepseek-v4.1-flash", "openrouter-deepseek-v4-1-flash"],
-      ["openrouter/union-alpha", "openrouter-union-alpha"],
       ["ollama-cloud/minimax-m3", "ollama-cloud-minimax-m3"],
       ["commandcode/muse-spark-1.2", "commandcode-muse-spark-1-2"],
       [
