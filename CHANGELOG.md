@@ -1,6 +1,19 @@
 # Changelog
 
 ## Unreleased
+- **Z.ai Coding GLM agents now use a leaner execution overlay and stop treating a poll timeout as a stalled child.**
+  The GPT-5.6-Sol behavior template already supplies routine progress cadence,
+  parallel tool use, persistence after tool calls, and outcome-first handoff, so
+  repeating those rules in `efficient-agentic` spent prompt budget without
+  changing the contract. The Coding Plan GLM-5.3 and GLM-5.3-Flash routes now
+  use `efficient-agentic-v2`, which keeps bounded tool output, secret-safe
+  diagnostics, schema-first fixtures, RED-to-GREEN continuity, hypothesis
+  retracing, and Windows quoting while adding one collaboration invariant:
+  `wait_agent` timing out means only that the child has not finished yet. A
+  running child is not interrupted or replaced for the same mutable task
+  without a terminal error, explicit cancellation/supersession, safety reason,
+  or repeated concrete no-progress evidence. The legacy overlay remains
+  available for routes that already name it.
 - **Your own OpenAI-compatible endpoints can be added from Control Center.**
   A generic provider already carried everything an operator needs — an address,
   a protected key file, `/models` discovery, curation into the picker, and
