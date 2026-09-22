@@ -574,6 +574,45 @@ function flattenRecursiveToolSchemas(payload, protocol, options) {
   );
 }
 
+// Meta validates a replayed function call's `arguments` as JSON and answers the
+// whole request with HTTP 400 "`arguments` must be valid JSON" before
+// inference, so the turn is lost -- and, because the call stays in the
+// transcript, so is every later turn in that thread.
+//
+// Measured on a Muse Spark 1.3 Contributor thread that called an MCP tool
+// without arguments: the model emitted the call with `arguments: ""`, Codex
+// recorded the call and the server's "pattern is required" output, and the next
+// request died on replay. The call already ran, so its argument text is
+// transcript filler: an absent, empty, or whitespace-only string becomes `{}`,
+// which is what the model meant and what the endpoint accepts. Anything else is
+// left alone -- an unparseable non-empty string is a different failure and must
+// not be silently rewritten.
+const STRICT_FUNCTION_CALL_ARGUMENT_PROVIDER_IDS = new Set(["meta"]);
+
+function repairEmptyFunctionCallArguments(payload) {
+  if (!Array.isArray(payload.input)) return;
+  let repaired = 0;
+  const input = payload.input.map((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    if (item.type !== "function_call") return item;
+    const raw = item.arguments;
+    const missing =
+      raw === undefined ||
+      raw === null ||
+      (typeof raw === "string" && raw.trim() === "");
+    if (!missing) return item;
+    repaired += 1;
+    return { ...item, arguments: "{}" };
+  });
+  if (!repaired) return;
+  payload.input = input;
+  // Never quieted: a call in the caller's transcript changed shape, and an
+  // unattended service is exactly where that must not happen in silence.
+  console.error(
+    `[api-forwarder] replaced ${repaired} empty function-call argument string(s) with "{}"`,
+  );
+}
+
 // A trailing model turn is a destructive rewrite: it discards part of the
 // caller's conversation. Only Google's own provider gets that behavior from
 // identity. Resellers and custom endpoints must opt in per model after their
@@ -1197,6 +1236,9 @@ function normalizeBody(buffer, contentType, route) {
   }
   if (provider.id === "gemini-api") {
     inlineGeminiToolSchemaRefs(payload);
+  }
+  if (STRICT_FUNCTION_CALL_ARGUMENT_PROVIDER_IDS.has(provider.id)) {
+    repairEmptyFunctionCallArguments(payload);
   }
   // Deliberately its own statement rather than a branch of the profile chain
   // below: this is an upstream limitation, and every route that has it also
