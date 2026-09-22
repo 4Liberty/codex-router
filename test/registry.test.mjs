@@ -187,7 +187,6 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go-messages/qwen3.7-plus",
       "opencode-go-messages/qwen3.8-flash",
       "opencode-go-messages/qwen3.8-max",
-      "opencode-go-messages/union-alpha",
       "opencode-go-responses/gpt-5.6-luna",
       "opencode-go-responses/grok-4.5",
       "opencode-go-responses/grok-4.6",
@@ -195,6 +194,7 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "opencode-go-responses/muse-spark-1.3-contributor",
       "opencode-free-responses/muse-spark-1.3-contributor-free",
       "openrouter/claude-fable-5.1",
+      "openrouter/deepseek-v4-pro",
       "openrouter/deepseek-v4.1-flash",
       "openrouter/gemini-3.8-flash",
       "openrouter/glm-5.3-flash",
@@ -206,7 +206,6 @@ test("provider registry exposes configured API and OAuth model families", () => 
       "openrouter/muse-spark-1.3-contributor",
       "openrouter/muse-spark-1.3",
       "openrouter/qwen3.8-flash",
-      "openrouter/union-alpha",
       "qwen-plan/deepseek-v4-flash-0731",
       "qwen-plan/deepseek-v4-pro-0813",
       "qwen-plan/deepseek-v4-pro",
@@ -827,47 +826,6 @@ test("GLM-5.3-Flash replaces OpenCode Go's withdrawn Ox Alpha route", () => {
   assert.equal(MODEL_BY_SLUG.get("opencode-go/ox-alpha"), model);
 });
 
-test("Union Alpha ships on OpenCode Go Messages with sourced stealth metadata", () => {
-  const model = MODEL_BY_SLUG.get("opencode-go-messages/union-alpha");
-  assert.equal(model?.upstreamModel, "union-alpha");
-  assert.equal(model?.provider, "opencode-go-messages");
-  assert.equal(PROVIDERS.get(model.provider).protocol, "anthropic");
-  assert.equal(model?.contextWindow, 262_144);
-  assert.equal(model?.autoCompact, 180_000);
-  assert.equal(model?.maxOutputTokens, 32_768);
-  assert.ok(model.autoCompact > 110_000);
-  assert.ok(model.autoCompact < model.contextWindow);
-  assert.deepEqual(model?.inputModalities, ["text", "image"]);
-  assert.deepEqual(model?.reasoningLevels.map((level) => level.effort), ["high"]);
-  assert.equal(model?.defaultEffort, "high");
-  assert.equal(model?.isFree, true);
-  assert.equal(model?.requestProfile, undefined);
-  assert.notEqual(model?.multiAgentVersion, "v2");
-  assert.equal(MODEL_BY_SLUG.has("opencode-go/union-alpha"), false);
-  assert.equal(MODEL_BY_SLUG.has("opencode-go/omen-alpha"), false);
-});
-
-test("Union Alpha ships on OpenRouter with sourced stealth metadata", () => {
-  const model = MODEL_BY_SLUG.get("openrouter/union-alpha");
-  assert.equal(model?.upstreamModel, "stealth/union-alpha");
-  assert.equal(model?.provider, "openrouter");
-  assert.equal(PROVIDERS.get(model.provider).protocol ?? "openai", "openai");
-  assert.equal(model?.contextWindow, 262_144);
-  assert.equal(model?.autoCompact, 131_072);
-  assert.ok(model.contextWindow - model.autoCompact >= 131_072);
-  assert.deepEqual(model?.inputModalities, ["text", "image"]);
-  assert.deepEqual(model?.reasoningLevels.map((level) => level.effort), ["high"]);
-  assert.equal(model?.defaultEffort, "high");
-  assert.equal(model?.isFree, true);
-  // OpenRouter's /endpoints record for this id: tool_choice auto only
-  // (required and none are false). Codex still sends required unless the
-  // route downgrades it. No advertised reasoning-effort parameter.
-  assert.equal(model?.requestProfile, "auto-tool-choice");
-  assert.notEqual(model?.multiAgentVersion, "v2");
-  assert.equal(MODEL_BY_SLUG.has("openrouter/stealth/union-alpha"), false);
-  assert.equal(MODEL_BY_SLUG.has("commandcode/union-alpha"), false);
-});
-
 test("OpenCode Go routes retain upstream windows instead of the generic fallback", () => {
   const expected = new Map([
     ["opencode-go/mimo-v2.5", [1_000_000, 850_000, "opencode-go-mimo-v2-5-v2"]],
@@ -966,7 +924,7 @@ test("four additional OpenCode Go Chat routes retain their documented limits and
 test("GLM-5.3 Coding Plan opts in to GPT-5.6 behavior, concise execution, and standalone search", () => {
   const model = MODEL_BY_SLUG.get("zai-coding/glm-5.3");
   assert.equal(model?.behaviorTemplate, "gpt-5.6-sol");
-  assert.equal(model?.instructionOverlay, "efficient-agentic");
+  assert.equal(model?.instructionOverlay, "efficient-agentic-v2");
   assert.deepEqual(model?.searchTool, { mode: "standalone" });
 });
 
@@ -1110,7 +1068,6 @@ test("LiteLLM configuration is generated from every registry route", () => {
     "Copilot stays catalog-only until account-visible models are curated",
   );
   assert.match(rendered, /model: "anthropic\/opencode-go-messages-minimax-m3"/);
-  assert.match(rendered, /model: "anthropic\/opencode-go-messages-union-alpha"/);
   const lunaBlock = rendered.slice(
     rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"'),
     rendered.indexOf('model_name:', rendered.indexOf('model_name: "opencode-go-responses-gpt-5-6-luna"') + 1),

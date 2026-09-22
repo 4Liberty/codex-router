@@ -4,6 +4,11 @@ import {
   usesNativeChatReasoning,
 } from "./chat-reasoning.mjs";
 import {
+  createReasoningReplayTap,
+  reasoningForToolCalls,
+  toolCallIdsOf,
+} from "./chat-reasoning-replay.mjs";
+import {
   deepSeekResponsesEffort,
   deepSeekResponsesInput,
   usesDeepSeekResponses,
@@ -70,10 +75,7 @@ import {
 } from "./openai-adapters.mjs";
 import { threadIdFromHeaders } from "./codex-session-names.mjs";
 import { applyOpenCodeSessionHeaders, isOpenCodeProvider } from "./opencode-session.mjs";
-import {
-  clampOpenCodeMessageContent,
-  clampUnionAlphaCompletion,
-} from "./union-alpha-compat.mjs";
+import { clampOpenCodeMessageContent } from "./opencode-message-compat.mjs";
 import {
   effectiveProviderCredentialStatus,
   providerApiKeyAuthoritySnapshot,
@@ -388,12 +390,24 @@ function ensureToolCallReasoningContent(messages) {
     if (
       message?.role !== "assistant" ||
       !Array.isArray(message.tool_calls) ||
-      message.tool_calls.length === 0 ||
-      typeof message.reasoning_content === "string"
+      message.tool_calls.length === 0
     ) {
       return message;
     }
-    return { ...message, reasoning_content: "" };
+    // Real reasoning already present: never rewrite it, so upstream prefixes
+    // (and their cache hits) stay byte-identical.
+    if (typeof message.reasoning_content === "string" && message.reasoning_content) {
+      return message;
+    }
+    // The contract needs the model's own reasoning, not merely the field:
+    // replay the text remembered from the turn that produced these calls, which
+    // history preserves by call id even across compaction.
+    const remembered = reasoningForToolCalls(toolCallIdsOf(message));
+    if (remembered) return { ...message, reasoning_content: remembered };
+    // Nothing remembered: keep the field present, exactly as before.
+    return typeof message.reasoning_content === "string"
+      ? message
+      : { ...message, reasoning_content: "" };
   });
 }
 
@@ -1462,7 +1476,6 @@ function normalizeBody(buffer, contentType, route) {
     }
   }
   if (adapter) payload = adapter.normalizeBody(payload, model);
-  clampUnionAlphaCompletion(payload, model);
   const targetPath = adapter?.targetPath
     ? adapter.targetPath({ model, body: payload })
     : undefined;
@@ -1555,6 +1568,13 @@ async function relayUpstreamResponse(
     : new Map();
   
   const transform = [
+    // Contract models: remember the reasoning this turn streams so a later
+    // replay can hand the model its own thinking back (required by the
+    // provider; an empty field is a 400). Read-only: it re-emits every byte.
+    requiresReasoningContentOnToolCalls(normalized.model) &&
+    upstreamContentType.toLowerCase().includes("text/event-stream")
+      ? createReasoningReplayTap()
+      : undefined,
     responsesStream
       ? createResponsesStreamTransform(flatToNative, {
           pinResponseId: normalized.provider.authProfile === "github-copilot",
