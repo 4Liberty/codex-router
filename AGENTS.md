@@ -1492,48 +1492,41 @@ a bridge **engine** for other text-only models as well, so a future Flash route
 on a new reseller is sourced from that reseller's own catalog rather than
 inherited from this paragraph.
 
-## Union Alpha on OpenCode Go Messages must compact above the tool floor
+## OpenCode Go Messages hops must fit Console Go's own limits
 
-OpenCode publishes Union Alpha (`union-alpha` on `/zen/go/v1/messages`) with a
-262,144-token window and a 131,072-token output. Compact-at-window-minus-output
-is 131,072. Console Go also tokenizes independently of Codex and 400s when the
-prompt plus completion does not fit any backend (`Prompt too long … including
-the completion`, later `about 434983 tokens estimated` against 262,144). That
-is not quota and not a truncated tool-call repair. Do not classify it as
-`out_of_usage`. Do not invent effort rungs: OpenCode documents reasoning but
-publishes `reasoning_options=[]`, so the stored ladder stays the conservative
-single `high`.
+Console Go tokenizes independently of Codex and 400s when the prompt plus
+completion does not fit any backend (`Prompt too long … including the
+completion`, later `about 434983 tokens estimated` against 262,144). That is
+not quota and not a truncated tool-call repair. Do not classify it as
+`out_of_usage`.
 
-Do not compact below the unavoidable Desktop prefix. Live Union Alpha turns
-report ~88–108k cached input tokens from the tool list alone. Compact-at-80,000
-therefore fired after every skill read, kcr2 kept a 1,024-byte source excerpt,
-and the model re-read ImageGen in a loop. The checked-in route keeps the
-advertised 262,144 window and compacts at 180,000, above that floor. The
-Messages hop always sends `max_tokens` / `max_output_tokens` at 32,768 —
-OpenCode's own completion reserve — including when Codex omitted the field,
-so a compact request cannot re-reserve the model's advertised 131,072 output.
-The catalog publishes that same 32,768 as `maxOutputTokens` (OpenCode client
-`limit.output`) so a local `rendered + output > window` check cannot refuse a
-prompt the hop would have accepted. Do not copy that cap onto OpenRouter or
-Cline Union Alpha routes without their own evidence.
+Do not compact below the unavoidable Desktop prefix. Live turns report
+~88–108k cached input tokens from the tool list alone, so a compact threshold
+under that floor fires after every skill read, kcr2 keeps a 1,024-byte source
+excerpt, and the model re-reads the file in a loop. A route that measured a
+completion reserve smaller than its advertised output publishes that reserve
+as `maxOutputTokens` (OpenCode client `limit.output`) so a local
+`rendered + output > window` check cannot refuse a prompt the hop would have
+accepted. Do not copy a measured cap onto another provider's route without
+that route's own evidence.
 
-OpenCode's tokenizer can still count a thread above 262,144 when Codex reports
-~90–120k. Compact overflow may retry a larger-window model, including a
-same-family OpenCode Go 1M route such as `opencode-go/glm-5.3-flash`, without
-recording a provider cooldown. Compact failures are translated to
-`context_length_exceeded` rather than echoing LiteLLM's model-group wrapper.
-Ordinary turns still never swap on HTTP 400. If nothing configured can hold
-the prompt, start a new Codex task. Do not copy this hop onto turn failover.
+OpenCode's tokenizer can still count a thread above its advertised window when
+Codex reports far less. Compact overflow may retry a larger-window model,
+including a same-family OpenCode Go 1M route such as
+`opencode-go/glm-5.3-flash`, without recording a provider cooldown. Compact
+failures are translated to `context_length_exceeded` rather than echoing
+LiteLLM's model-group wrapper. Ordinary turns still never swap on HTTP 400. If
+nothing configured can hold the prompt, start a new Codex task. Do not copy
+this hop onto turn failover.
 
 Console Go also 400s when a single `messages[N].content` exceeds 2,500,000
 characters. A live ImageGen function_call_output (1536×1024 PNG, 2.03 MiB,
-2,707,238-character data URL) was stored by Codex, then the next Union Alpha
-turn failed with `messages[9].content exceeds maximum length of 2500000`.
-The Chat Completions image hoist keeps those bytes and still overflows. The
-OpenCode hop replaces an oversized image payload with a labeled stub so the
-turn can finish; it does not invent image bytes and does not copy this cap
-onto OpenRouter or Cline. This is not `context_length_exceeded` and is not
-quota.
+2,707,238-character data URL) was stored by Codex, then the next turn failed
+with `messages[9].content exceeds maximum length of 2500000`. The Chat
+Completions image hoist keeps those bytes and still overflows. The OpenCode
+hop replaces an oversized image payload with a labeled stub so the turn can
+finish; it does not invent image bytes and does not copy this cap onto
+OpenRouter or Cline. This is not `context_length_exceeded` and is not quota.
 
 ## A provider whose models each name their own endpoint
 
@@ -2001,8 +1994,8 @@ purpose; several of them exist because the obvious wider version is wrong.
    Compaction is the one exception: a context-length 400 on
    `/responses/compact` may retry a larger-window model, including a
    same-family sibling, without recording a cooldown. Ordinary turns still
-   never swap on 400 and still never hop inside the family. See "Union Alpha
-   on OpenCode Go Messages compacts below window-minus-output".
+   never swap on 400 and still never hop inside the family. See "OpenCode Go
+   Messages hops must fit Console Go's own limits".
 5. **A cooldown is only ever a window the provider itself named.** Derived from
    `Retry-After`, `cooldownUntil`, or a wall-clock reset the provider stated in
    its own refusal body — Z.ai's Coding Plan sends "Your limit will reset at
@@ -2462,8 +2455,9 @@ every Chat Completions route (measured on `commandcode/hy4-preview` and
    `src/grok-reasoning-summary-compat.mjs` attaches the lifecycle repair to
    every provider whose `protocol` is Chat Completions (`openai`, the default)
    **or Anthropic Messages** (`anthropic`). LiteLLM still sets
-   `use_chat_completions_api: true` for Anthropic routes, so Union Alpha and
-   `commandcode-messages` arrive as the same message-first hashed summary
+   `use_chat_completions_api: true` for Anthropic routes, so
+   `opencode-go-messages` and `commandcode-messages` arrive as the same
+   message-first hashed summary
    stream. Direct `deepseek` is excluded because
    `DeepseekToolMessageCompatTransform` already repairs its bridge, and
    `openai-responses` providers skip this bridge. Widening it to another
@@ -2472,7 +2466,7 @@ every Chat Completions route (measured on `commandcode/hy4-preview` and
    `content_part.done` `reasoning_text` before `output_text.done`. That close
    is thinking leaking onto the message part, not the end of the answer:
    rewriting it to `output_text` while text is still arriving truncates the
-   visible reply (Union Alpha stopped at `Union Alpha (`). Drop the premature
+   visible reply (a live identity answer stopped mid-sentence). Drop the premature
    close and only rewrite one that follows a grown `output_text.done`. The
    drop must still apply when no `reasoning_summary_text.delta` has opened
    the repair — a live ImageGen turn streamed the prefix, closed as
