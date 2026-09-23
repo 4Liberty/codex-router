@@ -1,35 +1,15 @@
 import { Agent, EnvHttpProxyAgent, fetch as undiciFetch, setGlobalDispatcher } from "undici";
 
+import { connectTimeoutMs } from "./connect-timeout.mjs";
 import { environmentHttpProxyConfigured } from "./proxy-environment.mjs";
 
-// A connect attempt is the one upstream failure a retry can always absorb:
-// nothing was sent, so replaying the request cannot execute anything twice.
-// Undici's 10s default outran the pre-retry budget in `upstream-retry.mjs`,
-// which made the connect codes in its retryable set structurally unreachable
-// -- the attempt had already spent the budget by the time it failed, so every
-// network blip reached Codex as a 502. One incident on 2026-09-21 logged 454
-// connect timeouts and zero connect retries, on two machines.
-//
-// Bound the connect phase below that budget instead, and race the resolved
-// addresses rather than serializing one dead anycast IP in front of a healthy
-// one. `CODEX_ROUTER_CONNECT_TIMEOUT_MS` overrides the bound; keep it small,
-// because the retry budget is derived from it (see `upstream-retry.mjs`).
-const DEFAULT_CONNECT_TIMEOUT_MS = 3_000;
-const MIN_CONNECT_TIMEOUT_MS = 500;
-const MAX_CONNECT_TIMEOUT_MS = 30_000;
+// The connect-phase bound lives in `connect-timeout.mjs`, which must stay free
+// of undici (see there). Re-exported here for existing importers.
+export { connectTimeoutMs };
 
 // How long one address attempt may run before the next is tried. Only
 // meaningful with `autoSelectFamily`, whose default is 250ms.
 const AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS = 250;
-
-export function connectTimeoutMs(environment = process.env) {
-  const raw = Number(environment.CODEX_ROUTER_CONNECT_TIMEOUT_MS);
-  if (!Number.isFinite(raw)) return DEFAULT_CONNECT_TIMEOUT_MS;
-  return Math.min(
-    MAX_CONNECT_TIMEOUT_MS,
-    Math.max(MIN_CONNECT_TIMEOUT_MS, Math.floor(raw)),
-  );
-}
 
 // Node 26's bundled fetch negotiates HTTP/2 by default. A live router process
 // observed its pooled session remain destroyed after ERR_HTTP2_INVALID_SESSION,

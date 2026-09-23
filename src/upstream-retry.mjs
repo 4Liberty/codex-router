@@ -14,7 +14,7 @@
 // `canRetry` predicate is the second line of defence, re-checked before every
 // single retry. Retrying after partial output would duplicate the stream.
 
-import { connectTimeoutMs } from "./fetch-transport.mjs";
+import { connectTimeoutMs } from "./connect-timeout.mjs";
 
 const MAX_RETRIES = 5;
 const MAX_BACKOFF_MS = 5_000;
