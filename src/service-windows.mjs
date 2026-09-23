@@ -22,6 +22,7 @@ import {
   serviceProcessOwnership,
   serviceRecordSettled,
 } from "./service-process.mjs";
+import { clearStartupAttempts } from "./startup-attempts.mjs";
 import { ensureCheckoutReadable, protectPrivateFile } from "./file-security.mjs";
 import { providerApiKeyServiceEnvironment } from "./provider-api-key-service-environment.mjs";
 import { serviceProxyEnvironment } from "./proxy-environment.mjs";
@@ -545,6 +546,9 @@ if (command === "render") {
     // hidden run — the console window would survive until the next logon.
     endTask();
     installTask();
+    // An install is an explicit operator action: clear the automatic retry
+    // back-off so the run below is never refused by a previous failure.
+    clearStartupAttempts();
     schtasks(["/Run", "/TN", taskName], { quiet: true, mutating: true });
   } catch (error) {
     launcherFailure = error;
@@ -557,6 +561,10 @@ if (command === "render") {
     // snapshot was taken, and re-creating the old console-visible action would
     // reintroduce the very defect this launcher exists to fix.
     try {
+      // The recovery run is still an explicit install's run, so the back-off
+      // must not refuse it either: this branch is reached when registration
+      // threw, which is exactly when an operator needs the run to happen.
+      clearStartupAttempts();
       if (taskExists()) schtasks(["/Run", "/TN", taskName], { quiet: true, mutating: true });
     } catch {
       // Nothing left to start; the caller's readiness check reports the failure.
@@ -660,6 +668,19 @@ if (command === "render") {
   } else {
     if (command === "restart") endTask();
     setTaskEnabled(true);
+    // Same rule as install: an explicit start or restart is an operator
+    // decision, and the automatic retry back-off must not refuse it. The shared
+    // service entrypoint clears this too, for the platforms that had no
+    // equivalent; this covers a direct invocation of the renderer.
+    try {
+      clearStartupAttempts();
+    } catch (error) {
+      // Losing the clear must not cost the operator the command they asked for.
+      console.error(
+        "[model-router] warning: could not clear the startup back-off record: " +
+          `${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
     schtasks(["/Run", "/TN", taskName], { quiet: true, mutating: true });
     process.stdout.write(`${JSON.stringify({ state: "running" })}\n`);
   }
