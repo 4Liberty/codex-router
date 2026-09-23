@@ -6,6 +6,7 @@ import {
   processCommandLine,
   processStartIdentity,
   processStartIdentityProbe,
+  stateOwnership,
 } from "../src/process-identity.mjs";
 
 // The absolute system PowerShell is preferred and a host without it falls back
@@ -130,6 +131,41 @@ test("non-Windows process probes keep their existing spawn options", () => {
     "Mon Aug 18 00:00:00 2026 /usr/bin/node",
   );
   assert.equal(Object.hasOwn(options, "timeout"), false);
+});
+
+// The Windows probe answers `<start-time ticks>|<executable>`. The comparison
+// stays exact: a start time that differs by a single tick is a different
+// process start, and an identity this process cannot verify is not an identity
+// it may act on.
+function osIdentity(startedAtMs, executable = "C:\\Program Files\\nodejs\\node.exe") {
+  const ticks = BigInt(startedAtMs) * 10000n + 621355968000000000n;
+  return `${ticks}|${executable}`;
+}
+
+test("ownership reports unknown when the probe could not answer", () => {
+  const state = { managed: true, pid: 4242, processIdentity: osIdentity(1790149832010) };
+  const alive = (value) => () => ({ state: "alive", identity: value });
+  assert.equal(stateOwnership(state, { probe: () => ({ state: "unknown" }) }), "unknown");
+  assert.equal(stateOwnership(state, { probe: alive(osIdentity(1790149832010)) }), "owned");
+  // A start time one tick away is a different process, not a rounding error.
+  assert.equal(stateOwnership(state, { probe: alive(osIdentity(1790149832011)) }), "foreign");
+  assert.equal(stateOwnership(state, { probe: alive("not-an-identity") }), "foreign");
+  // An answered "absent" is foreign, not unknown: the record is stale, and
+  // calling that unidentifiable would describe a process that has already
+  // exited as if it were still running.
+  assert.equal(stateOwnership(state, { probe: () => ({ state: "absent" }) }), "foreign");
+});
+
+test("ownership refuses a state that is not a managed record", () => {
+  const alive = { state: "alive", identity: osIdentity(1790149832010) };
+  assert.equal(stateOwnership(undefined, { probe: () => alive }), "foreign");
+  assert.equal(stateOwnership({ managed: false, pid: 1 }, { probe: () => alive }), "foreign");
+  assert.equal(stateOwnership({ managed: true, pid: 0 }, { probe: () => alive }), "foreign");
+  // The probe is never consulted for a record that cannot describe our process.
+  assert.equal(
+    stateOwnership({ managed: true, pid: 1 }, { probe: () => { throw new Error("must not be called"); } }),
+    "foreign",
+  );
 });
 
 test("process identity probes distinguish an absent process from an unknown probe failure", () => {
