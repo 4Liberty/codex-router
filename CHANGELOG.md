@@ -1,6 +1,18 @@
 # Changelog
 
 ## Unreleased
+- **An overloaded machine no longer makes the router kill a working LiteLLM
+  gateway.** The liveness watchdog stopped the gateway after three missed 4 s
+  probes, and it treated a probe that *timed out* the same as one that was
+  *refused*. With a load average in the hundreds, a healthy gateway that was
+  still streaming a routed turn missed those probes. The kill cut the turn off
+  partway through its reasoning, and the replacement could not finish importing
+  within its 5-minute cold-start budget under the same load. It was then killed
+  and restarted from scratch, so every routed model answered `502 ... the
+  upstream refused the connection` for minutes. Now only refusals trip the
+  short fuse. Timeouts need 20 in a row
+  (`CODEX_ROUTER_GATEWAY_HEALTH_STALL_FAILURES`), and a replacement that is
+  still running gets up to three cold-start budgets before it is restarted.
 - **ClinePass models no longer break the Codex model catalog.** To hide the
   effort selector ClinePass cannot honor, the catalog dropped
   `supported_reasoning_levels` from ClinePass entries, but Codex requires that
