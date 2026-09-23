@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **Installing no longer tells you to quit a Codex that is already closed.**
+  Quitting the desktop app leaves Chromium's crash reporter
+  (`browser_crashpad_handler`) running for hours, reparented to launchd, under
+  the Codex Framework path the running-client check matches, so the install
+  named it as "Codex is running right now". Crash reporters are no longer
+  counted on macOS, Linux, or Windows, and a listing made only of helper
+  processes -- the residue of an app that already quit -- reports the client as
+  not running. A running app is still named by its main process. On Windows,
+  Cursor's quoted executable path is now recognized too.
 - **Adding a provider key now shows the connection being made instead of
   nothing at all.** Saving a credential runs one router command that writes the
   key, enables the provider, and republishes every installed client's catalog
