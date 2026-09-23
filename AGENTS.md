@@ -8,6 +8,22 @@
 - Use its impact analysis and risk-proportional verification before calling such
   work complete. Skip it for factual replies and obviously isolated trivial
   edits.
+- Record a user-visible change as a **changelog fragment**, not as an edit to
+  `CHANGELOG.md`: write the bullet to `changelog.d/<short-slug>.md` and leave
+  `CHANGELOG.md` alone. `node scripts/assemble-changelog.mjs` folds every
+  fragment into `## Unreleased` at release; `npm run check` validates them.
+  `changelog.d/README.md` has the format and the reasoning.
+
+  This is not a style preference. Editing `CHANGELOG.md` directly puts every
+  pull request on the same line of the same file, and while `.gitattributes`
+  carries `CHANGELOG.md merge=union` to resolve that, **GitHub's server-side
+  merge does not run `.gitattributes` merge drivers**. A pull request that
+  collides only on `CHANGELOG.md` therefore reports CONFLICTING on github.com
+  while merging cleanly on a maintainer's machine, and every merge to `main`
+  re-conflicts every other open pull request. Never read that status as
+  evidence of a substantive conflict without checking which files both sides
+  actually touched. The union driver stays for pull requests opened before
+  fragments landed.
 
 These instructions apply when a user asks an agent to install this repository.
 
