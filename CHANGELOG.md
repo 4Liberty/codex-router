@@ -1,6 +1,15 @@
 # Changelog
 
 ## Unreleased
+- **MiMo on opencode Go now accepts pasted images and uses its full window.**
+  The V2.6 Flash, V2.6 Pro, and V2.5 routes were shipped text-only because
+  OpenCode published no modalities for them at the time; OpenCode's own
+  metadata (the `opencode-go` provider on models.dev) now lists image input,
+  and a live image request answered correctly on all three. V2.6 Flash, V2.6
+  Pro, and V2.5 Pro also move from the 1,000,000-token fallback to the
+  1,048,576 window that catalog publishes -- the figure every other V2.6 route
+  already uses -- with compaction at 900,000. V2.5 Pro stays text-only, as
+  published.
 - **Installing no longer tells you to quit a Codex that is already closed.**
   Quitting the desktop app leaves Chromium's crash reporter
   (`browser_crashpad_handler`) running for hours, reparented to launchd, under
