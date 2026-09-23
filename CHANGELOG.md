@@ -30,6 +30,14 @@
   1,048,576 window that catalog publishes -- the figure every other V2.6 route
   already uses -- with compaction at 900,000. V2.5 Pro stays text-only, as
   published.
+- **A stopped local gateway no longer tells you to configure a proxy.** When
+  the router's own LiteLLM gateway on `127.0.0.1:4200` was down (for example
+  restarting under heavy machine load), requests failed with "the upstream
+  refused the connection" and advice to set `NODE_USE_ENV_PROXY=1`. A refused
+  socket names its host in `address`, not `hostname`, so the router never saw
+  that the host was loopback. It now reads that field, and the error says
+  `127.0.0.1 refused the connection` with the `./bin/doctor --fix` hint for
+  the install's own processes.
 - **Installing no longer tells you to quit a Codex that is already closed.**
   Quitting the desktop app leaves Chromium's crash reporter
   (`browser_crashpad_handler`) running for hours, reparented to launchd, under
