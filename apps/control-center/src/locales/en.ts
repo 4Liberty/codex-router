@@ -764,6 +764,8 @@ export const en = {
   "models.connection.replaceKey": "Replace key",
   "models.connection.addKey": "Add key",
   "models.connection.terminalOnly": "Open the provider CLI in your own terminal on Windows or Linux.",
+  "models.connection.connecting": "Connecting…",
+  "models.connection.disconnecting": "Disconnecting…",
   "models.method.chatgpt": "ChatGPT session",
   "models.method.local": "Local runtime",
   "models.method.managed": "Managed catalog",

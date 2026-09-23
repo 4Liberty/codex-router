@@ -1,6 +1,21 @@
 # Changelog
 
 ## Unreleased
+- **Adding a provider key now shows the connection being made instead of
+  nothing at all.** Saving a credential runs one router command that writes the
+  key, enables the provider, and republishes every installed client's catalog
+  before the refreshed snapshot can report the routes it unlocked -- and the
+  dialog closes the moment you submit, so for the length of that command the
+  Models page was identical either side of the key being accepted and the click
+  read as having done nothing. The provider's chip now moves onto the
+  connections strip with a spinner and "Connecting...", and every route waiting
+  on it swaps its Connect button for the same word plus a blank the size of the
+  switch that is about to arrive. Signing in and disconnecting report the same
+  way. Placement is optimistic; the connected count is not, so a provider still
+  publishing sits among the chips without being counted as connected. The
+  placeholder is cleared by the same await that already reconciled the
+  snapshot, including when the command fails, so it can never outlive the work
+  it describes or fall back to the state it replaced.
 - **A long session's images can no longer cross the provider's ceiling and fail
   the whole turn.** A conversation replays every image it still holds on every
   following turn, so a session that views screenshots grows until one request

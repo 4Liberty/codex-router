@@ -1647,8 +1647,13 @@ test("the model directory combines provider setup with de-duplicated model-famil
   assert.match(models, /className="pm-connection-menu"/);
   // Custom endpoints are reached through the Custom chip rather than sitting
   // beside it, so the summary counts the chips on the strip, not every
-  // provider in the directory.
-  assert.match(models, /t\("models\.connectionsCount", \{ connected: connected\.length, total: chips\.length \}\)/);
+  // provider in the directory. A provider whose credential command is still
+  // publishing is placed among the connected chips, because that is where the
+  // operator will look for it, but it has not been proven connected and so is
+  // counted separately from where it sits.
+  assert.match(models, /const connectedCount = chips\.filter\(isConnected\)\.length/);
+  assert.match(models, /t\("models\.connectionsCount", \{ connected: connectedCount, total: chips\.length \}\)/);
+  assert.match(models, /const onStrip = \(entry: ProviderDirectoryEntry\) => isConnected\(entry\) \|\| Boolean\(pendingOf\(entry\)\)/);
   assert.match(models, /t\("models\.connectProvider"\)/);
   assert.doesNotMatch(models, /className="pm-provider-row"|className="pm-provider-summary"/);
   assert.doesNotMatch(models, /<StatStrip/);

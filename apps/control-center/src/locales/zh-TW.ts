@@ -766,6 +766,8 @@ export const zhTW = {
   "models.connection.replaceKey": "更換金鑰",
   "models.connection.addKey": "加入金鑰",
   "models.connection.terminalOnly": "請在 Windows 或 Linux 的終端機中自行開啟供應商 CLI。",
+  "models.connection.connecting": "連線中…",
+  "models.connection.disconnecting": "中斷連線中…",
   "models.method.chatgpt": "ChatGPT 工作階段",
   "models.method.local": "本機執行環境",
   "models.method.managed": "受管理的目錄",
