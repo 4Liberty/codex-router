@@ -1,6 +1,14 @@
 # Changelog
 
 ## Unreleased
+- **ClinePass models no longer break the Codex model catalog.** To hide the
+  effort selector ClinePass cannot honor, the catalog dropped
+  `supported_reasoning_levels` from ClinePass entries, but Codex requires that
+  key: with it missing, Codex failed to parse the whole `model_catalog_json`
+  with `missing field supported_reasoning_levels`. ClinePass entries now publish
+  an empty ladder, which hides the selector and stays schema-valid. The router
+  still strips `reasoning_effort`, `thinking`, and `top_p` before forwarding to
+  ClinePass. (#870)
 - **MiMo on opencode Go now accepts pasted images and uses its full window.**
   The V2.6 Flash, V2.6 Pro, and V2.5 routes were shipped text-only because
   OpenCode published no modalities for them at the time; OpenCode's own
