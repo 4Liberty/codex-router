@@ -4,6 +4,7 @@ import {
   usesNativeChatReasoning,
 } from "./chat-reasoning.mjs";
 import {
+  createReasoningReplayJsonTap,
   createReasoningReplayTap,
   reasoningForToolCalls,
   toolCallIdsOf,
@@ -1590,6 +1591,8 @@ async function relayUpstreamResponse(
     upstream.ok && upstreamContentType.toLowerCase().includes("text/event-stream");
   const responsesJson = normalized.responseAdapter === "responses" &&
     upstream.ok && upstreamContentType.toLowerCase().includes("application/json");
+  const replayJson = requiresReasoningContentOnToolCalls(normalized.model) && upstream.ok &&
+    upstreamContentType.toLowerCase().includes("application/json");
   
   // Direct DeepSeek calls arrive with an outer, authoritative namespace/custom
   // map. Preserve their wire names here; guessing a namespace from a flattened
@@ -1607,6 +1610,7 @@ async function relayUpstreamResponse(
     upstreamContentType.toLowerCase().includes("text/event-stream")
       ? createReasoningReplayTap()
       : undefined,
+    replayJson ? createReasoningReplayJsonTap() : undefined,
     responsesStream
       ? createResponsesStreamTransform(flatToNative, {
           pinResponseId: normalized.provider.authProfile === "github-copilot",
@@ -1620,6 +1624,7 @@ async function relayUpstreamResponse(
     : undefined;
   if (responsesStream) response.setHeader("Content-Type", "text/event-stream; charset=utf-8");
   if (responsesJson) response.setHeader("Content-Type", "application/json; charset=utf-8");
+  if (replayJson && !responsesJson) response.setHeader("Content-Type", upstreamContentType);
   await pipeResponse(upstream, response, denylist, transform);
   recordUpstreamLimits(normalized, telemetryUpstream);
   if (!QUIET) {
