@@ -1,6 +1,6 @@
 import { backendText } from "../backend-text";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Filter, KeyRound, Link2, LogIn, MoreHorizontal, Pencil, Plus, SearchX, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Filter, KeyRound, Link2, LoaderCircle, LogIn, MoreHorizontal, Pencil, Plus, SearchX, ShieldCheck, Trash2 } from "lucide-react";
 import { Badge, Button, CatalogSkeleton, Dialog, EmptyState, PageHeader, PanelSkeleton, SearchField, SkeletonBlock, Toggle } from "../components";
 import { BrandLogo, ProviderLogo, brandForModel } from "../provider-branding";
 import { effortLabel, formatContext, formatDateTime } from "../lib";
@@ -38,6 +38,13 @@ import "./providers-models.css";
 
 type StatusFilter = "all" | "on" | "off" | "blocked";
 const CATALOG_ADD_BATCH_LIMIT = 200;
+
+// A credential command -- saving a key, signing in, disconnecting -- is one
+// router transaction that also enables the provider and republishes every
+// installed client catalog. Which one is running decides what the chip and the
+// routes waiting on that provider say for the seconds it takes.
+type ProviderMutation = "connecting" | "disconnecting";
+type ProviderMutations = Record<string, ProviderMutation>;
 
 /** One model, and every provider route that can serve it. */
 interface ModelFamily {
@@ -188,6 +195,13 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
   // slowest thing this page starts; without a placeholder the models simply are
   // not there for the length of it and the click reads as having done nothing.
   const [pendingModels, setPendingModels] = useState<PendingCatalogModels>({});
+  // The credential dialog closes on submit, and the command behind it runs
+  // for as long as publication takes. Without this the page is identical
+  // either side of the key being accepted, so the wait reads as a click that
+  // did nothing. Cleared by the same await that already refreshed the
+  // snapshot, so the placeholder gives way to the real routes, never to the
+  // state it replaced.
+  const [providerMutations, setProviderMutations] = useState<ProviderMutations>({});
 
   // External model identity and picker visibility come from the router-owned
   // catalog. Native entries remain a Codex-only adapter concern and are merged
@@ -339,6 +353,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
     provider: ProviderSetup,
     label: string,
     action: () => Promise<unknown>,
+    { intent = "connecting" as ProviderMutation } = {},
   ) => {
     const invalidateCatalogs = () => {
       invalidateProviderCatalogRequests(catalogRequestGenerations.current, provider.catalogSources);
@@ -348,12 +363,21 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
     // before a later refresh/publish step rejects, and a discovery that lands
     // while the mutation is running must not show the previous account.
     invalidateCatalogs();
+    setProviderMutations((current) => ({ ...current, [provider.id]: intent }));
     try {
+      // runAction reconciles the snapshot before it resolves -- on failure too --
+      // so the busy state ends on a render that already carries the outcome.
       await runAction(label, async () => {
         await action();
       });
     } finally {
       invalidateCatalogs();
+      setProviderMutations((current) => {
+        if (!(provider.id in current)) return current;
+        const next = { ...current };
+        delete next[provider.id];
+        return next;
+      });
     }
   };
 
@@ -478,6 +502,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
     <ConnectionsBar
       directory={directory}
       enabledProviders={enabledProviders}
+      pendingMutations={providerMutations}
       usageById={usageById}
       apiAvailable={Boolean(api)}
       platform={api?.platform}
@@ -611,7 +636,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
           : t("models.disconnect.env")}</p></div>
         <div className="dialog-actions">
           <Button variant="secondary" onClick={() => setRemoveProvider(null)}>{t("models.disconnect.cancel")}</Button>
-          <Button variant="danger" onClick={() => { const provider = removeProvider; setRemoveProvider(null); if (provider && api) void runProviderCredentialAction(provider, t("models.action.removeCredential", { name: provider.displayName }), () => api.removeProviderCredential(provider.id)); }}><Trash2 aria-hidden size={14} strokeWidth={1.7} /> {t("models.disconnect.confirm")}</Button>
+          <Button variant="danger" onClick={() => { const provider = removeProvider; setRemoveProvider(null); if (provider && api) void runProviderCredentialAction(provider, t("models.action.removeCredential", { name: provider.displayName }), () => api.removeProviderCredential(provider.id), { intent: "disconnecting" }); }}><Trash2 aria-hidden size={14} strokeWidth={1.7} /> {t("models.disconnect.confirm")}</Button>
         </div>
       </Dialog>
     </>
@@ -729,6 +754,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
       expanded={expandedFamilyId === family.id}
       onToggleExpanded={() => setExpandedFamilyId(expandedFamilyId === family.id ? null : family.id)}
       apiAvailable={Boolean(api)}
+      isConnecting={(providerId) => providerMutations[providerId] === "connecting"}
       providerNames={providerNames}
       pickerValue={(model) => optimisticPicker.value(model.slug, model.visible)}
       subagentValue={(model) => optimisticSubagents.value(model.slug, Boolean(subagentEnabled(target, model.slug, subagentSettings)))}
@@ -949,6 +975,7 @@ export function ModelsPage({ target, catalog, setup, usage, api, refreshing, dat
 function ConnectionsBar({
   directory,
   enabledProviders,
+  pendingMutations,
   usageById,
   apiAvailable,
   platform,
@@ -971,6 +998,7 @@ function ConnectionsBar({
 }: {
   directory: ProviderDirectoryEntry[];
   enabledProviders: Set<string>;
+  pendingMutations: ProviderMutations;
   usageById: Map<string, NonNullable<ProviderUsageSnapshot["providers"]>[number]>;
   apiAvailable: boolean;
   platform?: string;
@@ -1000,8 +1028,17 @@ function ConnectionsBar({
   const endpoints = container ? directory.filter((entry) => entry.setup?.generic) : [];
   const chips = directory.filter((entry) => !endpoints.includes(entry));
   const isConnected = (entry: ProviderDirectoryEntry) => providerConnected(entry, enabledProviders) || (entry === container && endpoints.length > 0);
-  const connected = chips.filter(isConnected);
-  const available = chips.filter((entry) => !isConnected(entry));
+  // A custom endpoint is managed from inside the Custom chip, so a mutation on
+  // one of them has to surface on the container that stands for it.
+  const pendingOf = (entry: ProviderDirectoryEntry): ProviderMutation | undefined => pendingMutations[entry.id]
+    ?? (entry === container ? endpoints.map((endpoint) => pendingMutations[endpoint.id]).find(Boolean) : undefined);
+  // Placement is optimistic, the count is not: a provider whose key is still
+  // being published belongs where the operator will look for it, but it has
+  // not been proven connected yet.
+  const onStrip = (entry: ProviderDirectoryEntry) => isConnected(entry) || Boolean(pendingOf(entry));
+  const connected = chips.filter(onStrip);
+  const available = chips.filter((entry) => !onStrip(entry));
+  const connectedCount = chips.filter(isConnected).length;
   const openEndpoint = endpoints.find((entry) => entry.id === openProviderId);
 
   useEffect(() => {
@@ -1028,49 +1065,65 @@ function ConnectionsBar({
     <section className="panel-section pm-connections" id="model-provider-directory" ref={barRef} aria-label={t("models.providerConnectionsAria")}>
       <div className="pm-connections-label">
         <strong>{t("models.connections")}</strong>
-        <small>{t("models.connectionsCount", { connected: connected.length, total: chips.length })}</small>
+        <small>{t("models.connectionsCount", { connected: connectedCount, total: chips.length })}</small>
       </div>
       <div className="pm-connections-chips">
-        {connected.map((entry) => (
-          <div className="pm-chip-wrap" key={entry.id}>
-            <button
-              type="button"
-              className="pm-chip"
-              data-state="connected"
-              aria-haspopup="dialog"
-              aria-expanded={openProviderId === entry.id || (entry === container && Boolean(openEndpoint))}
-              onClick={() => { setConnectMenuOpen(false); onOpenProvider(entry.id); }}
-            >
-              <ProviderLogo providerId={entry.id} displayName={entry.displayName} size="small" />
-              <span>{entry.displayName}</span>
-              <i className="pm-chip-dot" data-enabled={entry === container && endpoints.length ? endpoints.some(isEnabled) || (entry.models.length > 0 && isEnabled(entry)) : isEnabled(entry)} aria-hidden />
-            </button>
-            {[openProviderId === entry.id ? entry : entry === container ? openEndpoint : undefined].map((shown) => shown ? (
-              <ProviderMenu
-                key={shown.id}
-                entry={shown}
-                usage={usageById.get(shown.id)}
-                apiAvailable={apiAvailable}
-                platform={platform}
-                enabled={isEnabled(shown)}
-                endpoints={shown === container ? endpoints : undefined}
-                isEndpointEnabled={isEnabled}
-                onOpenEndpoint={onOpenProvider}
-                onBack={shown === openEndpoint ? () => onOpenProvider(entry.id) : undefined}
-                backLabel={entry.displayName}
-                onEnabledChange={(checked) => onEnabledChange(shown, checked)}
-                onSignIn={() => onSignIn(shown)}
-                onKey={() => onKey(shown)}
-                onRemove={() => onRemove(shown)}
-                onAddEndpoint={onAddEndpoint}
-                onEditEndpoint={() => onEditEndpoint(shown)}
-                onAddModels={() => onAddEndpointModels(shown)}
-                onAddNamedModel={() => onAddNamedModel(shown)}
-                onRemoveModel={(model) => onRemoveEndpointModel(shown, model)}
-              />
-            ) : null)}
-          </div>
-        ))}
+        {connected.map((entry) => {
+          const pending = pendingOf(entry);
+          return (
+            <div className="pm-chip-wrap" key={entry.id}>
+              <button
+                type="button"
+                className="pm-chip"
+                data-state={pending && !isConnected(entry) ? "connecting" : "connected"}
+                data-pending={pending || undefined}
+                aria-busy={pending ? true : undefined}
+                disabled={Boolean(pending)}
+                aria-haspopup="dialog"
+                aria-expanded={openProviderId === entry.id || (entry === container && Boolean(openEndpoint))}
+                onClick={() => { setConnectMenuOpen(false); onOpenProvider(entry.id); }}
+              >
+                <ProviderLogo providerId={entry.id} displayName={entry.displayName} size="small" />
+                <span>{entry.displayName}</span>
+                {/* The dot reports an account state this chip has not reached
+                    yet, so while the transaction runs its slot says what is
+                    running instead. */}
+                {pending ? (
+                  <span className="pm-chip-pending" role="status">
+                    <LoaderCircle className="spin" aria-hidden size={12} strokeWidth={2} />
+                    {pending === "disconnecting" ? t("models.connection.disconnecting") : t("models.connection.connecting")}
+                  </span>
+                ) : (
+                  <i className="pm-chip-dot" data-enabled={entry === container && endpoints.length ? endpoints.some(isEnabled) || (entry.models.length > 0 && isEnabled(entry)) : isEnabled(entry)} aria-hidden />
+                )}
+              </button>
+              {[openProviderId === entry.id ? entry : entry === container ? openEndpoint : undefined].map((shown) => shown ? (
+                <ProviderMenu
+                  key={shown.id}
+                  entry={shown}
+                  usage={usageById.get(shown.id)}
+                  apiAvailable={apiAvailable}
+                  platform={platform}
+                  enabled={isEnabled(shown)}
+                  endpoints={shown === container ? endpoints : undefined}
+                  isEndpointEnabled={isEnabled}
+                  onOpenEndpoint={onOpenProvider}
+                  onBack={shown === openEndpoint ? () => onOpenProvider(entry.id) : undefined}
+                  backLabel={entry.displayName}
+                  onEnabledChange={(checked) => onEnabledChange(shown, checked)}
+                  onSignIn={() => onSignIn(shown)}
+                  onKey={() => onKey(shown)}
+                  onRemove={() => onRemove(shown)}
+                  onAddEndpoint={onAddEndpoint}
+                  onEditEndpoint={() => onEditEndpoint(shown)}
+                  onAddModels={() => onAddEndpointModels(shown)}
+                  onAddNamedModel={() => onAddNamedModel(shown)}
+                  onRemoveModel={(model) => onRemoveEndpointModel(shown, model)}
+                />
+              ) : null)}
+            </div>
+          );
+        })}
         {available.length ? (
           <div className="pm-chip-wrap">
             <button
@@ -1302,6 +1355,7 @@ function ModelFamilyRow({
   expanded,
   onToggleExpanded,
   apiAvailable,
+  isConnecting,
   providerNames,
   pickerValue,
   subagentValue,
@@ -1319,6 +1373,7 @@ function ModelFamilyRow({
   expanded: boolean;
   onToggleExpanded: () => void;
   apiAvailable: boolean;
+  isConnecting: (providerId: string) => boolean;
   providerNames: Map<string, string>;
   pickerValue: (model: RouterModel) => boolean;
   subagentValue: (model: RouterModel) => boolean;
@@ -1335,6 +1390,7 @@ function ModelFamilyRow({
   const providerIds = [...new Set(family.routes.map((model) => model.provider))];
   const multiRoute = family.routes.length > 1;
   const blocked = usable.length === 0;
+  const connecting = providerIds.some(isConnecting);
   const managedByClient = usable.length > 0 && usable.every(nativeClientManaged);
   const triggerId = `family-trigger-${safeId(family.id)}`;
   const panelId = `family-panel-${safeId(family.id)}`;
@@ -1350,7 +1406,7 @@ function ModelFamilyRow({
   ].filter(Boolean);
 
   return (
-    <article className="pm-family-row" data-expanded={expanded} data-on={on} data-blocked={blocked}>
+    <article className="pm-family-row" data-expanded={expanded} data-on={on} data-blocked={blocked} data-connecting={connecting || undefined}>
       <div className="pm-family-summary">
         <button
           id={triggerId}
@@ -1370,7 +1426,9 @@ function ModelFamilyRow({
           </span>
         </button>
         <div className="pm-family-action">
-          {blocked ? (
+          {blocked && connecting ? (
+            <ConnectingSlot />
+          ) : blocked ? (
             <Button variant="secondary" disabled={!apiAvailable} onClick={() => onConnect(providerIds[0])}>
               {providerIds.length > 1 ? t("models.family.connectProvider") : t("models.family.connectName", { name: providerNames.get(providerIds[0]) || providerIds[0] })}
             </Button>
@@ -1410,6 +1468,7 @@ function ModelFamilyRow({
                   key={model.slug}
                   model={model}
                   providerName={providerNames.get(model.provider) || providerDisplayName(model.provider, t)}
+                  connecting={isConnecting(model.provider)}
                   pickerVisible={pickerValue(model)}
                   selectedInSettings={subagentValue(model)}
                   subagentEffort={effortValue(model)}
@@ -1526,6 +1585,7 @@ function subagentControl(model: RouterModel, selectedInSettings: boolean, t: Tra
 function ModelRouteRow({
   model,
   providerName,
+  connecting,
   pickerVisible,
   selectedInSettings,
   subagentEffort,
@@ -1537,6 +1597,7 @@ function ModelRouteRow({
 }: {
   model: RouterModel;
   providerName: string;
+  connecting: boolean;
   pickerVisible: boolean;
   selectedInSettings: boolean;
   subagentEffort: string;
@@ -1562,14 +1623,16 @@ function ModelRouteRow({
 
   if (!routeUsable(model)) {
     return (
-      <article className="pm-route-row" role="listitem" data-availability="known">
+      <article className="pm-route-row" role="listitem" data-availability="known" data-connecting={connecting || undefined}>
         {identity}
         <span className="pm-route-cell">{context}</span>
         <span className="pm-route-cell">{input}</span>
         {/* The same slot the switches occupy, so the right edge answers one
             question all the way down: what can I do with this route. */}
         <span className="pm-route-cell pm-route-connect">
-          <Button variant="secondary" disabled={!apiAvailable} onClick={onConnect}>{t("models.family.connectName", { name: providerName })}</Button>
+          {connecting
+            ? <ConnectingSlot />
+            : <Button variant="secondary" disabled={!apiAvailable} onClick={onConnect}>{t("models.family.connectName", { name: providerName })}</Button>}
         </span>
       </article>
     );
@@ -1726,6 +1789,20 @@ function SubagentEffort({
         </div>
       ) : null}
     </div>
+  );
+}
+
+// What stands in the action slot of a row whose provider is mid-connection. It
+// names what is happening and leaves a blank exactly where the control that
+// does not exist yet will go, so the wait reads as the switch being prepared
+// rather than as a button that stopped working.
+function ConnectingSlot() {
+  const t = useI18n();
+  return (
+    <span className="pm-connecting" role="status">
+      <small>{t("models.connection.connecting")}</small>
+      <SkeletonBlock className="pm-pending-control" />
+    </span>
   );
 }
 

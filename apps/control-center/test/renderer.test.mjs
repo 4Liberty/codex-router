@@ -30,6 +30,7 @@ const bridgeSource = String.raw`
   const rejectAccountUsageRead = Number(searchParams.get("rejectAccountUsageRead")) || 0;
   const rejectAccountPool = searchParams.get("rejectAccountPool") === "1";
   const accountMutationDelayMs = Number(searchParams.get("accountMutationDelayMs")) || 0;
+  const credentialDelayMs = Number(searchParams.get("credentialDelayMs")) || 0;
   const terminalLoginFailure = searchParams.get("terminalLoginFailure") === "1";
   const rejectLoginImmediately = searchParams.get("rejectLoginImmediately") === "1";
   const loginStaysPending = searchParams.get("loginStaysPending") === "1";
@@ -570,6 +571,9 @@ const bridgeSource = String.raw`
       },
       saveProviderCredential: async (id, credential) => {
         record("saveProviderCredential", id, credential);
+        // The real command writes the key, enables the provider, and
+        // republishes every installed client catalog before it resolves.
+        if (credentialDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, credentialDelayMs));
         return { ok: true };
       },
       addCustomEndpointModel: async (id, modelId) => {
@@ -1269,6 +1273,88 @@ test("independent control-center reads reveal each ready page region", { timeout
 
     page.setDefaultTimeout(7_000);
     await page.locator(".pm-family-row").filter({ hasText: "DeepSeek Chat" }).waitFor();
+    assert.deepEqual(pageErrors, [], `renderer errors: ${pageErrors.join("; ")}`);
+  } finally {
+    await browser.close();
+    await close();
+  }
+});
+
+test("saving a provider key shows the connection being made before it lands", { timeout: 120_000 }, async () => {
+  assert.equal(existsSync(path.join(dist, "index.html")), true, "npm test must build the renderer first");
+  assert.ok(chromiumPath, "No Chromium executable is available for the Control Center renderer test.");
+
+  const { url, close } = await serveRenderer();
+  const browser = await chromium.launch({
+    executablePath: chromiumPath,
+    headless: true,
+    args: process.platform === "linux" ? ["--no-sandbox"] : [],
+  });
+  const pageErrors = [];
+  try {
+    const page = await newEnglishTestPage(browser, { viewport: { width: 1280, height: 840 } });
+    page.setDefaultTimeout(10_000);
+    page.on("pageerror", (error) => pageErrors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error") pageErrors.push(message.text());
+    });
+
+    // The real command writes the key, enables the provider, and republishes
+    // every installed client catalog before the refreshed snapshot can report
+    // the routes it unlocked. The dialog has already closed by then, so those
+    // seconds are the ones the page has to account for.
+    await page.goto(`${url}?customEndpoints=1&credentialDelayMs=1500`, { waitUntil: "domcontentloaded" });
+    await page.getByRole("button", { name: "Models", exact: true }).click();
+    await page.getByRole("heading", { name: "Models", exact: true }).waitFor();
+    const connections = page.locator(".pm-connections:not(.pm-connections-loading)");
+    await connections.waitFor();
+    const connectedCount = () => connections.locator(".pm-connections-label small").innerText();
+    const countBeforeSave = await connectedCount();
+
+    await page.locator('input[placeholder="Search models"]').fill("Ox Alpha");
+    const oxFamily = page.locator(".pm-family-row").filter({ hasText: "Ox Alpha" });
+    await oxFamily.locator(".pm-family-open").click();
+    const openRouterRoute = oxFamily.locator(".pm-route-row").filter({ hasText: "OpenRouter" });
+    await openRouterRoute.getByRole("button", { name: "Connect OpenRouter", exact: true }).click();
+
+    await page.getByRole("heading", { name: "Connect OpenRouter", exact: true }).waitFor();
+    await page.locator("#provider-credential").fill("sk-renderer-fixture");
+    const savedAt = Date.now();
+    await page.getByRole("button", { name: "Save credential", exact: true }).click();
+
+    // The chip moves to where the operator will look for it and says what is
+    // running, in place of the enabled dot it has not earned yet.
+    const pendingChip = connections.locator('.pm-chip[data-pending="connecting"]');
+    await pendingChip.waitFor();
+    assert.ok(Date.now() - savedAt < 1200, "the connecting chip must appear before the delayed command returns");
+    assert.match(await pendingChip.innerText(), /OpenRouter/);
+    assert.match(await pendingChip.innerText(), /Connecting…/);
+    assert.equal(await pendingChip.getAttribute("data-state"), "connecting");
+    assert.equal(await pendingChip.getAttribute("aria-busy"), "true");
+    assert.equal(await pendingChip.isDisabled(), true, "a second mutation cannot start from a chip still publishing");
+    // Placement is optimistic; the count is not.
+    assert.equal(await connectedCount(), countBeforeSave, "a provider still publishing is not counted as connected");
+
+    // The route waiting on that key says the same thing, in the slot its
+    // Connect button occupied, with a blank where the switch will go.
+    assert.equal(await openRouterRoute.getAttribute("data-connecting"), "true");
+    assert.equal(await openRouterRoute.getByRole("button", { name: "Connect OpenRouter", exact: true }).count(), 0);
+    assert.equal(await openRouterRoute.locator(".pm-connecting .skeleton-block").count(), 1);
+    assert.match(await openRouterRoute.locator(".pm-connecting").innerText(), /Connecting…/);
+    // A route whose own provider is untouched keeps its button.
+    const veniceRoute = oxFamily.locator(".pm-route-row").filter({ hasText: "Venice" });
+    assert.equal(await veniceRoute.getAttribute("data-connecting"), null);
+    assert.equal(await veniceRoute.getByRole("button", { name: "Connect Venice", exact: true }).count(), 1);
+
+    await page.waitForFunction(() => window.routerControlTest.calls()
+      .some((call) => call.name === "saveProviderCredential" && call.args[0] === "openrouter"));
+    // The fixture leaves the provider unconfigured, so the placeholder has to
+    // give way to the reconciled snapshot rather than outliving the command.
+    await pendingChip.waitFor({ state: "detached" });
+    await openRouterRoute.getByRole("button", { name: "Connect OpenRouter", exact: true }).waitFor();
+    assert.equal(await openRouterRoute.getAttribute("data-connecting"), null);
+    assert.equal(await connections.locator(".pm-chip[data-pending]").count(), 0);
+
     assert.deepEqual(pageErrors, [], `renderer errors: ${pageErrors.join("; ")}`);
   } finally {
     await browser.close();

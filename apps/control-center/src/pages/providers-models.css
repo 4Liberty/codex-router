@@ -827,6 +827,30 @@
   background: var(--ink-faint);
 }
 
+/* A provider whose credential transaction is still publishing. It sits with
+   the connected chips, because that is where the operator will look for it,
+   and says what it is doing in place of the enabled dot rather than claiming
+   an account state it has not reached. */
+.pm-chip[data-pending] {
+  cursor: default;
+  border-style: dashed;
+  color: var(--ink-subtle);
+}
+
+.pm-chip[data-pending]:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-0);
+}
+
+.pm-chip-pending {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-faint);
+  font-weight: 500;
+}
+
+
 .pm-chip-dot[data-enabled="true"] {
   background: var(--success);
 }
@@ -1490,4 +1514,24 @@
 .pm-connection-menu-back:hover {
   background: var(--surface-2);
   color: var(--ink-strong);
+}
+
+/* What a route shows while the connection it needs is being made. Same slot as
+   the button it replaces, so nothing on the row moves when the wait starts --
+   or when the real switch arrives at the end of it. */
+.pm-connecting {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-connecting > small {
+  color: var(--ink-faint);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.pm-family-row[data-connecting] .pm-family-open,
+.pm-route-row[data-connecting] .pm-route-identity {
+  opacity: 0.72;
 }

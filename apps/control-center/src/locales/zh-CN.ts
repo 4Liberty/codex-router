@@ -724,6 +724,8 @@ export const zhCN = {
   "models.connection.replaceKey": "替换密钥",
   "models.connection.addKey": "添加密钥",
   "models.connection.terminalOnly": "在 Windows 或 Linux 上，请在你自己的终端中打开服务商 CLI。",
+  "models.connection.connecting": "连接中…",
+  "models.connection.disconnecting": "断开中…",
   "models.method.chatgpt": "ChatGPT 会话",
   "models.method.local": "本地运行时",
   "models.method.managed": "托管目录",
