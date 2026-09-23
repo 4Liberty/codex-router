@@ -124,6 +124,13 @@ export function processStartIdentityProbe(
 // enough to reject PID reuse, but they do not prove that a Node process belongs
 // to this checkout. The Windows service uses this extra identity before it
 // recursively terminates the router tree.
+//
+// There is deliberately no fallback for this probe. It is the anchor that
+// proves the live PID is running THIS checkout's start.mjs; a record that
+// asserted its own command line would replace that proof with a self-declared
+// value, and a caller about to send SIGKILL is the wrong place to relax it.
+// A host where no PowerShell call can run therefore still fails closed here,
+// which is the intended answer rather than a gap.
 export function processCommandLine(
   pid,
   { spawn = spawnSync, platform = process.platform, environment = process.env, budget } = {},
@@ -154,16 +161,51 @@ export function processCommandLine(
 // True when the recorded state still describes a live process this router
 // started. Everything that stops or signals a managed process goes through
 // this, so a server somebody else is running is never touched.
-export function stateOwnsProcess(
-  state,
-  { identity = processStartIdentity, budget } = {},
-) {
-  return Boolean(
-    state?.managed &&
-      Number.isSafeInteger(state.pid) &&
-      state.pid > 0 &&
-      typeof state.processIdentity === "string" &&
-      state.processIdentity.length > 0 &&
-      identity(state.pid, { budget }) === state.processIdentity,
-  );
+export function stateOwnsProcess(state, options = {}) {
+  return stateOwnership(state, options) === "owned";
+}
+
+// The same question with the third answer a caller about to signal a process
+// needs: "owned", "foreign", or "unknown" when the probe could not run at all.
+// An ANSWERED "absent" is foreign, not unknown -- the record is simply stale,
+// and reporting that as "could not be identified" would describe a process that
+// has already exited as if it were still running.
+//
+// Two seams. The PROBE is the default, because only it can tell an absent
+// process from an unanswerable one -- which is the whole point, and which the
+// stop path needs without asking. `identity` is the historical seam, taken only
+// when a caller supplies it (four call sites in dsh-web.mjs and
+// ollama-runtime.mjs do); it cannot distinguish the two, so a non-answer maps to
+// "unknown", exactly what those callers got before, and they only read the
+// boolean.
+//
+// Ordering matters and was got wrong once: making `probe` win only when passed
+// explicitly left the stop path on the collapsing branch, so an absent process
+// read as "unknown", the record was never cleared after a successful stop, and
+// the warning described a gone process as unidentifiable. The default is the
+// probe; the legacy branch is the opt-in.
+//
+// Collapsing unknown into foreign is how a cold host silently skips killing the
+// tree it owns; collapsing it into owned is how an unrelated process gets
+// signalled. Callers that only need permission to act keep using
+// stateOwnsProcess, which treats unknown as not-owned.
+export function stateOwnership(state, { identity, probe, budget } = {}) {
+  if (
+    !state?.managed ||
+    !Number.isSafeInteger(state.pid) ||
+    state.pid <= 0 ||
+    typeof state.processIdentity !== "string" ||
+    state.processIdentity.length === 0
+  ) {
+    return "foreign";
+  }
+  if (identity) {
+    const live = identity(state.pid, { budget });
+    if (live === undefined) return "unknown";
+    return live === state.processIdentity ? "owned" : "foreign";
+  }
+  const probed = (probe ?? processStartIdentityProbe)(state.pid, { budget });
+  if (probed.state === "absent") return "foreign";
+  if (probed.state === "unknown") return "unknown";
+  return probed.identity === state.processIdentity ? "owned" : "foreign";
 }
