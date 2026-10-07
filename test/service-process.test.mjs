@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,12 +9,13 @@ import {
   buildServiceProcessState,
   clearServiceProcessState,
   probeServiceProcessState,
-  serviceProcessOwnership,
+  readServiceProcessState,
+  shouldRecordServiceProcess,
   serviceProcessOwns,
+  serviceProcessOwnership,
   serviceRecordSettled,
   writeServiceProcessState,
 } from "../src/service-process.mjs";
-import { processStartIdentityProbe } from "../src/process-identity.mjs";
 
 const root = path.join(os.tmpdir(), "codex-router-checkout");
 const stateDir = path.join(os.tmpdir(), "codex-router-service-state");
@@ -25,6 +27,56 @@ function identity() {
 function commandLine() {
   return `node "${root}/src/start.mjs"`;
 }
+
+test("startup names the unavailable or mismatching probe without exposing its output", () => {
+  const options = { pid: 4242, identity, commandLine, sourceRoot: root, stateDir };
+  assert.equal(probeServiceProcessState({ ...options, pid: 0 }).failure, "pid-invalid");
+  assert.equal(probeServiceProcessState({ ...options, identity: () => undefined }).failure, "identity-unavailable");
+  assert.equal(probeServiceProcessState({ ...options, commandLine: () => undefined }).failure, "command-line-unavailable");
+  assert.equal(probeServiceProcessState({ ...options, commandLine: () => "other process" }).failure, "command-line-mismatch");
+  assert.throws(() => writeServiceProcessState({ ...options, identity: () => undefined }), /identity-unavailable/);
+  assert.throws(() => writeServiceProcessState({ ...options, commandLine: () => undefined }), /command-line-unavailable/);
+});
+
+test("ownership distinguishes absent, foreign, and unavailable process probes", () => {
+  const state = buildServiceProcessState({ pid: 4242, identity, commandLine, sourceRoot: root, stateDir });
+  const options = { commandLine, sourceRoot: root, stateDir };
+  for (const [probe, expected] of [
+    [() => ({ state: "alive", identity: identity() }), "owned"],
+    [() => ({ state: "alive", identity: "reused-pid" }), "foreign"],
+    [() => ({ state: "absent" }), "foreign"],
+    [() => ({ state: "unknown" }), "unknown"],
+    [() => undefined, "unknown"],
+    [() => { throw new Error("unavailable"); }, "unknown"],
+  ]) {
+    assert.equal(serviceProcessOwnership(state, { ...options, probe }), expected);
+    assert.equal(serviceProcessOwns(state, { ...options, probe }), expected === "owned");
+  }
+  assert.equal(serviceProcessOwnership(state, { ...options, identity: () => undefined }), "unknown");
+  assert.equal(serviceProcessOwnership(state, { ...options, identity: () => "different" }), "foreign");
+  assert.equal(serviceProcessOwnership(state, { ...options, identity, commandLine: () => undefined }), "unknown");
+  assert.equal(serviceProcessOwnership(state, { ...options, identity, commandLine: () => "different" }), "foreign");
+  assert.equal(serviceProcessOwnership({ ...state, sourceRoot: "other-checkout" }, {
+    ...options, probe: () => { throw new Error("must not be consulted"); },
+  }), "foreign");
+});
+
+test("only an answered foreign process and quiet port query settle a record", () => {
+  for (const ownership of ["owned", "foreign", "unknown", undefined]) {
+    for (const portListening of [true, false, undefined, null]) {
+      assert.equal(serviceRecordSettled({ ownership, portListening }), ownership === "foreign" && portListening === false);
+    }
+  }
+});
+
+test("strict lifecycle reads distinguish a missing record from corrupt state", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "codex-router-strict-record-"));
+  try {
+    assert.equal(readServiceProcessState(path.join(directory, "absent.json"), { strict: true }), undefined);
+    assert.equal(readServiceProcessState(directory), undefined);
+    assert.throws(() => readServiceProcessState(directory, { strict: true }), /could not be read or validated/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
 
 test("service process state requires the router start.mjs command line", () => {
   const state = buildServiceProcessState({
@@ -42,7 +94,7 @@ test("service process state requires the router start.mjs command line", () => {
   assert.equal(
     serviceProcessOwns(state, {
       platform: "win32",
-      probe: () => ({ state: "alive", identity: identity() }),
+      identity,
       commandLine,
       sourceRoot: root,
       stateDir,
@@ -52,7 +104,7 @@ test("service process state requires the router start.mjs command line", () => {
   assert.equal(
     serviceProcessOwns(state, {
       platform: "win32",
-      probe: () => ({ state: "alive", identity: identity() }),
+      identity,
       commandLine: () => "node C:/other/src/start.mjs",
       sourceRoot: root,
       stateDir,
@@ -117,7 +169,7 @@ test("only the service-process record opts into the cold-start probe budget", ()
     assert.equal(
       serviceProcessOwns(state, {
         platform: "win32",
-        probe: capture({ state: "alive", identity: identity() }),
+        identity: capture(identity()),
         commandLine: capture(commandLine()),
         sourceRoot: root,
         stateDir,
@@ -152,169 +204,84 @@ test("service process state is private, readable, and removable", () => {
   }
 });
 
-// The writer has exactly one way to obtain its identity and one way to prove
-// the PID is this checkout: the OS probes. A host where neither can run still
-// fails closed, and that is deliberate -- a record that asserted its own
-// command line would replace the ownership proof with a self-declared value,
-// which is the wrong trade in front of a SIGKILL. What changes here is that the
-// refusal now says which probe failed, because "could not verify" was true of
-// three different situations with three different fixes.
-test("an unprobeable identity reports its own failure", () => {
-  const probe = probeServiceProcessState({
-    pid: 4242,
-    platform: "win32",
-    identity: () => undefined,
-    commandLine,
-    sourceRoot: root,
-    stateDir,
-  });
-  assert.equal(probe.state, undefined);
-  assert.equal(probe.failure, "identity-unavailable");
-  assert.match(probe.detail, /did not answer/);
-});
-
-test("an unprobeable command line reports its own failure, not a generic one", () => {
-  const probe = probeServiceProcessState({
-    pid: 4242,
-    platform: "win32",
-    identity: () => "2026-08-18T00:00:00Z|node.exe",
-    commandLine: () => undefined,
-    sourceRoot: root,
-    stateDir,
-  });
-  assert.equal(probe.state, undefined);
-  assert.equal(probe.failure, "command-line-unavailable");
-});
-
-test("a command line for another checkout is reported as a mismatch", () => {
-  const probe = probeServiceProcessState({
-    pid: 4242,
-    platform: "win32",
-    identity: () => "2026-08-18T00:00:00Z|node.exe",
-    commandLine: () => "node C:/other/src/start.mjs",
-    sourceRoot: root,
-    stateDir,
-  });
-  assert.equal(probe.state, undefined);
-  assert.equal(probe.failure, "command-line-mismatch");
-  assert.match(probe.detail, /does not contain/);
-});
-
-// The failure the operator actually reads. It used to say only that the
-// identity could not be verified, which is true of three different situations
-// with three different fixes.
-test("the refusal names the probe outcome", () => {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "codex-router-probe-failure-"));
-  const statePath = path.join(directory, "service-process.json");
+test("the VDI startup override does not widen runtime ownership probes", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "codex-router-vdi-budget-"));
+  const name = "CODEX_ROUTER_WINDOWS_PROCESS_PROBE_TIMEOUT_MS";
+  const previous = process.env[name];
+  const seen = [];
+  const capture = (value) => (_pid, options) => {
+    seen.push(options.budget);
+    return value;
+  };
+  process.env[name] = "900000";
   try {
-    assert.throws(
-      () =>
-        writeServiceProcessState({
-          pid: 4242,
-          platform: "win32",
-          identity: () => undefined,
-          commandLine: () => undefined,
-          sourceRoot: root,
-          stateDir,
-          statePath,
-        }),
-      (error) => {
-        assert.match(error.message, /identity-unavailable/);
-        assert.match(error.message, /did not answer within its budget/);
-        return true;
-      },
-    );
+    const state = writeServiceProcessState({
+      pid: 4242,
+      platform: "win32",
+      identity: capture(identity()),
+      commandLine: capture(commandLine()),
+      sourceRoot: root,
+      stateDir,
+      statePath: path.join(directory, "service-process.json"),
+    });
+    assert.equal(seen.length, 2);
+    assert.ok(seen.every((budget) => budget.timeoutMs === 900_000 && budget.attempts === 2));
+    seen.length = 0;
+    assert.equal(serviceProcessOwns(state, {
+      platform: "win32",
+      identity: capture(identity()),
+      commandLine: capture(commandLine()),
+      sourceRoot: root,
+      stateDir,
+    }), true);
+    assert.deepEqual(seen, [undefined, undefined]);
   } finally {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
     rmSync(directory, { recursive: true, force: true });
   }
 });
 
-// A pid nothing owns, so the absent path can be exercised against the real
-// probe rather than an injected one. Windows allocates pids in multiples of 4;
-// signal 0 is Node's documented existence test.
-function freePid() {
-  for (let candidate = 4_000_000; candidate > 3_900_000; candidate -= 4) {
-    try {
-      process.kill(candidate, 0);
-    } catch (error) {
-      if (error?.code === "ESRCH") return candidate;
-    }
-  }
-  return undefined;
-}
-
-// The regression this exists for: the probe must be the DEFAULT seam. When it
-// was the opt-in instead, the stop path -- which passes neither seam -- took the
-// collapsing identity branch, so an absent process read as "unknown",
-// serviceRecordSettled could never be true, and the record was never cleared
-// after a successful stop. Every other tri-state test injects `probe`, so none
-// of them could see it.
-//
-// The call below deliberately passes no seam, which is the point. On a cold or
-// saturated host the default probe can itself time out, and "unknown" is then
-// the correct answer -- so the assertion is gated on the host being able to
-// answer, rather than reporting a scheduling artifact as a defect. That keeps
-// this test honest on the host class the patch exists for: it still fails
-// whenever the probe answers and the default collapses absent into unknown.
-test("the default seam distinguishes an absent process from an unanswerable one", (t) => {
-  const pid = freePid();
-  assert.ok(pid, "expected to find a free pid");
-  const direct = processStartIdentityProbe(pid, { platform: process.platform });
-  if (direct.state !== "absent") {
-    t.skip(`the identity probe did not report the free pid as absent (${direct.state})`);
-    return;
-  }
-  const state = buildServiceProcessState({
-    pid: 4242,
-    platform: "win32",
-    identity,
-    commandLine,
-    sourceRoot: root,
-    stateDir,
-  });
+// `codex-router.ps1 start --foreground` enters through src/foreground-start.mjs,
+// whose command line never names src/start.mjs. While the foreground supervisor
+// still claimed this record it failed on every Windows install with a working
+// LiteLLM environment: "could not verify its own start.mjs process identity".
+// The one test that booted that entry stopped at its LiteLLM preflight, so no
+// test reached the claim from there; test/startup-cleanup.test.mjs now does.
+test("only the OS-service payload claims the Windows service-process record", () => {
+  assert.equal(shouldRecordServiceProcess({ platform: "win32", foreground: false }), true);
+  assert.equal(shouldRecordServiceProcess({ platform: "win32", foreground: true }), false);
+  assert.equal(shouldRecordServiceProcess({ platform: "darwin", foreground: false }), false);
+  assert.equal(shouldRecordServiceProcess({ platform: "linux", foreground: false }), false);
+  // The foreground command line cannot pass the entrypoint check, which is why
+  // the supervisor has to withdraw its claim rather than attempt it.
   assert.equal(
-    serviceProcessOwnership(
-      { ...state, pid },
-      { platform: process.platform, commandLine, sourceRoot: root, stateDir },
-    ),
-    "foreign",
+    buildServiceProcessState({
+      pid: 4242,
+      platform: "win32",
+      identity,
+      commandLine: () => `node "${root}/src/foreground-start.mjs"`,
+      sourceRoot: root,
+      stateDir,
+    }),
+    undefined,
   );
 });
 
-test("ownership distinguishes not-ours from could-not-tell", () => {
-  const state = buildServiceProcessState({
-    pid: 4242,
-    platform: "win32",
-    identity,
-    commandLine,
-    sourceRoot: root,
-    stateDir,
+test("marking the foreground supervisor withdraws its claim on the record", () => {
+  // The mark is module state, so observe it in a fresh process rather than
+  // leaking it into the other tests in this file.
+  const moduleUrl = new URL("../src/service-process.mjs", import.meta.url).href;
+  const script = [
+    `const service = await import(${JSON.stringify(moduleUrl)});`,
+    'const before = service.shouldRecordServiceProcess({ platform: "win32" });',
+    "service.markForegroundSupervisor();",
+    'const after = service.shouldRecordServiceProcess({ platform: "win32" });',
+    "process.stdout.write(JSON.stringify({ before, after }));",
+  ].join("\n");
+  const result = spawnSync(process.execPath, ["--input-type=module", "--eval", script], {
+    encoding: "utf8",
   });
-  const base = { platform: "win32", commandLine, sourceRoot: root, stateDir };
-  const alive = { state: "alive", identity: identity() };
-  assert.equal(serviceProcessOwnership(state, { ...base, probe: () => ({ state: "unknown" }) }), "unknown");
-  assert.equal(serviceProcessOwnership(state, { ...base, probe: () => alive }), "owned");
-  assert.equal(
-    serviceProcessOwnership(state, { ...base, probe: () => ({ state: "alive", identity: "2026-08-18T00:00:01Z|node.exe" }) }),
-    "foreign",
-  );
-  // An answered "absent" is a stale record, not an unidentifiable one.
-  assert.equal(serviceProcessOwnership(state, { ...base, probe: () => ({ state: "absent" }) }), "foreign");
-  // The boolean form keeps collapsing unknown into not-owned, which is the safe
-  // answer for permission to act.
-  assert.equal(serviceProcessOwns(state, { ...base, probe: () => ({ state: "unknown" }) }), false);
-});
-
-// The regression this guards: the stop path used a boolean for the
-// record-clear decision, so an unanswerable probe read as "the tree is gone"
-// and the record was cleared while the tree could still be running -- reporting
-// a completed stop that never happened, which is the failure this whole patch
-// exists to remove.
-test("only an answered not-ours settles the record", () => {
-  assert.equal(serviceRecordSettled({ ownership: "foreign", portListening: false }), true);
-  assert.equal(serviceRecordSettled({ ownership: "foreign", portListening: true }), false);
-  assert.equal(serviceRecordSettled({ ownership: "owned", portListening: false }), false);
-  assert.equal(serviceRecordSettled({ ownership: "owned", portListening: true }), false);
-  assert.equal(serviceRecordSettled({ ownership: "unknown", portListening: false }), false);
-  assert.equal(serviceRecordSettled({ ownership: "unknown", portListening: true }), false);
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), { before: true, after: false });
 });

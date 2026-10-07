@@ -483,6 +483,21 @@ attempt, its `upstream-terminal-failed=true` log line carries any
 provider-reported `input_tokens` and `output_tokens`; the router's usage row for
 that attempt has no token counts.
 
+Z.ai Coding Plan (`zai-coding`) reasoning streams have an independent three-minute
+idle deadline after the prologue is released. GLM can pause between reasoning
+events for more than thirty seconds, so applying the short prelude budget here
+can close a healthy turn before `response.completed`. Set
+`CODEX_ROUTER_ZAI_CODING_STREAM_STALL_MS` to an integer from `1` to `240000`
+milliseconds to override the `180000` default. Pass it when installing the
+service; the macOS, Linux, and Windows renderers persist the normalized value.
+For an existing service, set it in the launchd environment, systemd environment,
+or Windows launcher and reload that service definition; a process restart alone
+does not reload a changed launchd property list.
+Invalid values retain the default. This deadline stays below the shared transport
+and Codex client idle bounds; it adds no heartbeat. Headers-only responses retain
+the initial prelude budget, empty completions retain their guard, and a visible
+stream is never replayed. Grok's separate deadline and other routes are unchanged.
+
 Operators diagnosing an unusually slow upstream can temporarily change the
 30-second bound with `CODEX_ROUTER_EMPTY_COMPLETION_PRELUDE_MS` and the 1 MiB
 parser bound with `CODEX_ROUTER_EMPTY_COMPLETION_PRELUDE_BYTES`. These are
@@ -518,6 +533,39 @@ Temporarily return Codex to its native base URL:
 This removes only the marked block and current service; it preserves the
 selected model, profiles, provider credentials, and ChatGPT login. If native
 models work again, inspect router health and create a support bundle.
+
+## Native GPT turns fail with a 502 naming a connect timeout
+
+`The local router could not complete the request: timed out connecting to
+chatgpt.com` means the router's own TCP connect never completed. The diagnosis
+names the host it could not reach; this is the network path, not the credential
+and not the model.
+
+The connect phase is bounded at 3s (`CODEX_ROUTER_CONNECT_TIMEOUT_MS`, clamped
+0.5–30s) and the retry loop's default budget is derived from that bound
+(`3 x connectTimeout`), so a single blip is absorbed before the caller sees
+anything. A 502 that still reaches the user means every attempt failed inside
+that budget.
+
+Check, in order:
+
+- whether other traffic to the same host works from this machine
+  (`Test-NetConnection chatgpt.com -Port 443`, or `curl -sS -o /dev/null -w
+  '%{time_connect}\n' https://chatgpt.com/`), and whether it fails on one
+  interface but not another: a wired port and a Wi-Fi adapter on the same LAN
+  are two different paths, and a path that fails only on one of them is a
+  cabling/port/NIC problem, not an upstream one;
+- whether the configured DNS server answers at all (`Resolve-DnsName
+  chatgpt.com`);
+- the burst pattern in `~/.codex/codex-router/router.log`
+  (`grep UND_ERR_CONNECT_TIMEOUT` beside the `status=502` timing lines) and
+  whether another machine behind the same gateway shows the same window. The
+  log is the only place the cause is named.
+
+The proxy hint appears whenever the failure looks unreachable and no proxy is
+configured; it is not evidence that one is needed. Raising the budget buys
+attempts, not time on the wire — a path that is unreachable for minutes will
+still surface. Fix the path, and keep the bound small.
 
 ## Another process owns ports 4200–4203
 

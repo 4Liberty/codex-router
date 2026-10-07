@@ -14,6 +14,7 @@ import {
   processStartIdentity,
   processStartIdentityProbe,
 } from "./process-identity.mjs";
+import { startupTimeoutMs } from "./startup-timeout.mjs";
 
 const STATE_VERSION = 1;
 
@@ -29,13 +30,29 @@ function safePid(pid) {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
 }
 
-// Build the record, or say precisely why it could not be built. The reason is
-// part of the contract rather than a debug string: the operator's next move is
-// completely different for "this host cannot run the probe right now" than for
-// "the probe answered and the answer disagreed", and the original failure
-// message said neither -- a cold-host startup failure read as
-// "could not verify its own start.mjs process identity" while the actual cause
-// was twenty-two ACL-helper timeouts in the same log.
+// `bin/start --foreground` and `codex-router.ps1 start --foreground` enter
+// through src/foreground-start.mjs, the explicit unmanaged debugging
+// supervisor. Its command line names foreground-start.mjs, never
+// src/start.mjs, so it could never pass the entrypoint check below -- and it
+// must not try: this record is the Windows service manager's handle on the
+// OS-service payload, a direct src/start.mjs, and only that payload refuses to
+// run without it. The opt-out is an explicit flag rather than a comparison of
+// process.argv[1] with this checkout's start.mjs because the flag fails
+// closed: every other importer still records, where a casing or junction
+// difference in argv would let a managed start silently skip its record.
+let foregroundSupervisor = false;
+
+export function markForegroundSupervisor() {
+  foregroundSupervisor = true;
+}
+
+export function shouldRecordServiceProcess({
+  platform = process.platform,
+  foreground = foregroundSupervisor,
+} = {}) {
+  return platform === "win32" && !foreground;
+}
+
 export function probeServiceProcessState({
   pid = process.pid,
   platform = process.platform,
@@ -47,50 +64,29 @@ export function probeServiceProcessState({
   probeBudget,
 } = {}) {
   const safe = safePid(pid);
-  if (!safe) {
-    return { failure: "pid-invalid", detail: `pid ${String(pid)} is not a usable process id` };
-  }
-
+  if (!safe) return { failure: "pid-invalid" };
   const processIdentity = identity(safe, { platform, budget: probeBudget });
-  if (!processIdentity) {
-    return {
-      failure: "identity-unavailable",
-      detail: "the identity probe did not answer within its budget",
-    };
-  }
-
+  if (!processIdentity) return { failure: "identity-unavailable" };
   const liveCommandLine = commandLine(safe, { platform, budget: probeBudget });
-  if (!liveCommandLine) {
-    return {
-      failure: "command-line-unavailable",
-      detail: "the command-line probe did not answer within its budget",
-    };
-  }
+  if (!liveCommandLine) return { failure: "command-line-unavailable" };
   const entrypoint = entrypointFor(sourceRoot);
-  if (!normalized(liveCommandLine).includes(entrypoint)) {
-    return {
-      failure: "command-line-mismatch",
-      detail: `the live command line does not contain ${entrypoint}`,
-    };
-  }
-
-  return {
-    state: {
-      version: STATE_VERSION,
-      managed: true,
-      pid: safe,
-      processIdentity: String(processIdentity),
-      commandLine: String(liveCommandLine),
-      sourceRoot: path.resolve(sourceRoot),
-      stateDir: path.resolve(stateDir),
-      ports: Object.fromEntries(
-        Object.entries(ports || {})
-          .filter(([, value]) => Number.isSafeInteger(value) && value > 0)
-          .map(([name, value]) => [name, value]),
-      ),
-      startedAt: Date.now(),
-    },
+  if (!normalized(liveCommandLine).includes(entrypoint)) return { failure: "command-line-mismatch" };
+  const state = {
+    version: STATE_VERSION,
+    managed: true,
+    pid: safe,
+    processIdentity: String(processIdentity),
+    commandLine: String(liveCommandLine),
+    sourceRoot: path.resolve(sourceRoot),
+    stateDir: path.resolve(stateDir),
+    ports: Object.fromEntries(
+      Object.entries(ports || {})
+        .filter(([, value]) => Number.isSafeInteger(value) && value > 0)
+        .map(([name, value]) => [name, value]),
+    ),
+    startedAt: Date.now(),
   };
+  return { state };
 }
 
 export function buildServiceProcessState(options = {}) {
@@ -102,15 +98,22 @@ export function writeServiceProcessState(options = {}) {
     ...options,
     // The one call site allowed to wait out a cold powershell.exe: this runs
     // before any child starts, and there is no enclosing deadline to outlive.
-    probeBudget: COLD_START_WINDOWS_PROBE_BUDGET,
+    probeBudget: {
+      ...COLD_START_WINDOWS_PROBE_BUDGET,
+      timeoutMs: startupTimeoutMs(
+        "CODEX_ROUTER_WINDOWS_PROCESS_PROBE_TIMEOUT_MS",
+        COLD_START_WINDOWS_PROBE_BUDGET.timeoutMs,
+      ),
+    },
   });
   if (!probe.state) {
     throw new Error(
-      "The Windows service could not verify its own start.mjs process identity; refusing to run " +
-        `without a stoppable process record (${probe.failure}: ${probe.detail}).`,
+      "The Windows service could not verify its own start.mjs process identity; "
+        + `refusing to run without a stoppable process record (${probe.failure}).`,
     );
   }
-  writePrivateJson(options.statePath || SERVICE_PROCESS_STATE_PATH, probe.state, {
+  const state = probe.state;
+  writePrivateJson(options.statePath || SERVICE_PROCESS_STATE_PATH, state, {
     // This record is the only thing that lets the Windows service manager stop
     // the tree it owns, so losing the write is fatal -- but a PowerShell that
     // cannot start must not be what loses it. It carries a PID, an identity
@@ -126,14 +129,26 @@ export function writeServiceProcessState(options = {}) {
     // whole router over it.
     hardenFailure: "warn",
   });
-  return probe.state;
+  return state;
 }
 
-export function readServiceProcessState(statePath = SERVICE_PROCESS_STATE_PATH) {
+function validServiceProcessRecord(state) {
+  return Boolean(state && state.version === STATE_VERSION && state.managed === true &&
+    safePid(state.pid) && ["processIdentity", "commandLine", "sourceRoot", "stateDir"]
+      .every((key) => typeof state[key] === "string" && state[key].length > 0));
+}
+
+export function readServiceProcessState(statePath = SERVICE_PROCESS_STATE_PATH, { strict = false } = {}) {
   try {
     const state = JSON.parse(readFileSync(statePath, "utf8"));
-    return state?.version === STATE_VERSION && state?.managed === true ? state : undefined;
-  } catch {
+    if (strict && !validServiceProcessRecord(state)) throw new Error("Invalid service process record.");
+    if (state?.version === STATE_VERSION && state?.managed === true) return state;
+    if (strict) throw new Error("Invalid service process record.");
+    return undefined;
+  } catch (error) {
+    if (strict && error?.code !== "ENOENT") {
+      throw new Error("The service process record could not be read or validated.");
+    }
     return undefined;
   }
 }
@@ -146,46 +161,22 @@ export function clearServiceProcessState(statePath = SERVICE_PROCESS_STATE_PATH)
   }
 }
 
-// Whether a stop may clear the record because the tree is accounted for. Only
-// an ANSWERED "not ours" qualifies: "unknown" means the probe could not run, and
-// clearing on that would strand a live tree while reporting the stop complete --
-// the same conflation the ownership tri-state exists to remove, one layer down.
-// Named rather than inlined so the rule is testable; the defect it guards
-// against was an `ownership !== "owned"` reading of the same two facts.
 export function serviceRecordSettled({ ownership, portListening } = {}) {
-  return ownership === "foreign" && !portListening;
+  return ownership === "foreign" && portListening === false;
 }
 
-// True when the recorded state still describes a live process this router
-// started. Everything that stops or signals a managed process goes through
-// this, so a server somebody else is running is never touched.
 export function serviceProcessOwns(state, options = {}) {
   return serviceProcessOwnership(state, options) === "owned";
 }
 
-// The same question with the third answer a caller that is about to signal a
-// process needs: "owned", "foreign", or "unknown" when the probe could not run
-// at all. An ANSWERED "absent" is foreign -- the record is stale, not
-// unidentifiable -- and that distinction comes from the probe, which is the
-// default seam. `identity` is the historical seam, taken only when supplied; it
-// cannot distinguish absent from unanswerable, so a non-answer maps to
-// "unknown" exactly as it did before.
-//
-// The default being the probe is not a detail: when the probe was the opt-in
-// instead, the stop path -- which passes neither seam -- took the collapsing
-// branch, so an absent process read as "unknown", serviceRecordSettled could
-// never be true, and the record was never cleared after a successful stop.
-//
-// serviceProcessOwns collapses unknown into "not owned", which is the safe
-// answer for permission but the wrong one to *report* as a completed stop, and
-// the wrong one to clear the record on: clearing on unknown strands a live tree
-// while reporting the stop complete.
+// Permission to signal and proof of shutdown are different questions. Keep an
+// unavailable OS probe distinct from an answered absent or foreign process.
 export function serviceProcessOwnership(
   state,
   {
     platform = process.platform,
     identity,
-    probe,
+    probe = processStartIdentityProbe,
     commandLine = processCommandLine,
     sourceRoot = SOURCE_ROOT,
     stateDir = STATE_DIR,
@@ -196,20 +187,7 @@ export function serviceProcessOwnership(
   } = {},
 ) {
   const pid = safePid(state?.pid);
-  if (
-    !state ||
-    state.version !== STATE_VERSION ||
-    state.managed !== true ||
-    !pid ||
-    typeof state.processIdentity !== "string" ||
-    !state.processIdentity ||
-    typeof state.commandLine !== "string" ||
-    !state.commandLine ||
-    typeof state.sourceRoot !== "string" ||
-    !state.sourceRoot ||
-    typeof state.stateDir !== "string" ||
-    !state.stateDir
-  ) {
+  if (!validServiceProcessRecord(state)) {
     return "foreign";
   }
   // The record lives in a user-writable state directory. Require both path
@@ -223,17 +201,23 @@ export function serviceProcessOwnership(
   }
   const entrypoint = entrypointFor(state.sourceRoot);
   if (!normalized(state.commandLine).includes(entrypoint)) return "foreign";
-  if (identity) {
-    const live = identity(pid, { platform, budget: probeBudget });
-    if (live === undefined) return "unknown";
-    if (live !== state.processIdentity) return "foreign";
-  } else {
-    const probed = (probe ?? processStartIdentityProbe)(pid, { platform, budget: probeBudget });
-    if (probed.state === "absent") return "foreign";
-    if (probed.state === "unknown") return "unknown";
-    if (probed.identity !== state.processIdentity) return "foreign";
+  try {
+    if (identity) {
+      // Preserve the historical injected identity seam. A non-answer cannot
+      // distinguish absence from an unavailable probe.
+      const live = identity(pid, { platform, budget: probeBudget });
+      if (!live) return "unknown";
+      if (live !== state.processIdentity) return "foreign";
+    } else {
+      const result = probe(pid, { platform, budget: probeBudget });
+      if (result?.state === "absent") return "foreign";
+      if (result?.state !== "alive" || !result.identity) return "unknown";
+      if (result.identity !== state.processIdentity) return "foreign";
+    }
+    const liveCommandLine = commandLine(pid, { platform, budget: probeBudget });
+    if (!liveCommandLine) return "unknown";
+    return normalized(liveCommandLine).includes(entrypoint) ? "owned" : "foreign";
+  } catch {
+    return "unknown";
   }
-  const liveCommandLine = commandLine(pid, { platform, budget: probeBudget });
-  if (liveCommandLine === undefined) return "unknown";
-  return normalized(liveCommandLine).includes(entrypoint) ? "owned" : "foreign";
 }
