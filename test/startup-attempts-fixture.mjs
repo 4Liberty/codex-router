@@ -1,7 +1,22 @@
 import assert from "node:assert/strict";
+import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const staticImport = /^import\s+([\s\S]*?)\s+from\s+["']([^"']+)["'];\s*\n/gm;
+
+// Model the payload's platform independently of the host running the test.
+// State paths and module URLs must share those semantics: a slash-only record
+// can look foreign on a Windows drive before the ownership probe even runs.
+export function startupFixturePaths(platform, directory) {
+  const windows = platform === "win32";
+  return {
+    path: windows ? path.win32 : path.posix,
+    root: windows ? `C:\\${directory}` : `/${directory}`,
+    fileURLToPath: (url) => fileURLToPath(url, { windows }),
+    pathToFileURL: (file) => pathToFileURL(file, { windows }),
+  };
+}
 
 // Match the import-stripping fixtures used by service-stop.test.mjs. Keep each
 // actual module's private scope and inject every imported binding explicitly.

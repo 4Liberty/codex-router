@@ -13,13 +13,25 @@ const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // interpreter failure; allow that scheduling pressure without changing the
 // production probe limits or any exit/message/cache assertion.
 const CHILD_TIMEOUT_MS = 30_000;
+// The fixture has no provider credentials, but Windows child processes still
+// need their runtime environment to start PowerShell and load system modules.
+// Match the public runtime allowlist used by the private-file ACL helper.
+function startupChildRuntimeEnvironment(environment = process.env) {
+  const allowed = new Set([
+    'PATH', 'SystemRoot', 'WINDIR', 'ComSpec', 'PATHEXT', 'TEMP', 'TMP',
+    'PSModulePath', 'SystemDrive', 'ProgramData', 'ProgramFiles',
+    'ProgramFiles(x86)', 'ProgramW6432', 'USERPROFILE',
+  ].map(name => name.toLowerCase()));
+  return Object.fromEntries(Object.entries(environment).filter(([name, value]) =>
+    allowed.has(name.toLowerCase()) && typeof value === 'string'));
+}
 function state(t) {
   const directory=mkdtempSync(path.join(os.tmpdir(), 'startup-contract-'));
   const stateDir=path.join(directory,'state');
   mkdirSync(stateDir,{mode:0o700});
   t.after(()=>rmSync(directory,{recursive:true,force:true}));
   const env={
-    PATH:process.env.PATH,
+    ...startupChildRuntimeEnvironment(),
     TMPDIR:os.tmpdir(),
     CODEX_HOME:path.join(directory,'codex-home'),
     KIMI_CODE_HOME:path.join(directory,'kimi-home'),
@@ -40,6 +52,24 @@ function run(entry,env,timeout=CHILD_TIMEOUT_MS) {
   assert.ifError(result.error);
   return {status:result.status,output:`${result.stdout||''}${result.stderr||''}`};
 }
+
+test('isolated startup children keep Windows runtime variables without inheriting credentials', () => {
+  const environment = startupChildRuntimeEnvironment({
+    PATH: 'fixture-bin', sYsTeMrOoT: 'C:\\Windows', ComSpec: 'fixture-cmd.exe',
+    PSModulePath: 'fixture-modules', PATHEXT: '.EXE;.CMD', TEMP: 'fixture-temp',
+    OPENAI_API_KEY: 'unrelated-provider-secret', CODEX_ROUTER_CALLER_KEY: 'unrelated-caller-secret',
+    MODEL_ROUTER_STATE_DIR: 'unrelated-installed-state',
+  });
+  assert.equal(environment.sYsTeMrOoT, 'C:\\Windows');
+  assert.equal(environment.ComSpec, 'fixture-cmd.exe');
+  assert.equal(environment.PSModulePath, 'fixture-modules');
+  assert.equal(environment.PATHEXT, '.EXE;.CMD');
+  assert.equal(environment.TEMP, 'fixture-temp');
+  assert.equal(environment.PATH, 'fixture-bin');
+  assert.equal(Object.hasOwn(environment, 'OPENAI_API_KEY'), false);
+  assert.equal(Object.hasOwn(environment, 'CODEX_ROUTER_CALLER_KEY'), false);
+  assert.equal(Object.hasOwn(environment, 'MODEL_ROUTER_STATE_DIR'), false);
+});
 
 test('automatic payload still skips an active cooldown before launcher checks',t=>{
   const fixture=state(t);seed(fixture.record);

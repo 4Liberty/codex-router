@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
-import { executeStartupFixture } from "./startup-attempts-fixture.mjs";
+import { executeStartupFixture, startupFixturePaths } from "./startup-attempts-fixture.mjs";
 
 const root = process.env.PR895_REVIEW_SOURCE_DIR
   || path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,18 +21,20 @@ const previousFailure = (active = false) => ({
 // Execute the real startup, foreground entry and persistence modules. Every
 // child, probe and state write is a fixture; none can touch installed services,
 // credentials or providers. Full readiness and the supervisor race still run.
-async function run({ foreground = false, disabled = false, mode = "healthy", seeded = false } = {}) {
+async function run({ foreground = false, disabled = false, mode = "healthy", seeded = false, platform: requestedPlatform = "linux" } = {}) {
   let record = seeded ? previousFailure(foreground || disabled) : undefined;
   const original = record && JSON.stringify(record);
   const events = [], diagnostics = [], children = [];
-  const sourceRoot = "/startup-fixture/checkout", stateDir = "/startup-fixture/state";
-  const statePath = `${stateDir}/startup-attempts.json`;
+  const platform = mode.startsWith("identity-") || mode === "record-acl" ? "win32" : requestedPlatform;
+  const { path: fixturePath, root: fixtureRoot, pathToFileURL } = startupFixturePaths(platform, "startup-fixture");
+  const sourceRoot = fixturePath.join(fixtureRoot, "checkout"), stateDir = fixturePath.join(fixtureRoot, "state");
+  const statePath = fixturePath.join(stateDir, "startup-attempts.json");
   const fakeProcess = Object.assign(new EventEmitter(), {
-    pid: 9999, platform: mode.startsWith("identity-") || mode === "record-acl" ? "win32" : "linux",
-    execPath: "/fixture/node", argv: ["/fixture/node", `${sourceRoot}/src/${foreground ? "foreground-start" : "start"}.mjs`],
+    pid: 9999, platform,
+    execPath: fixturePath.join(fixtureRoot, "node"), argv: [fixturePath.join(fixtureRoot, "node"), fixturePath.join(sourceRoot, "src", `${foreground ? "foreground-start" : "start"}.mjs`)],
     env: {
       MODEL_ROUTER_TARGET: "codex", MODEL_ROUTER_STATE_DIR: stateDir,
-      MODEL_ROUTER_LITELLM_BIN: "/fixture/litellm",
+      MODEL_ROUTER_LITELLM_BIN: fixturePath.join(fixtureRoot, "litellm"),
       ...(disabled ? { CODEX_ROUTER_DISABLE_STARTUP_BACKOFF: "1" } : {}),
     }, exitCode: 0,
     exit: (code) => { throw Object.assign(new Error("unexpected immediate exit"), { exitCode: code }); },
@@ -48,7 +50,7 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
       return "synthetic-service-key-with-sufficient-length\n";
     },
     unlinkSync: (file) => {
-      events.push(`unlink:${path.basename(file)}`);
+      events.push(`unlink:${fixturePath.basename(file)}`);
       if (file === statePath) {
         if (mode === "ready-clear-error") throw Object.assign(new Error("fixture clear denied"), { code: "EACCES" });
         record = undefined;
@@ -64,7 +66,7 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
     setTimeout: () => ({ unref() {} }), clearTimeout: () => {},
   };
   const deps = {
-    "node:fs": fs, "node:path": { default: path },
+    "node:fs": fs, "node:path": { default: fixturePath },
     "node:child_process": { spawn: () => {
       const child = Object.assign(new EventEmitter(), { exitCode: null, signalCode: null });
       child.kill = (signal) => { child.signalCode = signal; child.emit("exit", null, signal); return true; };
@@ -73,10 +75,10 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
       return child;
     } },
     "./paths.mjs": {
-      CALLER_SECRET_PATH: `${stateDir}/caller-secret`, INTERNAL_SECRET_PATH: `${stateDir}/internal-secret`,
-      CURSOR_CATALOG_PATH: `${stateDir}/cursor-catalog.json`, LITELLM_CONFIG_PATH: `${stateDir}/litellm.yaml`,
-      MERGED_CATALOG_PATH: `${stateDir}/catalog.json`, PROVIDER_SELECTION_PATH: `${stateDir}/providers.json`,
-      SERVICE_PROCESS_STATE_PATH: `${stateDir}/service-process.json`, SOURCE_ROOT: sourceRoot, STATE_DIR: stateDir, TARGET: "codex",
+      CALLER_SECRET_PATH: fixturePath.join(stateDir, "caller-secret"), INTERNAL_SECRET_PATH: fixturePath.join(stateDir, "internal-secret"),
+      CURSOR_CATALOG_PATH: fixturePath.join(stateDir, "cursor-catalog.json"), LITELLM_CONFIG_PATH: fixturePath.join(stateDir, "litellm.yaml"),
+      MERGED_CATALOG_PATH: fixturePath.join(stateDir, "catalog.json"), PROVIDER_SELECTION_PATH: fixturePath.join(stateDir, "providers.json"),
+      SERVICE_PROCESS_STATE_PATH: fixturePath.join(stateDir, "service-process.json"), SOURCE_ROOT: sourceRoot, STATE_DIR: stateDir, TARGET: "codex",
       PORTS: { gateway: 4201, router: 4200, oauth: 4202, api: 4203, grokOauth: 4204, antigravityOauth: 4205, devinCli: 4206, cursorPublic: 4214 },
       loopback: (port, suffix = "") => `http://127.0.0.1:${port}${suffix}`,
     },
@@ -124,7 +126,7 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
       COLD_START_WINDOWS_PROBE_BUDGET: { timeoutMs: 45_000, attempts: 2 },
       processStartIdentity: () => mode === "identity-unavailable" ? undefined : "fixture|node",
       processCommandLine: () => mode === "identity-command-unavailable" ? undefined
-        : mode === "identity-mismatch" ? "node /foreign-checkout/start.mjs" : `node ${sourceRoot}/src/start.mjs`,
+        : mode === "identity-mismatch" ? "node /foreign-checkout/start.mjs" : `node ${fixturePath.join(sourceRoot, "src", "start.mjs")}`,
       processStartIdentityProbe: () => ({ state: "alive", identity: "fixture|node" }),
     },
     "./native-catalog-drift.mjs": { watchNativeCatalog: () => {}, republishOnNativeDrift: async () => {} },
@@ -140,7 +142,7 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
   async function load(name) {
     if (modules.has(name)) return modules.get(name);
     const evaluated = executeStartupFixture(source(name), {
-      globals, dependency, url: `file:///startup-fixture/${name}`,
+      globals, dependency, url: pathToFileURL(fixturePath.join(sourceRoot, "src", name)).href,
     });
     modules.set(name, evaluated);
     return evaluated;
@@ -149,11 +151,11 @@ async function run({ foreground = false, disabled = false, mode = "healthy", see
   return { record, original, diagnostics, events, exitCode: fakeProcess.exitCode, childrenStopped: children.every((child) => child.signalCode !== null || child.exitCode !== null) };
 }
 
-async function checks() {
+async function checks(platform) {
   const results = [];
   async function check(name, options, oracle) {
     let result, failure;
-    try { result = await run(options); oracle(result); }
+    try { result = await run({ platform, ...options }); oracle(result); }
     catch (error) { failure = error.stack; }
     results.push({ name, passed: !failure, failure, result });
   }
@@ -197,15 +199,22 @@ async function checks() {
   await check("a healthy service survives an optional cache clear error", { mode: "ready-clear-error", seeded: true }, (result) => {
     ready(result); assert.equal(result.exitCode, 0); assert.equal(JSON.stringify(result.record), result.original); assert.equal(result.events.includes("record-failure"), false);
   });
-  return { cases: results.length, passed: results.filter((result) => result.passed).length, results };
+  return { platform, cases: results.length, passed: results.filter((result) => result.passed).length, results };
 }
 
 if (process.env.CODEX_ROUTER_STARTUP_LIFECYCLE_TEST_CHILD === "1") {
-  console.log(JSON.stringify(await checks()));
+  const reports = await Promise.all(["linux", "win32"].map(checks));
+  console.log(JSON.stringify({
+    cases: reports.reduce((count, report) => count + report.cases, 0),
+    passed: reports.reduce((count, report) => count + report.passed, 0),
+    results: reports.flatMap((report) => report.results.map((result) => ({ platform: report.platform, ...result }))),
+  }));
 } else {
-  test("startup cooldown follows full readiness, foreground and shutdown boundaries", async () => {
-    const report = await checks();
-    assert.equal(report.cases, 16);
-    assert.equal(report.passed, report.cases, JSON.stringify(report.results.filter((result) => !result.passed), null, 2));
-  });
+  for (const platform of ["linux", "win32"]) {
+    test(`${platform} startup cooldown follows full readiness, foreground and shutdown boundaries`, async () => {
+      const report = await checks(platform);
+      assert.equal(report.cases, 16);
+      assert.equal(report.passed, report.cases, JSON.stringify(report.results.filter((result) => !result.passed), null, 2));
+    });
+  }
 }

@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { executeStartupFixture } from './startup-attempts-fixture.mjs';
+import { executeStartupFixture, startupFixturePaths } from './startup-attempts-fixture.mjs';
 
 // Execute unchanged ESM sources with every filesystem/manager/probe replaced.
 // Only this host harness reads repository text and writes the requested report.
@@ -18,10 +18,11 @@ async function run(platform, command, mode = 'success', { wrapper = false } = {}
   const events = [], output = [], diagnostics = [];
   let clock = at, record = freshRecord(), stopStarted = false, oldStopped = false, killed = false, processRecordPresent = true;
   let registered = true, restartQueries = 0;
-  const stateDir = '/independent/state', sourceRoot = '/independent/checkout';
-  const processRecord = { version: 1, managed: true, pid: 4242, processIdentity: 'fixture|node', commandLine: `node ${sourceRoot}/src/start.mjs`, sourceRoot, stateDir, ports: { router: 4200 } };
+  const { path: fixturePath, root: fixtureRoot, fileURLToPath: fixtureFileURLToPath, pathToFileURL } = startupFixturePaths(platform, 'independent');
+  const stateDir = fixturePath.join(fixtureRoot, 'state'), sourceRoot = fixturePath.join(fixtureRoot, 'checkout');
+  const processRecord = { version: 1, managed: true, pid: 4242, processIdentity: 'fixture|node', commandLine: `node ${fixturePath.join(sourceRoot, "src", "start.mjs")}`, sourceRoot, stateDir, ports: { router: 4200 } };
   const fakeProcess = {
-    pid: 9999, platform, argv: ['/fixture/node', '/fixture/entry.mjs', command], execPath: '/fixture/node',
+    pid: 9999, platform, argv: [fixturePath.join(fixtureRoot, 'node'), fixturePath.join(fixtureRoot, 'entry.mjs'), command], execPath: fixturePath.join(fixtureRoot, 'node'),
     env: { CODEX_ROUTER_SERVICE_PLATFORM: platform, MODEL_ROUTER_STATE_DIR: stateDir,
       ...(mode.endsWith('-disabled') ? { CODEX_ROUTER_DISABLE_STARTUP_BACKOFF: '1' } : {}),
     }, exitCode: 0,
@@ -110,8 +111,8 @@ async function run(platform, command, mode = 'success', { wrapper = false } = {}
   const identityProbe = () => mode === 'ownership-unknown' ? { state: 'unknown' } : killed ? { state: 'absent' } : { state: 'alive', identity: processRecord.processIdentity };
   const modules = new Map();
   const deps = {
-    'node:fs': fs, 'node:path': { default: path }, 'node:os': { default: { homedir: () => '/independent/home' } },
-    'node:url': { fileURLToPath },
+    'node:fs': fs, 'node:path': { default: fixturePath }, 'node:os': { default: { homedir: () => fixturePath.join(fixtureRoot, 'home') } },
+    'node:url': { fileURLToPath: fixtureFileURLToPath },
     'node:child_process': { execFileSync, spawnSync: (_executable, args) => {
       if (args[1] === 'restart-count') {
         events.push({ kind: 'restart-query' });
@@ -119,7 +120,7 @@ async function run(platform, command, mode = 'success', { wrapper = false } = {}
       }
       events.push({ kind: 'platform-spawn' }); return { status: 0 };
     } },
-    './paths.mjs': { CODEX_HOME: '/independent/codex', LOG_PATH: '/independent/log', PORTS: { router: 4200 }, SOURCE_ROOT: sourceRoot, STATE_DIR: stateDir, TARGET: 'codex', TARGET_DISPLAY_NAME: 'Codex Router', SERVICE_LABEL: 'io.github.codex-router', LAUNCH_AGENT_PATH: '/independent/router.plist', SERVICE_PROCESS_STATE_PATH: `${stateDir}/service-process.json` },
+    './paths.mjs': { CODEX_HOME: fixturePath.join(fixtureRoot, 'codex'), LOG_PATH: fixturePath.join(fixtureRoot, 'log'), PORTS: { router: 4200 }, SOURCE_ROOT: sourceRoot, STATE_DIR: stateDir, TARGET: 'codex', TARGET_DISPLAY_NAME: 'Codex Router', SERVICE_LABEL: 'io.github.codex-router', LAUNCH_AGENT_PATH: fixturePath.join(fixtureRoot, 'router.plist'), SERVICE_PROCESS_STATE_PATH: fixturePath.join(stateDir, 'service-process.json') },
     './file-security.mjs': { ensureCheckoutReadable: () => {}, protectPrivateFile: () => {}, writePrivateJson: (file, value) => { if (String(file).endsWith('startup-attempts.json')) record = value; } },
     './log-rotation.mjs': { rotateLog: () => {} },
     './provider-api-key-service-environment.mjs': { providerApiKeyServiceEnvironment: noopEnvironment },
@@ -145,7 +146,7 @@ async function run(platform, command, mode = 'success', { wrapper = false } = {}
   async function load(name) {
     if (modules.has(name)) return modules.get(name);
     const evaluated = executeStartupFixture(sources[name], {
-      globals, url: `file:///independent/${name}`,
+      globals, url: pathToFileURL(fixturePath.join(sourceRoot, 'src', name)).href,
       dependency: async specifier => {
         if (['./startup-attempts.mjs', './service-process.mjs'].includes(specifier)
           || (specifier === './service-readiness.mjs' && mode.startsWith('clear-error-deferred'))) return load(path.basename(specifier));
