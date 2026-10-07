@@ -3455,6 +3455,7 @@ async function handleRoutedCompaction(
       status: result.status,
       bodyText,
       modelName: servedRoute.displayName || servedRoute.slug,
+      providerId: servedRoute.provider,
       providerName:
         provider?.transport === "ollama"
           ? "Ollama"
@@ -5079,6 +5080,7 @@ async function handleResponses(request, response, requestUrl) {
         // second `.text()` on the same response yields "".
         bodyText: failedBodyText ?? "",
         modelName: route.displayName || route.slug,
+        providerId: route.provider,
         providerName:
           provider?.transport === "ollama"
             ? "Ollama"
