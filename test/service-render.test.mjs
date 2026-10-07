@@ -542,7 +542,7 @@ test("Windows explicit stop disables heartbeat while start and restart re-enable
   assert.match(source, /function setTaskEnabled\(enabled\)/);
   assert.match(
     source,
-    /command === "stop"\) \{[\s\S]*?setTaskEnabled\(false\);[\s\S]*?endTask\(\);/,
+    /command === "stop"\) \{[\s\S]*?setTaskEnabled\(false\);[\s\S]*?endTask\(\{ taskDisabled: registered \}\);/,
   );
   assert.match(
     source,
@@ -684,16 +684,18 @@ test(
       const stateDir = windowsStateDir(testRoot);
       const wrapperPath = path.join(stateDir, "start-codex-router.cmd");
       const launcherPath = path.join(stateDir, "start-codex-router-hidden.vbs");
+      const stubs = schedulerStubs(path.join(testRoot, "absent"), {
+        schtasksFail: "/Create /Query", powershellFail: "Register-ScheduledTask", registrationState: "absent",
+      });
       const run = (command) =>
-        JSON.parse(serviceCommand("service-windows.mjs", "win32", testRoot, command));
+        JSON.parse(serviceCommand("service-windows.mjs", "win32", testRoot, command, "codex", root, { PATH: stubs.path }));
 
-      // schtasks.exe and powershell.exe are absent off Windows. The launchers
-      // are still generated, but the service is not truthfully reported as
-      // installed when no Task Scheduler definition exists.
+      // A successful enumeration proves the task absent and registration is
+      // blocked. The launchers are generated without claiming an installed task.
       const first = run("install");
       assert.equal(first.installed, false);
-      // The launchers really were written even though no Task Scheduler
-      // answered. The report says so outright instead of leaving `path` to
+      // The launchers really were written despite blocked registration. The
+      // report says so outright instead of leaving `path` to
       // imply it (issue #760).
       assert.equal(first.launchers, true);
       assert.equal(existsSync(wrapperPath), true);
@@ -737,6 +739,7 @@ function schedulerStubs(directory, options = {}) {
     runningQueries = 0,
     authoritativeState = "0|0|0",
     authoritativeFail = false,
+    registrationState = "present",
   } = options;
   mkdirSync(directory, { recursive: true });
   const logPath = path.join(directory, "calls.log");
@@ -763,6 +766,9 @@ function schedulerStubs(directory, options = {}) {
       authoritativeFail
         ? "    exit 1"
         : `    printf '%s' ${JSON.stringify(authoritativeState)}`,
+      "    ;;",
+      "  *'Get-ScheduledTask -ErrorAction Stop'*)",
+      `    printf '%s' ${JSON.stringify(registrationState)}`,
       "    ;;",
       "  *Get-ScheduledTask*)",
       "    count=0",
@@ -867,6 +873,7 @@ test(
           // is exactly what schtasks.exe does for a name it cannot find.
           const stubs = schedulerStubs(path.join(testRoot, "scheduler"), {
             schtasksFail: "/Query",
+            registrationState: "absent",
           });
           const result = runWindowsService(testRoot, command, { PATH: stubs.path });
 
@@ -1065,8 +1072,9 @@ test(
       // The surviving definition is queried before it is started: /Run against
       // a name that failed to register recovers nothing and reports its own
       // error over the one that actually matters.
+      const recoveryQuery = calls.findIndex((line, index) => index > at("/Create") && line.includes("/Query"));
       assert.ok(
-        at("/Create") < at("/Query") && at("/Query") < at("/Run"),
+        at("/Create") < recoveryQuery && recoveryQuery < at("/ENABLE") && at("/ENABLE") < at("/Run"),
         `the recovery must query before it runs:\n${calls.join("\n")}`,
       );
       assert.equal(calls.filter((line) => line.includes("/Run")).length, 1);
@@ -1085,6 +1093,7 @@ test(
       const stubs = schedulerStubs(path.join(testRoot, "gone"), {
         schtasksFail: "/Create /Query",
         powershellFail: "Register-ScheduledTask",
+        registrationState: "absent",
       });
       const result = runWindowsService(testRoot, "install", { PATH: stubs.path });
       // Still best effort: the launchers are written and the caller retries,
@@ -1230,10 +1239,12 @@ test(
   () => {
     const testRoot = mkdtempSync(path.join(os.tmpdir(), "codex-router-win-stop-"));
     try {
-      // No stubs on PATH, so schtasks.exe is missing exactly as it is when the
-      // task does not exist. stop used to throw that straight at the caller
-      // while uninstall and restart tolerated it.
-      const result = runWindowsService(testRoot, "stop");
+      // Failed schtasks queries do not establish absence. A successful empty
+      // enumeration proves there is no heartbeat to disable.
+      const stubs = schedulerStubs(path.join(testRoot, "absent"), {
+        schtasksFail: "/Query", registrationState: "absent",
+      });
+      const result = runWindowsService(testRoot, "stop", { PATH: stubs.path });
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { state: "stopped" });
     } finally {
