@@ -44,6 +44,7 @@ import {
   MAX_BODY_BYTES,
   httpErrorStatus,
   installGracefulShutdown,
+  markResponsesStream,
   pipeResponse,
   readResponseBody,
   readRequestBody,
@@ -81,6 +82,7 @@ import {
 } from "./grok-tool-facade.mjs";
 import { applyGrokFileToolsOverlay } from "./instruction-overlays.mjs";
 import { ResponsesHeartbeatTransform } from "./responses-heartbeat.mjs";
+import { responsesStreamFailureTransform } from "./responses-stream-failure.mjs";
 import { messagePhaseTransform } from "./message-phase.mjs";
 import { translatedToolMessageCompatTransform } from "./deepseek-tool-message-compat.mjs";
 import {
@@ -1485,14 +1487,10 @@ function writeEmptyCompletionError(response, code, message) {
   });
 }
 
-// Codex treats a streamed Responses `error` event as terminal, but can keep a
-// Grok OAuth turn open while its HTTP client retries a bare gateway 5xx. The
-// local Grok gateway has already exhausted its bounded retries by the time this
-// branch runs, so a second retry loop in the client only turns a stated outage
-// into a stale Working badge. Preserve every other provider's existing HTTP
-// contract, plus ordinary JSON errors for non-streaming Grok calls and its
-// actionable 4xx responses; only the observed terminal Grok shape crosses the
-// Responses SSE boundary this way.
+// State a terminal Grok gateway outage on its existing streaming surface.
+// The gateway has already exhausted its bounded retries; client stream retries
+// still follow that client's policy. Preserve every other provider's HTTP
+// contract, plus JSON errors for non-streaming Grok calls and actionable 4xx.
 function writeTranslatedGatewayError(
   response,
   status,
@@ -4361,6 +4359,7 @@ function writeIdleNoProviderError(response) {
 }
 
 async function handleResponses(request, response, requestUrl) {
+  markResponsesStream(response);
   const startedAt = Date.now();
   const controller = new AbortController();
   const activity = beginRequestActivity({ request, response, controller });
@@ -4432,6 +4431,7 @@ async function handleResponses(request, response, requestUrl) {
     }
     controller.signal.throwIfAborted();
     requestedModel = typeof payload.model === "string" ? payload.model : "";
+    markResponsesStream(response, { model: requestedModel });
     let registeredRoute =
       MODEL_BY_SLUG.get(requestedModel) ??
       MODEL_BY_SLUG.get(readNativeAliases()[requestedModel]);
@@ -5285,14 +5285,18 @@ async function handleResponses(request, response, requestUrl) {
       // always wins. Native streams already carry the label and gain no stage.
       const messagePhase = route ? messagePhaseTransform(contentType) : undefined;
       if (messagePhase) transforms.push(messagePhase);
-      // Last, so no router stage ever parses a heartbeat: while a Grok stream is
-      // silent, keep the client's idle timer from abandoning a live turn.
+      // After the content rewrites, so they never consume a heartbeat: while
+      // Grok is silent, keep the client's idle timer from abandoning a live turn.
       if (
         isGrokOauthRoute(route) &&
         String(contentType).toLowerCase().includes("text/event-stream")
       ) {
         transforms.push(new ResponsesHeartbeatTransform({ intervalMs: GROK_HEARTBEAT_MS }));
       }
+      // Observe the exact egress after every rewrite, hold, and heartbeat. A
+      // discarded attempt never announces its identity to this observer.
+      const failureMetadata = responsesStreamFailureTransform(response, contentType);
+      if (failureMetadata) transforms.push(failureMetadata);
       return { transforms, usageObserver, guard, leakedToolCalls };
     };
     // The guard's pre-content budget scales with this request's size: a large
