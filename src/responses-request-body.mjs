@@ -1,3 +1,4 @@
+import { constants as bufferConstants } from "node:buffer";
 import { once } from "node:events";
 import { PassThrough, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -5,124 +6,178 @@ import { createBrotliDecompress, createGunzip, createInflate, createZstdDecompre
 import { parser } from "stream-json/parser.js";
 import Assembler from "stream-json/assembler.js";
 import { MAX_BODY_BYTES, zstdFrameContentSize } from "./http-utils.mjs";
-import { boundImagePayload, imagePartBytes, isImageHistoryAction, IMAGE_PAYLOAD_BUDGET_BYTES } from "./prompt-image-budget.mjs";
+import {
+  boundImagePayload, boundedJsonByteLength, imagePartBytes, isImageHistoryAction,
+  IMAGE_PAYLOAD_BUDGET_BYTES, JsonStringSize, MAX_REQUEST_JSON_DEPTH,
+} from "./prompt-image-budget.mjs";
 
-// Incoming history can be much larger than the retained prompt. Keep its wire
-// and decoded sizes bounded, but never buffer all of its old image data.
+// History has a finite streaming allowance; retained JSON keeps the ordinary
+// request limit. Explicit transport limits can be smaller than this allowance.
 export const MAX_IMAGE_HISTORY_BYTES = 2 * 1024 * 1024 * 1024;
+const PARSER_CHUNK_BYTES = 64 * 1024;
 
 function failure(status, message) {
   return Object.assign(new Error(message), { status });
 }
 
-function decodingStages(header) {
+function positiveLimit(value, fallback) {
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function byteLimit(maxBytes, onChunk) {
+  let bytes = 0;
+  return new Transform({
+    transform(chunk, _, callback) {
+      bytes += chunk.length;
+      onChunk?.(bytes);
+      if (bytes > maxBytes) callback(failure(413, `Decoded image history exceeds ${maxBytes} bytes.`));
+      else callback(null, chunk);
+    },
+  });
+}
+
+function decodingStages(header, maxBytes) {
   const encodings = String(Array.isArray(header) ? header.join(",") : header || "")
     .split(",").map((value) => value.trim().toLowerCase())
     .filter((value) => value && value !== "identity").reverse();
-  return encodings.map((encoding) => {
-    if (encoding === "gzip" || encoding === "x-gzip") return createGunzip();
-    if (encoding === "deflate") return createInflate();
-    if (encoding === "br") return createBrotliDecompress();
-    if (encoding === "zstd") {
+  return encodings.flatMap((encoding) => {
+    let decoder;
+    if (encoding === "gzip" || encoding === "x-gzip") decoder = createGunzip();
+    else if (encoding === "deflate") decoder = createInflate();
+    else if (encoding === "br") decoder = createBrotliDecompress();
+    else if (encoding === "zstd") {
       let prefix = Buffer.alloc(0);
       const checkFrame = new Transform({
         transform(chunk, _, callback) {
           if (prefix.length < 18) {
             prefix = Buffer.concat([prefix, chunk.subarray(0, 18 - prefix.length)]);
             const declared = zstdFrameContentSize(prefix);
-            if (declared !== undefined && declared > MAX_IMAGE_HISTORY_BYTES) {
-              callback(failure(413, "Decoded image history is too large."));
+            if (declared !== undefined && declared > maxBytes) {
+              callback(failure(413, `Decoded image history exceeds ${maxBytes} bytes.`));
               return;
             }
           }
           callback(null, chunk);
         },
       });
-      return [checkFrame, createZstdDecompress()];
-    }
-    throw failure(415, `Unsupported Content-Encoding: ${encoding}`);
-  }).flat();
+      return [checkFrame, createZstdDecompress(), byteLimit(maxBytes)];
+    } else throw failure(415, `Unsupported Content-Encoding: ${encoding}`);
+    // An intermediate compressed member may be much larger than the final
+    // JSON. Cap every stage before handing its bytes to the next decoder.
+    return [decoder, byteLimit(maxBytes)];
+  });
 }
 
 export async function readResponsesRequest(request, {
   signal, maxBytes = MAX_BODY_BYTES, maxHistoryBytes = MAX_IMAGE_HISTORY_BYTES,
+  maxWireBytes = maxHistoryBytes,
 } = {}) {
   if (signal?.aborted) {
     request.destroy?.();
     signal.throwIfAborted();
   }
-  maxBytes = Number.isFinite(maxBytes) && maxBytes > 0 ? Math.floor(maxBytes) : 128 * 1024 * 1024;
-  maxHistoryBytes = Number.isFinite(maxHistoryBytes) && maxHistoryBytes > 0 ? Math.floor(maxHistoryBytes) : MAX_IMAGE_HISTORY_BYTES;
+  maxBytes = Math.min(positiveLimit(maxBytes, 128 * 1024 * 1024), bufferConstants.MAX_STRING_LENGTH);
+  maxHistoryBytes = positiveLimit(maxHistoryBytes, MAX_IMAGE_HISTORY_BYTES);
+  maxWireBytes = positiveLimit(maxWireBytes, maxHistoryBytes);
   let decoders;
-  try { decoders = decodingStages(request.headers?.["content-encoding"]); }
+  try { decoders = decodingStages(request.headers?.["content-encoding"], maxHistoryBytes); }
   catch (cause) { request.resume?.(); throw cause; }
   const source = new PassThrough();
   const assembler = new Assembler();
-  let error, wireBytes = 0, decodedBytes = 0, retainedBytes = 0, stringBytes = 0;
+  let error, wireBytes = 0, decodedBytes = 0, retainedBytes = 0;
+  let scalar, scalarValue = "", scalarSize, scalarBytes = 0;
+  const containers = [];
   let imagesDropped = 0, imageBytesSaved = 0;
-  let imageItems = [], latestAction, actionBoundary = 0, imageBytesHeld = 0;
-  const decodedLimit = new Transform({
-    transform(chunk, _, callback) {
-      decodedBytes += chunk.length;
-      callback(decodedBytes > maxHistoryBytes
-        ? failure(413, `Decoded image history exceeds ${maxHistoryBytes} bytes.`) : null, chunk);
-    },
-  });
+  let imageItems = [], actionBoundary = 0, imageBytesHeld = 0;
+  function rejectAssembly(status, message) {
+    // Node 22 can replace an async pipeline sink's rejection with AbortError
+    // during teardown. Keep the original limit status before that happens.
+    error ??= failure(status, message);
+    throw error;
+  }
+  function startValue() {
+    const parent = containers.at(-1);
+    if (parent?.array && parent.members++) retainedBytes++;
+  }
+  function trimCompletedImages() {
+    if (!actionBoundary || (imageBytesHeld <= IMAGE_PAYLOAD_BUDGET_BYTES && retainedBytes <= maxBytes)) return;
+    const history = [...imageItems.slice(0, actionBoundary), { type: "reasoning" }, ...imageItems.slice(actionBoundary)];
+    const bounded = boundImagePayload(history, {
+      protectPending: true, maxTokens: Infinity, maxBodyBytes: maxBytes, bodyBytes: retainedBytes,
+    });
+    const retained = [];
+    let newBoundary = 0;
+    for (let index = 0; index < imageItems.length; index++) {
+      const rewritten = bounded.input[index < actionBoundary ? index : index + 1];
+      if (rewritten !== imageItems[index]) Object.assign(imageItems[index], rewritten);
+      const value = imageItems[index];
+      if ([value.content, value.output].some((parts) => Array.isArray(parts) &&
+        parts.some((part) => imagePartBytes(part) !== undefined))) {
+        retained.push(value);
+        if (index < actionBoundary) newBoundary++;
+      }
+    }
+    imageItems = retained;
+    actionBoundary = newBoundary;
+    imageBytesHeld = bounded.stats.imageBytesAfter;
+    retainedBytes = bounded.stats.bodyBytesAfter;
+    imagesDropped += bounded.stats.imageReferencesDropped;
+    imageBytesSaved += bounded.stats.imageBytesSaved;
+  }
   const processing = pipeline(source, ...decoders,
-    decodedLimit, parser.asStream({ streamStrings: true, streamKeys: true, streamNumbers: true }), async (tokens) => {
+    byteLimit(maxHistoryBytes, (bytes) => { decodedBytes = bytes; }),
+    parser.asStream({ packValues: false, streamValues: true }), async (tokens) => {
       for await (const token of tokens) {
-        if (["startString", "startKey", "startNumber"].includes(token.name)) stringBytes = 0;
-        if (token.name === "stringChunk" || token.name === "numberChunk") {
-          stringBytes += Buffer.byteLength(token.value);
-          if (stringBytes > maxBytes) throw failure(413, "A request string exceeds the retained body limit.");
+        if (token.name === "startKey" || token.name === "startString" || token.name === "startNumber") {
+          scalar = token.name;
+          scalarValue = "";
+          scalarSize = new JsonStringSize();
+          scalarBytes = scalar === "startNumber" ? 0 : 2;
+          if (scalar === "startKey") {
+            if (containers.at(-1).members++) retainedBytes++;
+            retainedBytes += 1; // colon
+          } else startValue();
+          retainedBytes += scalarBytes;
+        } else if (token.name === "stringChunk" || token.name === "numberChunk") {
+          const before = scalarBytes;
+          scalarBytes = scalar === "startNumber" ? scalarBytes + token.value.length : scalarSize.add(token.value);
+          retainedBytes += scalarBytes - before;
+          if (scalarBytes > maxBytes + (scalarSize.highSurrogate ? 2 : 0)) {
+            rejectAssembly(413, "A request string exceeds the retained body limit.");
+          }
+          scalarValue += token.value;
+        } else if (token.name === "endKey" || token.name === "endString" || token.name === "endNumber") {
+          if (scalarBytes > maxBytes) rejectAssembly(413, "A request string exceeds the retained body limit.");
+          if (token.name === "endNumber") retainedBytes += boundedJsonByteLength(Number(scalarValue)) - scalarBytes;
+          assembler.consume({
+            name: token.name === "endKey" ? "keyValue" : token.name === "endString" ? "stringValue" : "numberValue",
+            value: scalarValue,
+          });
+          scalarValue = "";
+        } else {
+          if (token.name === "startObject" || token.name === "startArray") {
+            if (containers.length >= MAX_REQUEST_JSON_DEPTH) rejectAssembly(400, "Request JSON is nested too deeply.");
+            startValue();
+            retainedBytes += 2; // opening and closing delimiters
+            containers.push({ array: token.name === "startArray", members: 0 });
+          } else if (token.name === "endObject" || token.name === "endArray") containers.pop();
+          else {
+            startValue();
+            retainedBytes += token.name === "falseValue" ? 5 : 4;
+          }
+          assembler.consume(token);
         }
-        if (["stringValue", "keyValue", "numberValue"].includes(token.name)) {
-          retainedBytes += Buffer.byteLength(token.value) + 4;
-        } else if (["startObject", "startArray", "trueValue", "falseValue", "nullValue"].includes(token.name)) {
-          retainedBytes += 16;
-        }
-        assembler.consume(token);
-        // A completed item in the top-level input array. Only image-bearing
-        // items and the latest model action need scanning; text history stays.
-        if (token.name === "endObject" && assembler.depth === 2 && assembler.path[0] === "input") {
+        if (token.name === "endObject" && assembler.depth === 2 && assembler.path[0] === "input" && Array.isArray(assembler.current)) {
           const item = assembler.current.at(-1);
-          const isAction = isImageHistoryAction(item);
+          if (isImageHistoryAction(item)) actionBoundary = imageItems.length;
           const bytes = [item.content, item.output].flatMap((parts) => Array.isArray(parts) ? parts : [])
             .reduce((sum, part) => sum + (imagePartBytes(part) ?? 0), 0);
-          const hasImages = bytes > 0;
-          if (isAction || hasImages) {
-            if (isAction) { latestAction = { type: "reasoning" }; actionBoundary = imageItems.length; }
-            if (hasImages) { imageItems.push(item); imageBytesHeld += bytes; }
-            // Only measured inline data needs retention work. No scan is
-            // necessary until the byte budget is exceeded by consumed images.
-            if (!actionBoundary || imageBytesHeld <= IMAGE_PAYLOAD_BUDGET_BYTES) continue;
-            const history = [...imageItems.slice(0, actionBoundary), latestAction, ...imageItems.slice(actionBoundary)];
-            const bounded = boundImagePayload(history, { protectPending: true, maxTokens: Infinity });
-            const retained = [];
-            let newBoundary = 0;
-            for (let index = 0; index < imageItems.length; index += 1) {
-              const rewritten = bounded.input[index < actionBoundary ? index : index + 1];
-              if (rewritten !== imageItems[index]) Object.assign(imageItems[index], rewritten);
-              const value = imageItems[index];
-              if ([value.content, value.output].some((parts) => Array.isArray(parts) &&
-                parts.some((part) => imagePartBytes(part) !== undefined))) {
-                retained.push(value);
-                if (index < actionBoundary) newBoundary++;
-              }
-            }
-            imageItems = retained;
-            actionBoundary = newBoundary;
-            imageBytesHeld = bounded.stats.imageBytesAfter;
-            const saved = bounded.stats.imageBytesSaved;
-            retainedBytes -= Math.floor(saved * 4 / 3);
-            imagesDropped += bounded.stats.imageReferencesDropped;
-            imageBytesSaved += saved;
-          }
+          if (bytes > 0) { imageItems.push(item); imageBytesHeld += bytes; }
+          trimCompletedImages();
         }
-        // A pending image group needs one-item lookahead to distinguish old
-        // evidence from the current batch. Final retained size stays maxBytes.
-        // ponytail: transient assembly is capped at twice the retained limit.
-        if (retainedBytes > 2 * maxBytes) throw failure(413, "Pending request body is too large.");
+        // One bounded group can wait for the following model action. The
+        // canonical UTF-8 size includes escapes, keys and envelope overhead.
+        if (retainedBytes > 2 * maxBytes + (scalarSize?.highSurrogate ? 2 : 0)) rejectAssembly(413, "Pending request body is too large.");
       }
     }, { signal }).catch((cause) => {
       error ??= cause.status ? cause : failure(400, "Invalid or compressed JSON request.");
@@ -130,17 +185,25 @@ export async function readResponsesRequest(request, {
   const abort = () => request.destroy?.(signal.reason);
   signal?.addEventListener("abort", abort, { once: true });
   try {
+    const declared = Number(request.headers?.["content-length"]);
+    if (Number.isFinite(declared) && declared > maxWireBytes) {
+      error = failure(413, `Image history exceeds ${maxWireBytes} wire bytes.`);
+      source.destroy(error);
+    }
     for await (const chunk of request) {
       wireBytes += chunk.length;
-      if (wireBytes > maxHistoryBytes) {
-        error ??= failure(413, `Image history exceeds ${maxHistoryBytes} bytes.`);
+      if (wireBytes > maxWireBytes && !error) {
+        error = failure(413, `Image history exceeds ${maxWireBytes} wire bytes.`);
         source.destroy(error);
       }
-      // Drain rejected requests without retaining their tail, so the response
-      // remains writable and rejected bytes cannot become another request.
+      // Drain rejected tails without retention to preserve HTTP framing and
+      // the writable response. No rejected byte can become the next request.
       if (error) continue;
-      try { if (!source.write(chunk)) await once(source, "drain"); }
-      catch (cause) { error ??= cause.status ? cause : failure(400, "Invalid JSON request."); }
+      try {
+        for (let offset = 0; offset < chunk.length && !error; offset += PARSER_CHUNK_BYTES) {
+          if (!source.write(chunk.subarray(offset, offset + PARSER_CHUNK_BYTES))) await once(source, "drain");
+        }
+      } catch (cause) { error ??= cause.status ? cause : failure(400, "Invalid JSON request."); }
     }
     source.end();
     await processing;
@@ -150,10 +213,17 @@ export async function readResponsesRequest(request, {
     if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
       throw failure(400, "Request JSON must be an object.");
     }
-    const retainedBodyBytes = Buffer.byteLength(JSON.stringify(payload));
-    if (retainedBodyBytes > maxBytes) {
-      throw failure(413, `Retained request body exceeds ${maxBytes} bytes.`);
-    }
+    // Late envelope fields can consume the remaining allowance. Trim with
+    // their exact serialized size before any whole-body serialization occurs.
+    const bounded = boundImagePayload(payload.input, {
+      protectPending: true, maxTokens: Infinity,
+      maxBodyBytes: maxBytes, bodyBytes: boundedJsonByteLength(payload),
+    });
+    if (bounded.input !== payload.input) payload.input = bounded.input;
+    imagesDropped += bounded.stats.imageReferencesDropped;
+    imageBytesSaved += bounded.stats.imageBytesSaved;
+    const retainedBodyBytes = boundedJsonByteLength(payload, maxBytes);
+    if (retainedBodyBytes > maxBytes) throw failure(413, `Retained request body exceeds ${maxBytes} bytes.`);
     return { payload, stats: { wireBytes, decodedBytes, retainedBodyBytes, imagesDropped, imageBytesSaved } };
   } finally {
     source.destroy();

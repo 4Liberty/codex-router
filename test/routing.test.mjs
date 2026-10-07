@@ -1500,6 +1500,61 @@ test("router permits a compressed context larger than the encoded request limit"
   }
 });
 
+test("Responses ingress preserves explicit wire and staged decoded limits", async () => {
+  const seen = [];
+  const native = await mockServer(async (request, response) => {
+    seen.push(await bodyJson(request));
+    json(response, 200, { id: "within-limits", output: [] });
+  });
+  const routerPort = await openPort();
+  const router = run("router.mjs", {
+    CODEX_ROUTER_PORT: String(routerPort),
+    CODEX_NATIVE_BASE_URL: `http://127.0.0.1:${native.port}`,
+    MODEL_ROUTER_MAX_BODY_BYTES: "256",
+    MODEL_ROUTER_MAX_DECODED_BODY_BYTES: "4096",
+    CODEX_ROUTER_QUIET: "1",
+  });
+  function sendChunked(body, encoding) {
+    return new Promise((resolve, reject) => {
+      const request = http.request(`${routerBase(routerPort)}/responses`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...(encoding ? { "Content-Encoding": encoding } : {}) },
+      }, (response) => {
+        response.resume();
+        response.on("end", () => resolve(response.statusCode));
+      });
+      request.on("error", reject);
+      for (let offset = 0; offset < body.length; offset += 32) request.write(body.subarray(offset, offset + 32));
+      request.end();
+    });
+  }
+  try {
+    await waitFor(`${routerBase(routerPort)}/models`, router);
+    const uncompressed = Buffer.from(JSON.stringify({ model: "native-limit-test", input: "x".repeat(300) }));
+    assert.equal(await sendChunked(uncompressed), 413);
+    const incompressible = gzipSync(Buffer.from(JSON.stringify({
+      model: "native-limit-test", input: Array.from({ length: 120 }, (_, index) => `${index}: abc`).join("|"),
+    })));
+    assert.ok(incompressible.length > 256);
+    assert.equal(await sendChunked(incompressible, "gzip"), 413);
+    const accepted = gzipSync(Buffer.from(JSON.stringify({ model: "native-limit-test", input: "x".repeat(1_000) })));
+    assert.ok(accepted.length < 256);
+    assert.equal(await sendChunked(accepted, "gzip"), 200);
+    assert.equal(seen.length, 1);
+    const small = gzipSync(Buffer.from('{"model":"native-limit-test","input":"small"}'));
+    const header = Buffer.from(small.subarray(0, 10));
+    header[3] |= 0x10;
+    const intermediate = Buffer.concat([header, Buffer.alloc(65_536, 65), Buffer.from([0]), small.subarray(10)]);
+    const bomb = gzipSync(intermediate);
+    assert.ok(bomb.length < 256);
+    assert.equal(await sendChunked(bomb, "gzip, gzip"), 413);
+    assert.equal(seen.length, 1, "every rejection must happen before an upstream request");
+    assert.equal((await fetch(`${routerBase(routerPort)}/models`)).status, 200);
+  } finally {
+    await stopChild(router);
+    await closeServer(native.server);
+  }
+});
+
 test("router hands the native backend a compressed body instead of inflated JSON", async () => {
   const seen = [];
   const native = await mockServer(async (request, response) => {
