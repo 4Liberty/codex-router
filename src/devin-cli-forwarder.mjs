@@ -19,7 +19,6 @@ import { devinCliStatus } from "./devin-cli-status.mjs";
 import { readDevinSession } from "./devin-cli-session.mjs";
 import { connectServerStream, connectUnary } from "./devin-connect.mjs";
 import { isKnownConnectCode } from "./connect-stream-audit.mjs";
-import { upstreamFailureKind } from "./error-translation.mjs";
 import {
   GET_CLI_MODEL_CONFIGS,
   GET_CLI_MODEL_CONFIGS_REQUEST,
@@ -55,6 +54,23 @@ function safeErrorCode(error) {
   return isKnownConnectCode(connectCode) ? `devin_${connectCode.toLowerCase()}` : null;
 }
 
+function permissionDeniedBillingKind(detail) {
+  // These are the two wrappers authored by devin-connect.mjs. Strip one only;
+  // quoted/suffix prompt or tool text must never become a billing diagnosis.
+  const prefix = [
+    "Devin upstream refused the request: ",
+    "Devin upstream ended the stream: ",
+  ].find((value) => detail.startsWith(value));
+  const offset = prefix?.length || 0;
+  const diagnostic = detail.slice(offset, offset + 256).trimStart();
+  // This provider has no verified structured billing subcode. Recognize only
+  // the bounded initial account-limit sentences the fixture actually proves;
+  // every ambiguous permission refusal retains permission_error.
+  if (/^Your quota is exhausted\.(?:\s|$)/i.test(diagnostic)) return "out_of_usage";
+  if (/^Your plan does not include this API\.(?:\s|$)/i.test(diagnostic)) return "entitlement";
+  return undefined;
+}
+
 function requestFailure(error) {
   const status = httpErrorStatus(error, 502);
   const code = safeErrorCode(error);
@@ -74,9 +90,9 @@ function requestFailure(error) {
     } else if (/\bcontent[\s_-]+policy\b/i.test(detail)) {
       message = `${prefix} the upstream reported a content policy refusal.`;
     } else {
-      // Preserve billing advice for a real account limit, but never classify
-      // quota/context wording quoted inside an MCP or content-policy refusal.
-      const kind = upstreamFailureKind({ status, bodyText: JSON.stringify({ error: { message: detail } }) });
+      // Preserve a proved initial account-limit diagnosis. Arbitrary prose
+      // can echo a denied prompt, and its quota wording must not cause failover.
+      const kind = permissionDeniedBillingKind(detail);
       if (kind === "entitlement") {
         message = "This Devin plan does not include this API.";
         type = "billing_error";

@@ -10,6 +10,7 @@ import { fileURLToPath } from "node:url";
 import { END_STREAM_FLAG, encodeEnvelope } from "../src/connect-stream-audit.mjs";
 import { GET_CHAT_MESSAGE_RESPONSE } from "../src/devin-proto.mjs";
 import { gatewayErrorStatus, translateGatewayError, upstreamFailureKind } from "../src/error-translation.mjs";
+import { classifyRoutedFailure } from "../src/model-failover.mjs";
 import { encodeMessage } from "../src/protobuf-wire.mjs";
 import { openPort } from "./port-pool.mjs";
 
@@ -169,16 +170,44 @@ test("Devin forwarder diagnoses failures without exposing upstream private text"
     }
   });
 
+  await t.test("ambiguous permission refusals cannot trigger failover from quoted billing text", async () => {
+    for (const message of [
+      'Access denied because this tool is not permitted. Tool description: "quota exhausted."',
+      'Request violates our acceptable use policy. User prompt: "your quota is exhausted."',
+      'Access denied by team configuration. Tool description: "your plan does not include this API."',
+      '"Your quota is exhausted." is text from the denied prompt.',
+      'Permission denied. ' + 'x'.repeat(2_000) + ' Your quota is exhausted.',
+    ]) {
+      const error = { code: "permission_denied", message: `${message} ${echoedPrivateText}` };
+      for (const terminator of [false, true]) {
+        const result = await request(terminator
+          ? { frames: [encodeEnvelope(Buffer.from(JSON.stringify({ error })), { flags: END_STREAM_FLAG })] }
+          : { status: 403, ...error }, { stream: terminator });
+        assert.equal(result.status, 403);
+        assert.equal(JSON.parse(result.bodyText).error.type, "permission_error");
+        assert.equal(translated(result.bodyText).type, "permission_error");
+        assert.equal(upstreamFailureKind(result), undefined);
+        assert.deepEqual(classifyRoutedFailure(result), { swap: false });
+        assert.doesNotMatch(result.bodyText, /billing_error|quota is exhausted|plan does not include/);
+      }
+    }
+  });
+
   await t.test("billing and entitlement denials still give billing advice", async () => {
     for (const [message, kind] of [
       ["Your quota is exhausted.", "out_of_usage"],
       ["Your plan does not include this API.", "entitlement"],
     ]) {
-      const result = await request({ status: 403, code: "permission_denied", message: `${message} ${echoedPrivateText}` });
-      assert.equal(JSON.parse(result.bodyText).error.type, "billing_error");
-      assert.equal(upstreamFailureKind(result), kind);
-      assert.equal(translated(result.bodyText).type, "billing_error");
-      assert.doesNotMatch(translated(result.bodyText).message, /Sign in|auth login/);
+      const error = { code: "permission_denied", message: `${message} ${echoedPrivateText}` };
+      for (const terminator of [false, true]) {
+        const result = await request(terminator
+          ? { frames: [encodeEnvelope(Buffer.from(JSON.stringify({ error })), { flags: END_STREAM_FLAG })] }
+          : { status: 403, ...error }, { stream: terminator });
+        assert.equal(JSON.parse(result.bodyText).error.type, "billing_error");
+        assert.equal(upstreamFailureKind(result), kind);
+        assert.equal(translated(result.bodyText).type, "billing_error");
+        assert.doesNotMatch(translated(result.bodyText).message, /Sign in|auth login/);
+      }
     }
   });
 
