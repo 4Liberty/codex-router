@@ -23,8 +23,10 @@ import {
 } from "./service-process.mjs";
 import { ensureCheckoutReadable, protectPrivateFile } from "./file-security.mjs";
 import { providerApiKeyServiceEnvironment } from "./provider-api-key-service-environment.mjs";
+import { serviceZaiCodingStreamEnvironment } from "./zai-stream-timeouts.mjs";
 import { serviceProxyEnvironment } from "./proxy-environment.mjs";
 import { serviceGrokPatchHookEnvironment } from "./grok-patch-hook-settings.mjs";
+import { serviceStartupTimeoutEnvironment } from "./startup-timeout.mjs";
 import {
   skipServiceManagerCall,
   assertServiceWriteIsolated,
@@ -87,6 +89,8 @@ function wrapper() {
     ...serviceProxyEnvironment(),
     ...serviceGrokPatchHookEnvironment(),
     ...providerApiKeyServiceEnvironment(),
+    ...serviceZaiCodingStreamEnvironment(),
+    ...serviceStartupTimeoutEnvironment(),
     // The LiteLLM gateway is a Python process. Force UTF-8 output so its
     // startup banner and logs do not crash on Windows systems whose default
     // ANSI/OEM code page is not UTF-8 (e.g. Russian cp1251), where Python

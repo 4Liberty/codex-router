@@ -13,6 +13,7 @@ import {
   processCommandLine,
   processStartIdentity,
 } from "./process-identity.mjs";
+import { startupTimeoutMs } from "./startup-timeout.mjs";
 
 const STATE_VERSION = 1;
 
@@ -26,6 +27,29 @@ function entrypointFor(sourceRoot) {
 
 function safePid(pid) {
   return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
+}
+
+// `bin/start --foreground` and `codex-router.ps1 start --foreground` enter
+// through src/foreground-start.mjs, the explicit unmanaged debugging
+// supervisor. Its command line names foreground-start.mjs, never
+// src/start.mjs, so it could never pass the entrypoint check below -- and it
+// must not try: this record is the Windows service manager's handle on the
+// OS-service payload, a direct src/start.mjs, and only that payload refuses to
+// run without it. The opt-out is an explicit flag rather than a comparison of
+// process.argv[1] with this checkout's start.mjs because the flag fails
+// closed: every other importer still records, where a casing or junction
+// difference in argv would let a managed start silently skip its record.
+let foregroundSupervisor = false;
+
+export function markForegroundSupervisor() {
+  foregroundSupervisor = true;
+}
+
+export function shouldRecordServiceProcess({
+  platform = process.platform,
+  foreground = foregroundSupervisor,
+} = {}) {
+  return platform === "win32" && !foreground;
 }
 
 export function buildServiceProcessState({
@@ -67,7 +91,13 @@ export function writeServiceProcessState(options = {}) {
     ...options,
     // The one call site allowed to wait out a cold powershell.exe: this runs
     // before any child starts, and there is no enclosing deadline to outlive.
-    probeBudget: COLD_START_WINDOWS_PROBE_BUDGET,
+    probeBudget: {
+      ...COLD_START_WINDOWS_PROBE_BUDGET,
+      timeoutMs: startupTimeoutMs(
+        "CODEX_ROUTER_WINDOWS_PROCESS_PROBE_TIMEOUT_MS",
+        COLD_START_WINDOWS_PROBE_BUDGET.timeoutMs,
+      ),
+    },
   });
   if (!state) {
     throw new Error(

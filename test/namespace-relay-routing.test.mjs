@@ -1973,6 +1973,82 @@ test("Responses-native routed providers inherit the model on fresh local thread 
   });
 });
 
+test("Azure routed spawns leave the model default to Codex while explicit overrides survive", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "azure-spawn-default-"));
+  const providersFile = path.join(directory, "generic-providers.json");
+  const userModelsFile = path.join(directory, "user-models.json");
+  const model = "azure-kmamc/gpt-6-sol";
+  writeFileSync(providersFile, JSON.stringify({
+    version: 1,
+    providers: [{
+      id: "azure-kmamc",
+      displayName: "Azure test",
+      baseUrl: "http://127.0.0.1:1/v1",
+      adapter: "openai-responses",
+      headers: {},
+      allowPrivate: true,
+      enabled: true,
+    }],
+  }));
+  writeFileSync(userModelsFile, JSON.stringify({
+    version: 1,
+    models: [{
+      slug: model,
+      gatewayModel: "azure-test-sol",
+      compHash: "azure-test-sol-user-v1",
+      upstreamModel: "gpt-6-sol",
+      provider: "azure-kmamc",
+      listed: true,
+      displayName: "Azure test Sol",
+      description: "Local collaboration fixture.",
+      priority: 100,
+      defaultEffort: "high",
+      reasoningLevels: [{ effort: "high", description: "Deep reasoning" }],
+      contextWindow: 131072,
+      autoCompact: 110000,
+      inputModalities: ["text"],
+    }],
+  }));
+  try {
+    const result = await scenario(false, {
+      model,
+      routerEnv: {
+        MODEL_ROUTER_STATE_DIR: directory,
+        MODEL_ROUTER_GENERIC_PROVIDERS: providersFile,
+        MODEL_ROUTER_USER_MODELS: userModelsFile,
+        CODEX_HOME: path.join(directory, "codex-home"),
+      },
+      requestPayload: (stream, selectedModel) => ({
+        model: selectedModel,
+        stream,
+        input: [{ type: "message", role: "user", content: "Delegate." }],
+        tools: [
+          { type: "namespace", name: "collaboration", tools: [{ type: "function", name: "spawn_agent" }] },
+          { type: "namespace", name: "codex_app", tools: [{ type: "function", name: "create_thread" }] },
+        ],
+      }),
+      jsonBody: () => ({
+        id: "resp_azure_spawn",
+        output: [
+          { type: "function_call", namespace: "collaboration", name: "spawn_agent",
+            call_id: "default", arguments: '{"message":"Default child."}' },
+          { type: "function_call", namespace: "collaboration", name: "spawn_agent",
+            call_id: "explicit", arguments: '{"message":"Explicit child.","model":"azure-kmamc/gpt-6-luna"}' },
+          { type: "function_call", namespace: "codex_app", name: "create_thread",
+            call_id: "local", arguments: '{"prompt":"Local thread.","target":{"type":"projectless"}}' },
+        ],
+      }),
+    });
+    assert.equal(result.gatewayBodies[0].model, "azure-test-sol");
+    const calls = JSON.parse(result.clientBody).output;
+    assert.deepEqual(JSON.parse(calls[0].arguments), { message: "Default child." });
+    assert.equal(JSON.parse(calls[1].arguments).model, "azure-kmamc/gpt-6-luna");
+    assert.equal(JSON.parse(calls[2].arguments).model, model);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 const GO_NAMESPACE = "mcp__codex_apps__github";
 const GO_LONG_TOOL = "list_repository_pull_request_review_comments_for_branch";
 const GO_DISCOVERED_NAMESPACE = "mcp__calendar_connector_with_a_long_namespace";
