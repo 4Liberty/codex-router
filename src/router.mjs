@@ -41,6 +41,7 @@ import {
   formatErrorChain,
   HOP_BY_HOP_HEADERS,
   MAX_BUFFERED_RESPONSE_BYTES,
+  MAX_BODY_BYTES,
   httpErrorStatus,
   installGracefulShutdown,
   pipeResponse,
@@ -92,6 +93,7 @@ import {
   MERGED_CATALOG_PATH,
   NATIVE_CATALOG_PATH,
   PORTS,
+  TARGET,
   loopback,
 } from "./paths.mjs";
 import {
@@ -258,6 +260,7 @@ import { readHiddenModels } from "./model-picker-state.mjs";
 import { readVisionBridgeSettings } from "./vision-bridge-state.mjs";
 import { installedNativeVisionEngines } from "./vision-engines.mjs";
 import { ageToolResults } from "./tool-result-aging.mjs";
+import { MAX_IMAGE_HISTORY_BYTES, readResponsesRequest } from "./responses-request-body.mjs";
 import {
   IMAGE_REJECTION_MAX_RETRIES,
   boundImagePayload,
@@ -450,6 +453,15 @@ const MAX_DECODED_BODY_BYTES =
   Number.isFinite(configuredDecodedBodyBytes) && configuredDecodedBodyBytes > 0
     ? Math.floor(configuredDecodedBodyBytes)
     : 256 * 1024 * 1024;
+// The streaming history allowance is for the default visual-session path.
+// Explicit wire/decoded caps retain their meaning at ingress and every decoder.
+const explicitBodyLimit = process.env.MODEL_ROUTER_MAX_BODY_BYTES ||
+  (TARGET === "codex" && (process.env.CODEX_ROUTER_MAX_BODY_BYTES || process.env.KIMI_PROXY_MAX_BODY_BYTES));
+const INCOMING_HISTORY_WIRE_BYTES = explicitBodyLimit
+  ? positiveByteLimit(MAX_BODY_BYTES, 128 * 1024 * 1024) : MAX_IMAGE_HISTORY_BYTES;
+const INCOMING_HISTORY_DECODED_BYTES =
+  process.env.MODEL_ROUTER_MAX_DECODED_BODY_BYTES || process.env.CODEX_ROUTER_MAX_DECODED_BODY_BYTES
+    ? MAX_DECODED_BODY_BYTES : MAX_IMAGE_HISTORY_BYTES;
 const configuredActiveRequests = Number(
   process.env.MODEL_ROUTER_MAX_ACTIVE_REQUESTS ||
     process.env.CODEX_ROUTER_MAX_ACTIVE_REQUESTS ||
@@ -4089,6 +4101,7 @@ function prepareProviderInput(
   });
   const bounded = boundImagePayload(aged.input, {
     ...imageLimits,
+    protectPending: true,
     tokensPerImage: maxImageTokensForRoute(route),
   });
   return {
@@ -4404,9 +4417,18 @@ async function handleResponses(request, response, requestUrl) {
   try {
     if (!requireCodexTransport(request, response)) return;
     const exactRouteProbe = exactRouteProbeRequested(request.headers);
-    const encoded = await readRequestBody(request, { signal: controller.signal });
-    const body = await decodeBody(encoded, request.headers["content-encoding"]);
-    let payload = await parseBodyAsync(body);
+    const contentEncoding = String(request.headers["content-encoding"] || "");
+    const compressed = contentEncoding.split(",").some((value) => value.trim() && value.trim().toLowerCase() !== "identity");
+    const received = await readResponsesRequest(request, {
+      signal: controller.signal,
+      maxBytes: compressed ? MAX_DECODED_BODY_BYTES : MAX_BODY_BYTES,
+      maxWireBytes: INCOMING_HISTORY_WIRE_BYTES,
+      maxHistoryBytes: INCOMING_HISTORY_DECODED_BYTES,
+    });
+    let payload = received.payload;
+    if (received.stats.imagesDropped > 0) {
+      console.error(`[codex-router] bounded incoming image history dropped=${received.stats.imagesDropped} image-bytes-saved=${received.stats.imageBytesSaved} decoded-bytes=${received.stats.decodedBytes}`);
+    }
     controller.signal.throwIfAborted();
     requestedModel = typeof payload.model === "string" ? payload.model : "";
     let registeredRoute =
@@ -5277,7 +5299,7 @@ async function handleResponses(request, response, requestUrl) {
     // on a ~577k-token turn).
     const requestPreludeMs = preludeBudgetMs({
       baseMs: EMPTY_COMPLETION_PRELUDE_MS,
-      requestBytes: typeof body?.length === "number" ? body.length : 0,
+      requestBytes: received.stats.retainedBodyBytes,
     });
     const firstPipeline = createResponsePipeline(upstreamContentType, requestPreludeMs);
     usageTransform = firstPipeline.usageObserver;
