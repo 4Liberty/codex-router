@@ -1555,6 +1555,7 @@ function normalizeBody(buffer, contentType, route) {
   const endpoint = endpointForModel(model);
   return {
     body: Buffer.from(JSON.stringify(payload), "utf8"),
+    route,
     model,
     provider,
     endpoint,
@@ -1624,6 +1625,34 @@ async function relayUpstreamResponse(
   telemetryUpstream = upstream,
 ) {
   const upstreamContentType = upstream.headers.get("content-type") || "";
+  if (
+    normalized.provider.id === "clinepass" &&
+    normalized.route === "/chat/completions" &&
+    upstream.ok && upstream.body &&
+    upstreamContentType.toLowerCase().includes("application/json")
+  ) {
+    // Cline's non-streaming API wraps successful completions in success/data.
+    // LiteLLM needs choices at the root. Buffer under the shared upstream limit
+    // before committing any bytes, and leave errors or unknown shapes intact.
+    let body = await readResponseBody(upstream);
+    try {
+      const envelope = JSON.parse(body.toString("utf8"));
+      if (
+        envelope?.success === true &&
+        envelope.data && typeof envelope.data === "object" &&
+        !Array.isArray(envelope.data) && Array.isArray(envelope.data.choices)
+      ) {
+        body = Buffer.from(JSON.stringify(envelope.data), "utf8");
+      }
+    } catch {
+      // Malformed JSON belongs to the upstream; relay the original bytes.
+    }
+    upstream = new Response(body, {
+      status: upstream.status,
+      statusText: upstream.statusText,
+      headers: upstream.headers,
+    });
+  }
   const responsesStream = normalized.responseAdapter === "responses" &&
     upstream.ok && upstreamContentType.toLowerCase().includes("text/event-stream");
   const responsesJson = normalized.responseAdapter === "responses" &&
